@@ -2,11 +2,13 @@ APP_NAME := jira-tui
 MAIN_PKG := ./cmd/jira-tui
 TMP_BUILD := /private/tmp/$(APP_NAME)-check
 GOCACHE := /private/tmp/$(APP_NAME)-go-build-cache
+GOFLAGS := -buildvcs=false
 BIN_DIR := bin
 BIN := $(BIN_DIR)/$(APP_NAME)
 export GOCACHE
+export GOFLAGS
 
-.PHONY: help fmt test build build-local run tidy check clean docs-list
+.PHONY: help fmt test build build-local run tidy check clean docs-list docs-status docs-check milestone-complete release
 
 help:
 	@printf "Targets:\n"
@@ -19,6 +21,10 @@ help:
 	@printf "  make check        Format, tidy, test, and verify build\n"
 	@printf "  make clean        Remove generated binaries\n"
 	@printf "  make docs-list    List project docs\n"
+	@printf "  make docs-status  Show roadmap milestone status\n"
+	@printf "  make docs-check   Verify required docs exist\n"
+	@printf "  make milestone-complete M=M0  Mark a roadmap milestone complete\n"
+	@printf "  make release VERSION=0.1.0   Move Unreleased changelog entries to a release\n"
 
 fmt:
 	gofmt -w cmd internal
@@ -46,3 +52,24 @@ clean:
 
 docs-list:
 	find docs -maxdepth 3 -type f | sort
+
+docs-status:
+	sh scripts/docs/status.sh
+
+docs-check:
+	test -f docs/README.md
+	test -f docs/roadmap.md
+	test -f docs/planning.md
+	test -f docs/backlog.md
+	test -f docs/project-state.md
+	test -f docs/releases/CHANGELOG.md
+	test -f docs/working-agreement.md
+	test -d docs/decisions
+
+milestone-complete:
+	test -n "$(M)"
+	sh scripts/docs/milestone-complete.sh "$(M)"
+
+release:
+	test -n "$(VERSION)"
+	sh scripts/docs/release.sh "$(VERSION)"

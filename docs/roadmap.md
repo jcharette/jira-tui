@@ -92,7 +92,7 @@ Caching depends on:
 
 ### M0: Foundation
 
-Status: mostly complete.
+Status: complete (2026-06-06).
 
 - Go + Bubble Tea app shell.
 - Jira search through `go-atlassian`.
@@ -103,6 +103,8 @@ Status: mostly complete.
 - Makefile and project docs.
 
 ### M1: Useful Daily Issue Browser
+
+Status: active.
 
 Goal: use Jira TUI instead of opening Jira for assigned issue review.
 
@@ -115,6 +117,8 @@ Goal: use Jira TUI instead of opening Jira for assigned issue review.
 
 ### M2: Communication
 
+Status: planned.
+
 Goal: handle the common "read context and respond" workflow.
 
 - Issue comments view.
@@ -124,6 +128,8 @@ Goal: handle the common "read context and respond" workflow.
 - Background refresh keeps existing detail/comment data visible on failure.
 
 ### M3: Workflow Actions
+
+Status: planned.
 
 Goal: move tickets through normal work states without Jira web.
 
@@ -135,6 +141,8 @@ Goal: move tickets through normal work states without Jira web.
 
 ### M4: Configuration And Saved Workspaces
 
+Status: planned.
+
 Goal: stop relying on exported env vars for daily use.
 
 - Config file under `~/.config/jira-tui/config.toml` unless a better library/path choice emerges.
@@ -144,6 +152,8 @@ Goal: stop relying on exported env vars for daily use.
 - `auth check` command or equivalent startup diagnostics.
 
 ### M5: Planning Views
+
+Status: planned.
 
 Goal: support team planning and sprint navigation.
 
@@ -155,6 +165,8 @@ Goal: support team planning and sprint navigation.
 
 ### M6: Creation And Editing
 
+Status: planned.
+
 Goal: create and reshape Jira work from the terminal.
 
 - Create issue.
@@ -165,6 +177,8 @@ Goal: create and reshape Jira work from the terminal.
 - Move issue between sprint/backlog if API support is clean.
 
 ### M7: Power User Workflows
+
+Status: planned.
 
 Goal: make repeated Jira work fast.
 
@@ -200,4 +214,3 @@ Goal: make repeated Jira work fast.
 5. Add config file and saved queries.
    - Check maintained config libraries before implementation.
    - Keep typed config struct and explicit merge precedence.
-

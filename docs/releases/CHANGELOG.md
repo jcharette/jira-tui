@@ -4,6 +4,8 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Added Makefile docs workflow targets for milestone status, milestone completion, release creation, and docs checks.
+- Marked M0 Foundation complete in the roadmap.
 - Added a dependency-aware product roadmap with milestones for issue details, comments, workflow actions, config, planning views, creation/editing, and power-user workflows.
 - Adopted `ants/v2` as the execution engine under the internal worker dispatcher.
 - Added a library-first planning rule for non-core infrastructure.

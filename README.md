@@ -57,6 +57,14 @@ make build-local
 make check
 ```
 
+Docs workflow:
+
+```bash
+make docs-status
+make milestone-complete M=M1
+make release VERSION=0.1.0
+```
+
 ## Project Memory
 
 Planning, backlog, release notes, and decisions live in [docs/README.md](docs/README.md).
