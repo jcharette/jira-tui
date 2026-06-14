@@ -514,6 +514,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.moveSelectedHierarchyIssue(-1)
 					return m, nil
 				}
+				if m.canMoveHierarchySelection() {
+					m.moveSelectedHierarchyIssue(-1)
+					return m, nil
+				}
 				m.scrollDetail(-1)
 				return m, nil
 			}
@@ -530,6 +534,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				if m.hierarchyFocus {
+					m.moveSelectedHierarchyIssue(1)
+					return m, nil
+				}
+				if m.canMoveHierarchySelection() {
 					m.moveSelectedHierarchyIssue(1)
 					return m, nil
 				}
@@ -2430,6 +2438,17 @@ func (m *Model) moveSelectedHierarchyIssue(delta int) {
 		return
 	}
 	m.selectedHierarchy = clamp(m.selectedHierarchy+delta, 0, len(children)-1)
+}
+
+func (m Model) canMoveHierarchySelection() bool {
+	if m.mode != modeDetail {
+		return false
+	}
+	section, ok := m.focusedDetailSection()
+	if !ok || section.ID != "hierarchy" {
+		return false
+	}
+	return len(m.currentHierarchyChildren()) > 0
 }
 
 func (m Model) currentHierarchyChildren() []jira.Issue {

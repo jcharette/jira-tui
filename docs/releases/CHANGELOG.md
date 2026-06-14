@@ -121,6 +121,8 @@ All notable changes to this project should be recorded here.
   Issues areas so parent and subtask relationships scan more clearly.
 - Fixed the Hierarchy section so the selected child row remains visibly marked before activation
   and root issues still show a Path block for the current issue.
+- Fixed Hierarchy tab navigation so `j`/`k` and arrow keys move the visible child selection instead
+  of scrolling the surrounding detail panel.
 - Added hierarchy focus inside ticket detail: activating the Hierarchy tab lets users select child
   issues with `j`/`k` and open the selected child with `enter`, using a dedicated key context that
   can later map cleanly to real panes.

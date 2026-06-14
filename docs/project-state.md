@@ -217,8 +217,9 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
 - The Links section uses a Lip Gloss table, and Comments render as numbered, repeated left-ruled
   blocks with inset bodies so long detail views have clearer visual hierarchy. The Hierarchy section
   always renders a Path block for either the current issue or known parent context, separates
-  visible child issues from subtasks, keeps the selected row marked before activation, and reserves
-  a linked-issues placeholder until Jira linked issue data is loaded through a real API path. Detail
+  visible child issues from subtasks, keeps the selected row marked before activation, routes
+  `j`/`k` and arrow keys to that selected row while the Hierarchy tab is selected, and reserves a
+  linked-issues placeholder until Jira linked issue data is loaded through a real API path. Detail
   tables share one renderer so future pane/table styling stays centralized.
 - Focused ticket detail does not append a permanent hierarchy/URL footer under every section;
   hierarchy data lives in the Hierarchy section and issue URL workflows live in actions/key bindings.

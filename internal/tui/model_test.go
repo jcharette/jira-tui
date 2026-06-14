@@ -1154,6 +1154,39 @@ func TestHierarchySectionShowsCursorBeforeActivation(t *testing.T) {
 	}
 }
 
+func TestHierarchySectionMovesCursorBeforeActivation(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 120
+	model.height = 40
+	model.detailFocus = 1
+	model.hierarchyFocus = false
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Parent story", IssueType: "Story"},
+		{Key: "ABC-2", Summary: "First child", IssueType: "Task", ParentKey: "ABC-1"},
+		{Key: "ABC-3", Summary: "Second child", IssueType: "Task", ParentKey: "ABC-1"},
+	}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {Issue: jira.Issue{Key: "ABC-1", Summary: "Parent story", IssueType: "Story"}},
+	}
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "down", Code: tea.KeyDown}))
+	next := updated.(Model)
+
+	if next.selectedHierarchy != 1 {
+		t.Fatalf("selectedHierarchy = %d", next.selectedHierarchy)
+	}
+	if next.detailOffset != 0 {
+		t.Fatalf("detailOffset = %d", next.detailOffset)
+	}
+	view := next.render()
+	if !strings.Contains(view, "> ABC-3") {
+		t.Fatalf("expected second child selected in %q", view)
+	}
+}
+
 func TestHierarchyEnterOpensSelectedGroupedSubtask(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()
