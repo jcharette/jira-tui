@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -24,10 +25,21 @@ var (
 
 type Kind string
 
-const KindSearchIssues Kind = "search_issues"
+const (
+	KindSearchIssues Kind = "search_issues"
+	KindGetIssue     Kind = "get_issue"
+	KindGetComments  Kind = "get_comments"
+	KindAddComment   Kind = "add_comment"
+	KindSearchUsers  Kind = "search_users"
+	KindExpandIssues Kind = "expand_issues"
+)
 
-type IssueSearcher interface {
+type JiraClient interface {
 	SearchIssues(ctx context.Context, jql string, maxResults int) ([]jira.Issue, error)
+	GetIssue(ctx context.Context, key string) (jira.IssueDetail, error)
+	GetComments(ctx context.Context, key string, maxResults int) ([]jira.Comment, error)
+	AddComment(ctx context.Context, key string, body string, mentions []jira.Mention) (jira.Comment, error)
+	SearchUsers(ctx context.Context, query string, maxResults int) ([]jira.User, error)
 }
 
 type Request struct {
@@ -36,10 +48,48 @@ type Request struct {
 	Timeout time.Duration
 
 	SearchIssues *SearchIssuesRequest
+	GetIssue     *GetIssueRequest
+	GetComments  *GetCommentsRequest
+	AddComment   *AddCommentRequest
+	SearchUsers  *SearchUsersRequest
+	ExpandIssues *ExpandIssuesRequest
 }
 
 type SearchIssuesRequest struct {
 	JQL        string
+	MaxResults int
+}
+
+type GetIssueRequest struct {
+	Key string
+}
+
+type GetCommentsRequest struct {
+	Key        string
+	MaxResults int
+}
+
+type AddCommentRequest struct {
+	Key      string
+	Body     string
+	Mentions []jira.Mention
+}
+
+type SearchUsersRequest struct {
+	Query      string
+	MaxResults int
+}
+
+type ExpandMode string
+
+const (
+	ExpandModeOpen ExpandMode = "open"
+	ExpandModeAll  ExpandMode = "all"
+)
+
+type ExpandIssuesRequest struct {
+	ParentKey  string
+	Mode       ExpandMode
 	MaxResults int
 }
 
@@ -49,6 +99,11 @@ type Result struct {
 	Err  error
 
 	SearchIssues *SearchIssuesResult
+	GetIssue     *GetIssueResult
+	GetComments  *GetCommentsResult
+	AddComment   *AddCommentResult
+	SearchUsers  *SearchUsersResult
+	ExpandIssues *ExpandIssuesResult
 }
 
 type SearchIssuesResult struct {
@@ -56,10 +111,41 @@ type SearchIssuesResult struct {
 	SyncedAt time.Time
 }
 
+type GetIssueResult struct {
+	Key      string
+	Detail   jira.IssueDetail
+	SyncedAt time.Time
+}
+
+type GetCommentsResult struct {
+	Key      string
+	Comments []jira.Comment
+	SyncedAt time.Time
+}
+
+type AddCommentResult struct {
+	Key      string
+	Comment  jira.Comment
+	SyncedAt time.Time
+}
+
+type SearchUsersResult struct {
+	Query    string
+	Users    []jira.User
+	SyncedAt time.Time
+}
+
+type ExpandIssuesResult struct {
+	ParentKey string
+	Mode      ExpandMode
+	Issues    []jira.Issue
+	SyncedAt  time.Time
+}
+
 type Option func(*Pool)
 
 type Pool struct {
-	client IssueSearcher
+	client JiraClient
 
 	workerCount int
 	queueSize   int
@@ -75,7 +161,7 @@ type Pool struct {
 	closed    bool
 }
 
-func NewPool(client IssueSearcher, options ...Option) *Pool {
+func NewPool(client JiraClient, options ...Option) *Pool {
 	pool := &Pool{
 		client:      client,
 		workerCount: defaultWorkerCount,
@@ -200,8 +286,206 @@ func (p *Pool) handle(request Request) Result {
 	switch request.Kind {
 	case KindSearchIssues:
 		return p.handleSearchIssues(request)
+	case KindGetIssue:
+		return p.handleGetIssue(request)
+	case KindGetComments:
+		return p.handleGetComments(request)
+	case KindAddComment:
+		return p.handleAddComment(request)
+	case KindSearchUsers:
+		return p.handleSearchUsers(request)
+	case KindExpandIssues:
+		return p.handleExpandIssues(request)
 	default:
 		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+}
+
+func (p *Pool) handleExpandIssues(request Request) Result {
+	if request.ExpandIssues == nil || request.ExpandIssues.ParentKey == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	maxResults := request.ExpandIssues.MaxResults
+	if maxResults <= 0 {
+		maxResults = 50
+	}
+	mode := request.ExpandIssues.Mode
+	if mode == "" {
+		mode = ExpandModeOpen
+	}
+	issues, err := p.client.SearchIssues(ctx, expandIssuesJQL(request.ExpandIssues.ParentKey, mode), maxResults)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		ExpandIssues: &ExpandIssuesResult{
+			ParentKey: request.ExpandIssues.ParentKey,
+			Mode:      mode,
+			Issues:    issues,
+			SyncedAt:  time.Now(),
+		},
+	}
+}
+
+func (p *Pool) handleSearchUsers(request Request) Result {
+	if request.SearchUsers == nil || request.SearchUsers.Query == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	users, err := p.client.SearchUsers(ctx, request.SearchUsers.Query, request.SearchUsers.MaxResults)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		SearchUsers: &SearchUsersResult{
+			Query:    request.SearchUsers.Query,
+			Users:    users,
+			SyncedAt: time.Now(),
+		},
+	}
+}
+
+func (p *Pool) withMissingParents(ctx context.Context, issues []jira.Issue) []jira.Issue {
+	if len(issues) == 0 {
+		return issues
+	}
+	seen := make(map[string]bool, len(issues))
+	for _, issue := range issues {
+		seen[issue.Key] = true
+	}
+
+	parentKeys := make([]string, 0)
+	parentSeen := make(map[string]bool)
+	for _, issue := range issues {
+		if issue.ParentKey == "" || seen[issue.ParentKey] || parentSeen[issue.ParentKey] {
+			continue
+		}
+		parentKeys = append(parentKeys, issue.ParentKey)
+		parentSeen[issue.ParentKey] = true
+	}
+	if len(parentKeys) == 0 {
+		return issues
+	}
+
+	parents := make(map[string]jira.Issue, len(parentKeys))
+	for _, key := range parentKeys {
+		detail, err := p.client.GetIssue(ctx, key)
+		if err != nil || detail.Key == "" {
+			continue
+		}
+		parents[key] = detail.Issue
+	}
+	if len(parents) == 0 {
+		return issues
+	}
+
+	enriched := make([]jira.Issue, 0, len(issues)+len(parents))
+	inserted := make(map[string]bool, len(parents))
+	for _, issue := range issues {
+		if parent, ok := parents[issue.ParentKey]; ok && !inserted[parent.Key] {
+			enriched = append(enriched, parent)
+			inserted[parent.Key] = true
+		}
+		enriched = append(enriched, issue)
+	}
+	return enriched
+}
+
+func withKnownSubtasks(issues []jira.Issue) []jira.Issue {
+	if len(issues) == 0 {
+		return issues
+	}
+	seen := make(map[string]bool, len(issues))
+	for _, issue := range issues {
+		seen[issue.Key] = true
+	}
+	enriched := append([]jira.Issue(nil), issues...)
+	for _, issue := range issues {
+		for _, subtask := range issue.Subtasks {
+			if subtask.Key == "" || seen[subtask.Key] {
+				continue
+			}
+			enriched = append(enriched, subtask)
+			seen[subtask.Key] = true
+		}
+	}
+	return enriched
+}
+
+func (p *Pool) handleAddComment(request Request) Result {
+	if request.AddComment == nil || request.AddComment.Key == "" || request.AddComment.Body == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	comment, err := p.client.AddComment(ctx, request.AddComment.Key, request.AddComment.Body, request.AddComment.Mentions)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		AddComment: &AddCommentResult{
+			Key:      request.AddComment.Key,
+			Comment:  comment,
+			SyncedAt: time.Now(),
+		},
+	}
+}
+
+func (p *Pool) handleGetComments(request Request) Result {
+	if request.GetComments == nil || request.GetComments.Key == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	comments, err := p.client.GetComments(ctx, request.GetComments.Key, request.GetComments.MaxResults)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		GetComments: &GetCommentsResult{
+			Key:      request.GetComments.Key,
+			Comments: comments,
+			SyncedAt: time.Now(),
+		},
 	}
 }
 
@@ -225,12 +509,109 @@ func (p *Pool) handleSearchIssues(request Request) Result {
 	if err != nil {
 		return Result{ID: request.ID, Kind: request.Kind, Err: err}
 	}
+	issues = p.withMissingParents(ctx, issues)
+	issues = withKnownSubtasks(issues)
+	issues = p.withChildIssues(ctx, issues, request.SearchIssues.MaxResults)
 
 	return Result{
 		ID:   request.ID,
 		Kind: request.Kind,
 		SearchIssues: &SearchIssuesResult{
 			Issues:   issues,
+			SyncedAt: time.Now(),
+		},
+	}
+}
+
+func (p *Pool) withChildIssues(ctx context.Context, issues []jira.Issue, maxResults int) []jira.Issue {
+	parentKeys := childLookupParentKeys(issues)
+	if len(parentKeys) == 0 {
+		return issues
+	}
+	if maxResults <= 0 {
+		maxResults = 50
+	}
+	children, err := p.client.SearchIssues(ctx, childLookupJQL(parentKeys), maxResults)
+	if err != nil {
+		return issues
+	}
+	if len(children) == 0 {
+		return issues
+	}
+	seen := make(map[string]bool, len(issues)+len(children))
+	for _, issue := range issues {
+		seen[issue.Key] = true
+	}
+	enriched := append([]jira.Issue(nil), issues...)
+	for _, child := range children {
+		if child.Key == "" || child.ParentKey == "" || seen[child.Key] {
+			continue
+		}
+		enriched = append(enriched, child)
+		seen[child.Key] = true
+	}
+	return enriched
+}
+
+func childLookupParentKeys(issues []jira.Issue) []string {
+	keys := make([]string, 0, len(issues))
+	seen := make(map[string]bool, len(issues))
+	for _, issue := range issues {
+		if issue.Key == "" || issue.IsSubtask || seen[issue.Key] {
+			continue
+		}
+		keys = append(keys, issue.Key)
+		seen[issue.Key] = true
+	}
+	return keys
+}
+
+func childLookupJQL(parentKeys []string) string {
+	return fmt.Sprintf("parent in (%s) ORDER BY key ASC", joinJQLKeys(parentKeys))
+}
+
+func expandIssuesJQL(parentKey string, mode ExpandMode) string {
+	base := fmt.Sprintf("parent = %s", parentKey)
+	if mode == ExpandModeOpen {
+		base += " AND statusCategory != Done"
+	}
+	return base + " ORDER BY key ASC"
+}
+
+func joinJQLKeys(keys []string) string {
+	result := ""
+	for index, key := range keys {
+		if index > 0 {
+			result += ", "
+		}
+		result += key
+	}
+	return result
+}
+
+func (p *Pool) handleGetIssue(request Request) Result {
+	if request.GetIssue == nil || request.GetIssue.Key == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	detail, err := p.client.GetIssue(ctx, request.GetIssue.Key)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		GetIssue: &GetIssueResult{
+			Key:      request.GetIssue.Key,
+			Detail:   detail,
 			SyncedAt: time.Now(),
 		},
 	}

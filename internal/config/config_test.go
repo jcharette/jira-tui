@@ -1,30 +1,66 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
 
-func TestFromEnv(t *testing.T) {
-	t.Setenv("JIRA_BASE_URL", "https://example.atlassian.net/")
-	t.Setenv("JIRA_EMAIL", "person@example.com")
-	t.Setenv("JIRA_API_TOKEN", "secret")
-	t.Setenv("JIRA_JQL", "project = ABC")
-	t.Setenv("JIRA_REFRESH_INTERVAL", "30s")
-	t.Setenv("JIRA_REQUEST_TIMEOUT", "5s")
-	t.Setenv("JIRA_WORKERS", "4")
-	t.Setenv("JIRA_QUEUE_SIZE", "32")
+func TestLoadReadsConfigFile(t *testing.T) {
+	path := writeConfig(t, `
+version = 1
+active_profile = "default"
 
-	cfg, err := FromEnv()
+[profiles.default]
+base_url = "https://example.atlassian.net/"
+email = "person@example.com"
+api_token = "secret"
+
+[queries]
+default_project = "ABC"
+
+[appearance]
+primary = "#7DD3FC"
+accent = "#F59E0B"
+
+[display]
+symbol_mode = "symbols"
+
+[runtime]
+refresh_interval = "30s"
+request_timeout = "5s"
+workers = 4
+queue_size = 32
+`)
+
+	cfg, err := Load(LoadOptions{Path: path})
 	if err != nil {
-		t.Fatalf("FromEnv() error = %v", err)
+		t.Fatalf("Load() error = %v", err)
 	}
 
 	if cfg.BaseURL != "https://example.atlassian.net" {
 		t.Fatalf("BaseURL = %q", cfg.BaseURL)
 	}
-	if cfg.DefaultJQL != "project = ABC" {
+	if cfg.DefaultProject != "ABC" {
+		t.Fatalf("DefaultProject = %q", cfg.DefaultProject)
+	}
+	if cfg.DefaultJQL != DefaultJQLForProject("ABC") {
 		t.Fatalf("DefaultJQL = %q", cfg.DefaultJQL)
+	}
+	if cfg.Theme.Primary != "#7DD3FC" {
+		t.Fatalf("Theme.Primary = %q", cfg.Theme.Primary)
+	}
+	if cfg.Theme.Accent != "#F59E0B" {
+		t.Fatalf("Theme.Accent = %q", cfg.Theme.Accent)
+	}
+	if cfg.Display.SymbolMode != "symbols" {
+		t.Fatalf("Display.SymbolMode = %q", cfg.Display.SymbolMode)
+	}
+	if !hasView(cfg.Views, "Current Sprint") {
+		t.Fatalf("views = %#v", cfg.Views)
 	}
 	if cfg.RefreshInterval != 30*time.Second {
 		t.Fatalf("RefreshInterval = %s", cfg.RefreshInterval)
@@ -40,33 +76,208 @@ func TestFromEnv(t *testing.T) {
 	}
 }
 
-func TestFromEnvRequiresCredentials(t *testing.T) {
-	_, err := FromEnv()
-	if err == nil {
-		t.Fatal("expected missing environment error")
+func hasView(views []IssueView, name string) bool {
+	for _, view := range views {
+		if view.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func TestLoadIgnoresEnvironmentVariables(t *testing.T) {
+	path := writeConfig(t, `
+version = 1
+active_profile = "default"
+
+[profiles.default]
+base_url = "https://file.atlassian.net"
+email = "file@example.com"
+api_token = "file-token"
+
+[queries]
+default_project = "FILE"
+
+[runtime]
+workers = 2
+queue_size = 16
+`)
+	t.Setenv("JIRA_BASE_URL", "https://env.atlassian.net")
+	t.Setenv("JIRA_EMAIL", "env@example.com")
+	t.Setenv("JIRA_API_TOKEN", "env-token")
+	t.Setenv("JIRA_PROJECT", "ENV")
+	t.Setenv("JIRA_WORKERS", "6")
+
+	cfg, err := Load(LoadOptions{Path: path})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.BaseURL != "https://file.atlassian.net" {
+		t.Fatalf("BaseURL = %q", cfg.BaseURL)
+	}
+	if cfg.Email != "file@example.com" {
+		t.Fatalf("Email = %q", cfg.Email)
+	}
+	if cfg.APIToken != "file-token" {
+		t.Fatalf("APIToken = %q", cfg.APIToken)
+	}
+	if cfg.DefaultProject != "FILE" {
+		t.Fatalf("DefaultProject = %q", cfg.DefaultProject)
+	}
+	if cfg.WorkerCount != 2 {
+		t.Fatalf("WorkerCount = %d", cfg.WorkerCount)
 	}
 }
 
-func TestFromEnvRejectsInvalidDuration(t *testing.T) {
-	t.Setenv("JIRA_BASE_URL", "https://example.atlassian.net")
-	t.Setenv("JIRA_EMAIL", "person@example.com")
-	t.Setenv("JIRA_API_TOKEN", "secret")
-	t.Setenv("JIRA_REFRESH_INTERVAL", "eventually")
+func TestSaveWritesConfigFileWithPrivatePermissions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jira", "config.toml")
+	cfg := Defaults()
+	cfg.BaseURL = "https://example.atlassian.net"
+	cfg.Email = "person@example.com"
+	cfg.APIToken = "secret"
+	cfg.DefaultProject = "ABC"
+	cfg.DefaultJQL = DefaultJQLForProject("ABC")
+	cfg.Views = DefaultViews("ABC")
+	cfg.ActiveView = cfg.Views[0].Name
+	cfg.RefreshInterval = 30 * time.Second
+	cfg.RequestTimeout = 5 * time.Second
+	cfg.WorkerCount = 4
+	cfg.QueueSize = 32
+	cfg.Display.SymbolMode = "emoji"
 
-	_, err := FromEnv()
+	if err := Save(path, cfg); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat() error = %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("file mode = %v", info.Mode().Perm())
+	}
+
+	loaded, err := Load(LoadOptions{Path: path})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !reflect.DeepEqual(loaded, cfg) {
+		t.Fatalf("loaded config = %#v", loaded)
+	}
+}
+
+func TestLoadRejectsInvalidDisplaySymbolMode(t *testing.T) {
+	path := writeConfig(t, `
+version = 1
+active_profile = "default"
+
+[profiles.default]
+base_url = "https://example.atlassian.net"
+email = "person@example.com"
+api_token = "secret"
+
+[queries]
+default_project = "ABC"
+
+[display]
+symbol_mode = "sparkles"
+`)
+
+	_, err := Load(LoadOptions{Path: path})
+	if err == nil {
+		t.Fatal("expected invalid symbol mode error")
+	}
+}
+
+func TestLoadEditableReturnsValidationProblems(t *testing.T) {
+	cfg, _, problems, err := LoadEditable(LoadOptions{Path: filepath.Join(t.TempDir(), "missing.toml")})
+	if err != nil {
+		t.Fatalf("LoadEditable() error = %v", err)
+	}
+	if cfg.DefaultJQL == "" {
+		t.Fatal("expected defaults to be populated")
+	}
+	if len(problems) == 0 {
+		t.Fatal("expected validation problems")
+	}
+}
+
+func TestLoadRejectsInvalidFileDuration(t *testing.T) {
+	path := writeConfig(t, `
+version = 1
+active_profile = "default"
+
+[profiles.default]
+base_url = "https://example.atlassian.net"
+email = "person@example.com"
+api_token = "secret"
+
+[queries]
+default_project = "ABC"
+
+[runtime]
+refresh_interval = "eventually"
+`)
+
+	_, err := Load(LoadOptions{Path: path})
 	if err == nil {
 		t.Fatal("expected invalid duration error")
 	}
 }
 
-func TestFromEnvRejectsInvalidWorkerCount(t *testing.T) {
-	t.Setenv("JIRA_BASE_URL", "https://example.atlassian.net")
-	t.Setenv("JIRA_EMAIL", "person@example.com")
-	t.Setenv("JIRA_API_TOKEN", "secret")
-	t.Setenv("JIRA_WORKERS", "0")
+func TestLoadRejectsInvalidFileWorkerCount(t *testing.T) {
+	path := writeConfig(t, `
+version = 1
+active_profile = "default"
 
-	_, err := FromEnv()
+[profiles.default]
+base_url = "https://example.atlassian.net"
+email = "person@example.com"
+api_token = "secret"
+
+[queries]
+default_project = "ABC"
+
+[runtime]
+workers = -1
+`)
+
+	_, err := Load(LoadOptions{Path: path})
 	if err == nil {
 		t.Fatal("expected invalid worker count error")
 	}
+}
+
+func TestLoadRejectsInvalidAppearanceColor(t *testing.T) {
+	path := writeConfig(t, `
+version = 1
+active_profile = "default"
+
+[profiles.default]
+base_url = "https://example.atlassian.net"
+email = "person@example.com"
+api_token = "secret"
+
+[queries]
+default_project = "ABC"
+
+[appearance]
+primary = "blue"
+`)
+
+	_, err := Load(LoadOptions{Path: path})
+	if err == nil {
+		t.Fatal("expected invalid color error")
+	}
+}
+
+func writeConfig(t *testing.T, contents string) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(strings.TrimSpace(contents)), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	return path
 }

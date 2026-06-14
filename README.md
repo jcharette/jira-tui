@@ -1,34 +1,43 @@
-# Jira TUI
+# Jira
 
 A terminal-first Jira client for people who do not want to live in the Jira web UI.
 
-The first pass is intentionally narrow: authenticate with Jira Cloud, run a JQL query, and browse
-matching issues in a Bubble Tea interface.
+The current app authenticates with Jira Cloud, loads saved JQL views, and browses matching issues in
+a Bubble Tea table with a selected-issue detail pane.
 
 ## Setup
 
 ```bash
 go mod download
-go run ./cmd/jira-tui
+make install-user
+jira config
+jira
 ```
 
-Set Jira credentials:
+The config command writes `~/.config/jira/config.toml` with owner-only file permissions. The
+main command also opens config automatically when required settings are missing.
 
-```bash
-export JIRA_BASE_URL="https://your-domain.atlassian.net"
-export JIRA_EMAIL="you@example.com"
-export JIRA_API_TOKEN="your-api-token"
-```
+Required settings:
 
-Optional:
+- Jira base URL, for example `https://your-domain.atlassian.net`
+- Jira account email
+- Jira API token
+- Default Jira project key
 
-```bash
-export JIRA_JQL="assignee = currentUser() AND resolution = Unresolved ORDER BY updated DESC"
-export JIRA_REFRESH_INTERVAL="2m"
-export JIRA_REQUEST_TIMEOUT="20s"
-export JIRA_WORKERS="2"
-export JIRA_QUEUE_SIZE="16"
-```
+The config editor also includes appearance colors and display symbol mode. Defaults are provided,
+and saved colors/symbol settings are used by both the config editor and issue browser.
+
+Terminal size:
+
+- Minimum supported size: `88x24`
+- Recommended size: `120x30` or larger
+
+The issue browser starts with saved views for assigned work, created/reported work, project open
+work, current sprint, and watched issues.
+
+Selecting an issue fetches read-only detail data in the background, including description text,
+reporter, creator, labels, components, fix versions, and created/updated dates when Jira returns
+those fields.
 
 ## Controls
 
@@ -36,8 +45,28 @@ export JIRA_QUEUE_SIZE="16"
 | --- | --- |
 | `j`, `down` | Move down |
 | `k`, `up` | Move up |
+| `pgdn`, `space`, `ctrl+f` | Page down |
+| `pgup`, `ctrl+b` | Page up |
+| `g`, `home` | First issue |
+| `G`, `end` | Last issue |
+| `o` | Next table sort |
+| `O` | Previous table sort |
+| `tab`, `]` | Next view |
+| `shift+tab`, `[` | Previous view |
+| `enter` | Open ticket detail |
+| `x` | Load open child issues for the selected parent |
+| `X` | Load all child issues for the selected parent |
+| `j`, `k`, `pgup`, `pgdn`, `g`, `G` in detail | Scroll ticket detail |
+| `esc` | Return to table from detail |
 | `r` | Refresh issues |
 | `q`, `ctrl+c` | Quit |
+
+## Commands
+
+```bash
+jira
+jira config
+```
 
 ## Build
 
@@ -50,6 +79,14 @@ For a local binary:
 ```bash
 make build-local
 ```
+
+To update the everyday binary in `~/bin`:
+
+```bash
+make install-user
+```
+
+Both build targets produce a binary named `jira`.
 
 ## Development
 

@@ -4,9 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/BurntSushi/toml"
 )
 
 const defaultJQL = "assignee = currentUser() AND resolution = Unresolved ORDER BY updated DESC"
@@ -14,80 +17,406 @@ const defaultRefreshInterval = 2 * time.Minute
 const defaultRequestTimeout = 20 * time.Second
 const defaultWorkerCount = 2
 const defaultQueueSize = 16
+const currentVersion = 1
 
 type Config struct {
 	BaseURL         string
 	Email           string
 	APIToken        string
+	DefaultProject  string
 	DefaultJQL      string
+	ActiveView      string
+	Views           []IssueView
+	Theme           Theme
+	Display         Display
 	RefreshInterval time.Duration
 	RequestTimeout  time.Duration
 	WorkerCount     int
 	QueueSize       int
 }
 
-func FromEnv() (Config, error) {
-	cfg := Config{
-		BaseURL:    strings.TrimRight(strings.TrimSpace(os.Getenv("JIRA_BASE_URL")), "/"),
-		Email:      strings.TrimSpace(os.Getenv("JIRA_EMAIL")),
-		APIToken:   strings.TrimSpace(os.Getenv("JIRA_API_TOKEN")),
-		DefaultJQL: strings.TrimSpace(os.Getenv("JIRA_JQL")),
+type IssueView struct {
+	Name string
+	JQL  string
+}
+
+type Theme struct {
+	Primary   string
+	Secondary string
+	Accent    string
+	Success   string
+	Warning   string
+	Error     string
+	Muted     string
+	Border    string
+	Surface   string
+	Text      string
+}
+
+type Display struct {
+	SymbolMode string
+}
+
+type LoadOptions struct {
+	Path string
+}
+
+type ValidationError struct {
+	Problems []string
+}
+
+func (e ValidationError) Error() string {
+	return "invalid config: " + strings.Join(e.Problems, "; ")
+}
+
+func IsValidationError(err error) bool {
+	var validationErr ValidationError
+	return errors.As(err, &validationErr)
+}
+
+func DefaultPath() (string, error) {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("find user config directory: %w", err)
 	}
-	if cfg.DefaultJQL == "" {
-		cfg.DefaultJQL = defaultJQL
+	return filepath.Join(configDir, "jira", "config.toml"), nil
+}
+
+func Defaults() Config {
+	return Config{
+		DefaultJQL:      defaultJQL,
+		Theme:           DefaultTheme(),
+		Display:         DefaultDisplay(),
+		RefreshInterval: defaultRefreshInterval,
+		RequestTimeout:  defaultRequestTimeout,
+		WorkerCount:     defaultWorkerCount,
+		QueueSize:       defaultQueueSize,
 	}
-	refreshInterval, err := durationFromEnv("JIRA_REFRESH_INTERVAL", defaultRefreshInterval)
+}
+
+func DefaultDisplay() Display {
+	return Display{SymbolMode: "auto"}
+}
+
+func DefaultTheme() Theme {
+	return Theme{
+		Primary:   "#7DD3FC",
+		Secondary: "#A78BFA",
+		Accent:    "#F59E0B",
+		Success:   "#34D399",
+		Warning:   "#FBBF24",
+		Error:     "#F87171",
+		Muted:     "#6B7280",
+		Border:    "#374151",
+		Surface:   "#111827",
+		Text:      "#E5E7EB",
+	}
+}
+
+func Load(options LoadOptions) (Config, error) {
+	path, err := PathOrDefault(options.Path)
 	if err != nil {
 		return Config{}, err
 	}
-	cfg.RefreshInterval = refreshInterval
 
-	requestTimeout, err := durationFromEnv("JIRA_REQUEST_TIMEOUT", defaultRequestTimeout)
+	cfg := Defaults()
+	fileCfg, err := readFile(path)
 	if err != nil {
 		return Config{}, err
 	}
-	cfg.RequestTimeout = requestTimeout
-
-	workerCount, err := intFromEnv("JIRA_WORKERS", defaultWorkerCount)
-	if err != nil {
+	if err := applyFile(&cfg, fileCfg); err != nil {
 		return Config{}, err
 	}
-	cfg.WorkerCount = workerCount
-
-	queueSize, err := intFromEnv("JIRA_QUEUE_SIZE", defaultQueueSize)
-	if err != nil {
+	ensureViews(&cfg)
+	if err := Validate(cfg); err != nil {
 		return Config{}, err
 	}
-	cfg.QueueSize = queueSize
-
-	var missing []string
-	if cfg.BaseURL == "" {
-		missing = append(missing, "JIRA_BASE_URL")
-	}
-	if cfg.Email == "" {
-		missing = append(missing, "JIRA_EMAIL")
-	}
-	if cfg.APIToken == "" {
-		missing = append(missing, "JIRA_API_TOKEN")
-	}
-	if len(missing) > 0 {
-		return Config{}, fmt.Errorf("missing required environment variables: %s", strings.Join(missing, ", "))
-	}
-
-	if !strings.HasPrefix(cfg.BaseURL, "https://") && !strings.HasPrefix(cfg.BaseURL, "http://") {
-		return Config{}, errors.New("JIRA_BASE_URL must start with https:// or http://")
-	}
-
 	return cfg, nil
 }
 
-func durationFromEnv(name string, fallback time.Duration) (time.Duration, error) {
-	value := strings.TrimSpace(os.Getenv(name))
-	if value == "" {
-		return fallback, nil
+func PathOrDefault(path string) (string, error) {
+	if strings.TrimSpace(path) != "" {
+		return path, nil
+	}
+	return DefaultPath()
+}
+
+func LoadEditable(options LoadOptions) (Config, string, []string, error) {
+	path, err := PathOrDefault(options.Path)
+	if err != nil {
+		return Config{}, "", nil, err
 	}
 
-	duration, err := time.ParseDuration(value)
+	cfg := Defaults()
+	fileCfg, err := readFile(path)
+	if err != nil {
+		return Config{}, "", nil, err
+	}
+	if err := applyFile(&cfg, fileCfg); err != nil {
+		return Config{}, "", nil, err
+	}
+	ensureViews(&cfg)
+
+	var problems []string
+	if err := Validate(cfg); err != nil {
+		var validationErr ValidationError
+		if !errors.As(err, &validationErr) {
+			return Config{}, "", nil, err
+		}
+		problems = validationErr.Problems
+	}
+	return cfg, path, problems, nil
+}
+
+func Save(path string, cfg Config) error {
+	ensureViews(&cfg)
+	if err := Validate(cfg); err != nil {
+		return err
+	}
+
+	path, err := PathOrDefault(path)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create config directory: %w", err)
+	}
+	if err := os.Chmod(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("secure config directory: %w", err)
+	}
+
+	fileCfg := fileConfig{
+		Version:       currentVersion,
+		ActiveProfile: "default",
+		Profiles: map[string]profileConfig{
+			"default": {
+				BaseURL:  cfg.BaseURL,
+				Email:    cfg.Email,
+				APIToken: cfg.APIToken,
+			},
+		},
+		Queries: queriesConfig{
+			DefaultProject: cfg.DefaultProject,
+			DefaultJQL:     cfg.DefaultJQL,
+		},
+		Views: viewsConfig{
+			Active: cfg.ActiveView,
+			Saved:  viewConfigs(cfg.Views),
+		},
+		Appearance: appearanceConfig(cfg.Theme),
+		Display: displayConfig{
+			SymbolMode: cfg.Display.SymbolMode,
+		},
+		Runtime: runtimeConfig{
+			RefreshInterval: cfg.RefreshInterval.String(),
+			RequestTimeout:  cfg.RequestTimeout.String(),
+			Workers:         cfg.WorkerCount,
+			QueueSize:       cfg.QueueSize,
+		},
+	}
+
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("open config file: %w", err)
+	}
+	defer file.Close()
+
+	if err := toml.NewEncoder(file).Encode(fileCfg); err != nil {
+		return fmt.Errorf("write config file: %w", err)
+	}
+	if err := file.Chmod(0o600); err != nil {
+		return fmt.Errorf("secure config file: %w", err)
+	}
+	return nil
+}
+
+func Validate(cfg Config) error {
+	var problems []string
+	if strings.TrimSpace(cfg.BaseURL) == "" {
+		problems = append(problems, "Jira base URL is required")
+	} else if !strings.HasPrefix(cfg.BaseURL, "https://") && !strings.HasPrefix(cfg.BaseURL, "http://") {
+		problems = append(problems, "Jira base URL must start with https:// or http://")
+	}
+	if strings.TrimSpace(cfg.Email) == "" {
+		problems = append(problems, "Jira email is required")
+	}
+	if strings.TrimSpace(cfg.APIToken) == "" {
+		problems = append(problems, "Jira API token is required")
+	}
+	if strings.TrimSpace(cfg.DefaultProject) == "" {
+		problems = append(problems, "default Jira project is required")
+	}
+	if cfg.RefreshInterval < 0 {
+		problems = append(problems, "refresh interval cannot be negative")
+	}
+	if cfg.RequestTimeout < 0 {
+		problems = append(problems, "request timeout cannot be negative")
+	}
+	if cfg.WorkerCount <= 0 {
+		problems = append(problems, "worker count must be greater than zero")
+	}
+	if cfg.QueueSize <= 0 {
+		problems = append(problems, "queue size must be greater than zero")
+	}
+	if len(cfg.Views) == 0 {
+		problems = append(problems, "at least one issue view is required")
+	}
+	for _, view := range cfg.Views {
+		if strings.TrimSpace(view.Name) == "" {
+			problems = append(problems, "issue view name is required")
+		}
+		if strings.TrimSpace(view.JQL) == "" {
+			problems = append(problems, "issue view JQL is required")
+		}
+	}
+	for name, value := range cfg.Theme.colorValues() {
+		if !validHexColor(value) {
+			problems = append(problems, fmt.Sprintf("%s color must be a hex color like #7DD3FC", name))
+		}
+	}
+	if !validSymbolMode(cfg.Display.SymbolMode) {
+		problems = append(problems, "display symbol_mode must be one of auto, plain, symbols, emoji, or nerd")
+	}
+	if len(problems) > 0 {
+		return ValidationError{Problems: problems}
+	}
+	return nil
+}
+
+type fileConfig struct {
+	Version       int                      `toml:"version"`
+	ActiveProfile string                   `toml:"active_profile"`
+	Profiles      map[string]profileConfig `toml:"profiles"`
+	Queries       queriesConfig            `toml:"queries"`
+	Views         viewsConfig              `toml:"views"`
+	Appearance    appearanceConfig         `toml:"appearance"`
+	Display       displayConfig            `toml:"display"`
+	Runtime       runtimeConfig            `toml:"runtime"`
+}
+
+type profileConfig struct {
+	BaseURL  string `toml:"base_url"`
+	Email    string `toml:"email"`
+	APIToken string `toml:"api_token"`
+}
+
+type queriesConfig struct {
+	DefaultProject string `toml:"default_project"`
+	DefaultJQL     string `toml:"default_jql"`
+}
+
+type viewsConfig struct {
+	Active string       `toml:"active"`
+	Saved  []viewConfig `toml:"saved"`
+}
+
+type viewConfig struct {
+	Name string `toml:"name"`
+	JQL  string `toml:"jql"`
+}
+
+type appearanceConfig struct {
+	Primary   string `toml:"primary"`
+	Secondary string `toml:"secondary"`
+	Accent    string `toml:"accent"`
+	Success   string `toml:"success"`
+	Warning   string `toml:"warning"`
+	Error     string `toml:"error"`
+	Muted     string `toml:"muted"`
+	Border    string `toml:"border"`
+	Surface   string `toml:"surface"`
+	Text      string `toml:"text"`
+}
+
+type displayConfig struct {
+	SymbolMode string `toml:"symbol_mode"`
+}
+
+type runtimeConfig struct {
+	RefreshInterval string `toml:"refresh_interval"`
+	RequestTimeout  string `toml:"request_timeout"`
+	Workers         int    `toml:"workers"`
+	QueueSize       int    `toml:"queue_size"`
+}
+
+func readFile(path string) (fileConfig, error) {
+	var fileCfg fileConfig
+	_, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return fileCfg, nil
+	}
+	if err != nil {
+		return fileCfg, fmt.Errorf("stat config file: %w", err)
+	}
+	if _, err := toml.DecodeFile(path, &fileCfg); err != nil {
+		return fileCfg, fmt.Errorf("read config file: %w", err)
+	}
+	return fileCfg, nil
+}
+
+func applyFile(cfg *Config, fileCfg fileConfig) error {
+	profileName := strings.TrimSpace(fileCfg.ActiveProfile)
+	if profileName == "" {
+		profileName = "default"
+	}
+	if profile, ok := fileCfg.Profiles[profileName]; ok {
+		cfg.BaseURL = normalizeBaseURL(profile.BaseURL)
+		cfg.Email = strings.TrimSpace(profile.Email)
+		cfg.APIToken = strings.TrimSpace(profile.APIToken)
+	}
+	if strings.TrimSpace(fileCfg.Queries.DefaultJQL) != "" {
+		cfg.DefaultJQL = strings.TrimSpace(fileCfg.Queries.DefaultJQL)
+	}
+	if strings.TrimSpace(fileCfg.Queries.DefaultProject) != "" {
+		cfg.DefaultProject = strings.TrimSpace(fileCfg.Queries.DefaultProject)
+		if fileCfg.Queries.DefaultJQL == "" {
+			cfg.DefaultJQL = DefaultJQLForProject(cfg.DefaultProject)
+		}
+	}
+	if strings.TrimSpace(fileCfg.Views.Active) != "" {
+		cfg.ActiveView = strings.TrimSpace(fileCfg.Views.Active)
+	}
+	if len(fileCfg.Views.Saved) > 0 {
+		cfg.Views = issueViews(fileCfg.Views.Saved)
+	}
+	applyAppearance(&cfg.Theme, fileCfg.Appearance)
+	applyDisplay(&cfg.Display, fileCfg.Display)
+	if strings.TrimSpace(fileCfg.Runtime.RefreshInterval) != "" {
+		duration, err := parseDuration("refresh interval", fileCfg.Runtime.RefreshInterval)
+		if err != nil {
+			return err
+		}
+		cfg.RefreshInterval = duration
+	}
+	if strings.TrimSpace(fileCfg.Runtime.RequestTimeout) != "" {
+		duration, err := parseDuration("request timeout", fileCfg.Runtime.RequestTimeout)
+		if err != nil {
+			return err
+		}
+		cfg.RequestTimeout = duration
+	}
+	if fileCfg.Runtime.Workers != 0 {
+		cfg.WorkerCount = fileCfg.Runtime.Workers
+	}
+	if fileCfg.Runtime.QueueSize != 0 {
+		cfg.QueueSize = fileCfg.Runtime.QueueSize
+	}
+	return nil
+}
+
+func parsePositiveInt(name string, value string) (int, error) {
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		return 0, fmt.Errorf("%s must be an integer: %w", name, err)
+	}
+	if parsed <= 0 {
+		return 0, fmt.Errorf("%s must be greater than zero", name)
+	}
+	return parsed, nil
+}
+
+func parseDuration(name, value string) (time.Duration, error) {
+	duration, err := time.ParseDuration(strings.TrimSpace(value))
 	if err != nil {
 		return 0, fmt.Errorf("%s must be a valid Go duration, for example 30s or 2m: %w", name, err)
 	}
@@ -97,18 +426,153 @@ func durationFromEnv(name string, fallback time.Duration) (time.Duration, error)
 	return duration, nil
 }
 
-func intFromEnv(name string, fallback int) (int, error) {
-	value := strings.TrimSpace(os.Getenv(name))
-	if value == "" {
-		return fallback, nil
-	}
+func normalizeBaseURL(value string) string {
+	return strings.TrimRight(strings.TrimSpace(value), "/")
+}
 
-	parsed, err := strconv.Atoi(value)
-	if err != nil {
-		return 0, fmt.Errorf("%s must be an integer: %w", name, err)
+func DefaultJQLForProject(project string) string {
+	return fmt.Sprintf("project = %s AND assignee = currentUser() AND resolution = Unresolved ORDER BY updated DESC", strings.TrimSpace(project))
+}
+
+func DefaultViews(project string) []IssueView {
+	project = strings.TrimSpace(project)
+	if project == "" {
+		return nil
 	}
-	if parsed <= 0 {
-		return 0, fmt.Errorf("%s must be greater than zero", name)
+	return []IssueView{
+		{
+			Name: "Assigned",
+			JQL:  fmt.Sprintf("project = %s AND assignee = currentUser() AND resolution = Unresolved ORDER BY updated DESC", project),
+		},
+		{
+			Name: "Created/Reported",
+			JQL:  fmt.Sprintf("project = %s AND (creator = currentUser() OR reporter = currentUser()) AND resolution = Unresolved ORDER BY updated DESC", project),
+		},
+		{
+			Name: "Project Open",
+			JQL:  fmt.Sprintf("project = %s AND resolution = Unresolved ORDER BY updated DESC", project),
+		},
+		{
+			Name: "Current Sprint",
+			JQL:  fmt.Sprintf("project = %s AND sprint in openSprints() AND resolution = Unresolved ORDER BY assignee ASC, status ASC, priority DESC", project),
+		},
+		{
+			Name: "Watching",
+			JQL:  fmt.Sprintf("project = %s AND watcher = currentUser() AND resolution = Unresolved ORDER BY updated DESC", project),
+		},
 	}
-	return parsed, nil
+}
+
+func ensureViews(cfg *Config) {
+	if cfg.DefaultProject != "" && (cfg.DefaultJQL == "" || cfg.DefaultJQL == defaultJQL) {
+		cfg.DefaultJQL = DefaultJQLForProject(cfg.DefaultProject)
+	}
+	if len(cfg.Views) == 0 {
+		cfg.Views = DefaultViews(cfg.DefaultProject)
+	}
+	if cfg.ActiveView == "" && len(cfg.Views) > 0 {
+		cfg.ActiveView = cfg.Views[0].Name
+	}
+	if cfg.DefaultJQL != "" && len(cfg.Views) == 0 {
+		cfg.Views = []IssueView{{Name: "Default", JQL: cfg.DefaultJQL}}
+		cfg.ActiveView = "Default"
+	}
+}
+
+func viewConfigs(views []IssueView) []viewConfig {
+	configs := make([]viewConfig, 0, len(views))
+	for _, view := range views {
+		configs = append(configs, viewConfig{
+			Name: strings.TrimSpace(view.Name),
+			JQL:  strings.TrimSpace(view.JQL),
+		})
+	}
+	return configs
+}
+
+func issueViews(configs []viewConfig) []IssueView {
+	views := make([]IssueView, 0, len(configs))
+	for _, view := range configs {
+		views = append(views, IssueView{
+			Name: strings.TrimSpace(view.Name),
+			JQL:  strings.TrimSpace(view.JQL),
+		})
+	}
+	return views
+}
+
+func applyAppearance(theme *Theme, appearance appearanceConfig) {
+	if strings.TrimSpace(appearance.Primary) != "" {
+		theme.Primary = strings.TrimSpace(appearance.Primary)
+	}
+	if strings.TrimSpace(appearance.Secondary) != "" {
+		theme.Secondary = strings.TrimSpace(appearance.Secondary)
+	}
+	if strings.TrimSpace(appearance.Accent) != "" {
+		theme.Accent = strings.TrimSpace(appearance.Accent)
+	}
+	if strings.TrimSpace(appearance.Success) != "" {
+		theme.Success = strings.TrimSpace(appearance.Success)
+	}
+	if strings.TrimSpace(appearance.Warning) != "" {
+		theme.Warning = strings.TrimSpace(appearance.Warning)
+	}
+	if strings.TrimSpace(appearance.Error) != "" {
+		theme.Error = strings.TrimSpace(appearance.Error)
+	}
+	if strings.TrimSpace(appearance.Muted) != "" {
+		theme.Muted = strings.TrimSpace(appearance.Muted)
+	}
+	if strings.TrimSpace(appearance.Border) != "" {
+		theme.Border = strings.TrimSpace(appearance.Border)
+	}
+	if strings.TrimSpace(appearance.Surface) != "" {
+		theme.Surface = strings.TrimSpace(appearance.Surface)
+	}
+	if strings.TrimSpace(appearance.Text) != "" {
+		theme.Text = strings.TrimSpace(appearance.Text)
+	}
+}
+
+func applyDisplay(display *Display, cfg displayConfig) {
+	if strings.TrimSpace(cfg.SymbolMode) != "" {
+		display.SymbolMode = strings.ToLower(strings.TrimSpace(cfg.SymbolMode))
+	}
+}
+
+func (t Theme) colorValues() map[string]string {
+	return map[string]string{
+		"primary":   t.Primary,
+		"secondary": t.Secondary,
+		"accent":    t.Accent,
+		"success":   t.Success,
+		"warning":   t.Warning,
+		"error":     t.Error,
+		"muted":     t.Muted,
+		"border":    t.Border,
+		"surface":   t.Surface,
+		"text":      t.Text,
+	}
+}
+
+func validHexColor(value string) bool {
+	value = strings.TrimSpace(value)
+	if len(value) != 7 || value[0] != '#' {
+		return false
+	}
+	for _, char := range value[1:] {
+		if (char < '0' || char > '9') && (char < 'a' || char > 'f') && (char < 'A' || char > 'F') {
+			return false
+		}
+	}
+	return true
+}
+
+func validSymbolMode(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "auto", "plain", "symbols", "emoji", "nerd":
+		return true
+	default:
+		return false
+	}
 }

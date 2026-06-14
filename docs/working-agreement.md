@@ -25,6 +25,27 @@ If a decision would change how future work should be done, add a decision record
 Before implementing non-core infrastructure, check for well-maintained third-party libraries and
 prefer wrapping them behind internal boundaries when they fit.
 
+For Jira write workflows, do not assume a generic Jira shape. Issue creation, editing, transitions,
+assignment, sprint movement, priorities, statuses, issue types, required fields, field options,
+workflow actions, user identifiers, and custom fields must be discovered from Jira metadata for the
+configured site/project/issue before building forms or submitting updates. If the metadata endpoint
+or adapter method does not exist yet, add that API boundary first or record the missing discovery
+work in the backlog. Do not hard-code values from one Jira instance as product behavior.
+
+For TUI work, treat interaction clarity and visual organization as part of the feature, not polish
+to defer. Before calling a TUI screen done, make sure navigation between panes/sections is visible
+on screen, keybindings match the layout, and the view uses the shared styling system for color,
+borders, spacing, and status emphasis. Pane layouts should respond to terminal width with explicit
+breakpoints instead of relying on one fixed size. Table/list row counts must subtract all rendered
+chrome: headers, query bars, help footers, borders, padding, titles, and sibling panels.
+
+Use maintained Bubble Tea ecosystem components for standard TUI primitives by default: Bubbles
+`viewport` for scrollable content, `table`/`list` for selectable collections, `help`/`key` for key
+help, `textinput`/`textarea` for text entry, `paginator` for paging, and `spinner` for loading
+states. Lip Gloss table/list/tree/rendering helpers should be preferred over hand-built terminal
+markup. Hand-roll only when the maintained component cannot meet the interaction or rendering
+requirement, and record that reason in the code or docs.
+
 ## Definition Of Done
 
 Before calling work complete:
@@ -38,6 +59,10 @@ Before calling work complete:
 - A decision record is added for durable architecture/product choices.
 - New infrastructure work either uses an appropriate maintained library or records why custom code
   is the better fit.
+- TUI primitives use Bubble Tea, Bubbles, Lip Gloss, or a maintained package built on them when one
+  fits the behavior.
+- TUI changes have explicit on-screen navigation hints, clear section/pane organization, and
+  styled loading, empty, error, and selected states where applicable.
 
 ## Changelog Style
 

@@ -1,21 +1,24 @@
-APP_NAME := jira-tui
+APP_NAME := jira
 MAIN_PKG := ./cmd/jira-tui
 TMP_BUILD := /private/tmp/$(APP_NAME)-check
 GOCACHE := /private/tmp/$(APP_NAME)-go-build-cache
 GOFLAGS := -buildvcs=false
 BIN_DIR := bin
 BIN := $(BIN_DIR)/$(APP_NAME)
+USER_BIN_DIR := $(HOME)/bin
+USER_BIN := $(USER_BIN_DIR)/$(APP_NAME)
 export GOCACHE
 export GOFLAGS
 
-.PHONY: help fmt test build build-local run tidy check clean docs-list docs-status docs-check milestone-complete release
+.PHONY: help fmt test build build-local install-user run tidy check clean docs-list docs-status docs-check milestone-complete release
 
 help:
 	@printf "Targets:\n"
 	@printf "  make fmt          Format Go code\n"
 	@printf "  make test         Run tests\n"
 	@printf "  make build        Verify build to a temp path\n"
-	@printf "  make build-local  Build ./bin/jira-tui\n"
+	@printf "  make build-local  Build ./bin/jira\n"
+	@printf "  make install-user Build ~/bin/jira for everyday use\n"
 	@printf "  make run          Run the TUI\n"
 	@printf "  make tidy         Tidy Go modules\n"
 	@printf "  make check        Format, tidy, test, and verify build\n"
@@ -38,6 +41,10 @@ build:
 build-local:
 	mkdir -p $(BIN_DIR)
 	go build -o $(BIN) $(MAIN_PKG)
+
+install-user:
+	mkdir -p $(USER_BIN_DIR)
+	go build -o $(USER_BIN) $(MAIN_PKG)
 
 run:
 	go run $(MAIN_PKG)

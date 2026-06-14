@@ -9,7 +9,7 @@ Core daily work:
 
 - Issue lists from saved/default JQLs.
 - Issue detail view.
-- Fast navigation: list/detail split, jump to key, copy key/URL, open in browser.
+- Fast navigation: full-width issue list, focused detail view, jump to key, copy key/URL, open in browser.
 - Comments: read and add.
 - Transitions: view available transitions and move status.
 - Create and edit issues.
@@ -29,8 +29,10 @@ App quality:
 - Saved queries.
 - API token auth check.
 - OAuth later if needed.
+- Secure credential storage for OAuth/API tokens.
 - Cache recent issue lists/details/comments.
 - Command mode for fast actions.
+- Git integration and AI-assisted ticket/PR workflows.
 
 ## Dependency Map
 
@@ -39,7 +41,9 @@ Issue detail depends on:
 - Jira issue fetch API in `internal/jira`.
 - Worker request/result type for issue detail.
 - TUI state for selected issue details.
-- ADF/plain-text rendering strategy for descriptions.
+- Dedicated ADF renderer for descriptions, comments, links, mentions, inline code, code blocks,
+  lists, blockquotes, panels/statuses, and tables.
+- Detail-specific scrolling and navigation for long content.
 
 Comments depend on:
 
@@ -52,15 +56,34 @@ Transitions depend on:
 
 - Issue detail and selected issue state.
 - Jira transition API.
+- Transition metadata for allowed transitions, required fields, and field options.
 - Confirmation/error states.
-- Optional transition field handling.
+- Required transition field handling.
 
 Create/edit issue depends on:
 
 - Config/default project context.
-- Jira create/edit metadata discovery.
+- Jira create/edit metadata discovery for issue types, required fields, field schemas, field options,
+  priorities, statuses, and custom fields.
+- Jira issue link metadata/API support for link types and target issue validation.
+- Assignable user search for assignee changes.
 - Form/input components.
 - Confirmation and validation UX.
+- A command/action menu so edit, link, subtask, assignment, priority, and transition actions remain
+  discoverable without crowding the ticket detail keymap.
+
+Assignment depends on:
+
+- Assignable user search for the selected project/issue.
+- Account ID handling and user disambiguation.
+- Permission-aware error messages.
+
+Git and AI workflows depend on:
+
+- Stable selected issue/detail state.
+- Local git repository detection.
+- Configurable branch naming and provider adapters.
+- Explicit confirmation before Jira, git provider, or AI-generated write actions.
 
 Sprint/board views depend on:
 
@@ -75,6 +98,13 @@ Config/profiles depend on:
 - Merge precedence: flags > env vars > config file > defaults.
 - Saved query schema.
 - Multi-site profile schema.
+
+OAuth/security auth depends on:
+
+- Browser or device authorization flow choice for Jira Cloud.
+- OAuth scope mapping for read/write workflows.
+- Secure credential storage through the OS keychain or equivalent.
+- Token refresh and re-auth UX.
 
 Command mode depends on:
 
@@ -145,7 +175,7 @@ Status: planned.
 
 Goal: stop relying on exported env vars for daily use.
 
-- Config file under `~/.config/jira-tui/config.toml` unless a better library/path choice emerges.
+- Config file under `~/.config/jira/config.toml`.
 - Saved queries.
 - Default project and board.
 - Multiple Jira site profiles.
@@ -172,6 +202,8 @@ Goal: create and reshape Jira work from the terminal.
 - Create issue.
 - Create subtask.
 - Edit description.
+- Edit priority, assignee, labels, components, fix versions, and other editable fields exposed by
+  Jira edit metadata.
 - Link issues.
 - Add/remove issue from epic.
 - Move issue between sprint/backlog if API support is clean.
@@ -180,8 +212,14 @@ Goal: create and reshape Jira work from the terminal.
 
 Status: planned.
 
-Goal: make repeated Jira work fast.
+Goal: make repeated Jira work fast and connect Jira work to local development, pull requests, and
+carefully confirmed AI assistance.
 
+- Open branches for assigned or selected tickets.
+- Detect ticket keys from the current git branch.
+- Draft PR titles and bodies from Jira ticket context and local git state.
+- Link branches/PRs back to Jira with explicit confirmation.
+- Draft Jira comments, status updates, and implementation summaries with visible source context.
 - Command mode.
 - Bulk transitions/assignments/labels with confirmations.
 - Worklog support.
@@ -194,12 +232,12 @@ Goal: make repeated Jira work fast.
    - Add `internal/jira.GetIssue`.
    - Add `worker.KindGetIssue`.
    - Add TUI detail state and selected issue request IDs.
-   - Render list/detail split.
+   - Render full-width list and focused detail surfaces.
 
 2. Add comments read path.
-   - Add comments to issue detail or separate request.
-   - Decide ADF/plain-text rendering helper.
-   - Add tests for refresh/error behavior.
+   - Status: complete.
+   - Comments load through the worker pool and render in focused ticket detail with the shared ADF
+     formatter.
 
 3. Add first write path: add comment.
    - Add confirmation UI.

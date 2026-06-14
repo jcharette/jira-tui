@@ -6,22 +6,37 @@ changelog when it lands.
 Docs are part of done. When an item here is completed, remove or move it and add a matching entry
 to [releases/CHANGELOG.md](releases/CHANGELOG.md).
 
-## Now
+## Now: Read And View
 
 - Follow [working-agreement.md](working-agreement.md) for every future code/doc change.
 - Use [roadmap.md](roadmap.md) as the milestone source of truth.
-- Add an issue detail view for the selected issue.
-- Fetch richer issue fields: description, priority, labels, components, fix versions, created date, updated date.
+- Keep ticket detail rendering as the priority before new workflow features: handle Jira ADF links,
+  mentions, inline code, code blocks, lists, blockquotes, panels/statuses, and tables clearly in the
+  terminal.
+- Add ADF fixture coverage from real Jira descriptions/comments, especially tables with long cell
+  values, nested lists, links, mentions, and code-heavy implementation notes.
+- Continue rich comment composition support with Jira mentions and formatting controls on top of
+  the bounded multi-line comment editor and detected-link/ADF-link support.
+- Audit hand-rolled TUI rendering and input components for replacement with maintained Bubble Tea,
+  Bubbles, Lip Gloss, or public libraries built on those packages before extending custom code.
 - Add tests around TUI navigation and rendering.
-- Add incremental loading strategy for issue details, comments, and sprint data.
+- Continue focused ticket detail workspace work: real linked issue data in the Hierarchy/Links
+  workspace, contextual footer commands, and metadata-backed implementations behind the Actions tab.
+- Keep detail tabs and focused sections pane-compatible: new sections should expose their own
+  focus state, key context, and activation behavior so they can move into real panes without a
+  rewrite.
+- Define explicit ticket detail modes before adding field writes: view mode for reading/scrolling,
+  compose mode for comments, edit-field mode for metadata-backed forms, transition mode for status
+  changes, and an action menu/command palette for less common operations.
+- Add incremental loading strategy for sprint data and future expanded comment/detail workflows.
+- Add saved issue views for assigned to me, reported/created by me, project open, watching, and
+  epic-focused drill-down.
+- Improve epic/subtask table grouping beyond current-result grouping by explicitly loading related
+  children when the selected view needs them.
 
-## Next
+## Next: Navigation And Query
 
 - Add a command/search input for changing JQL without restarting.
-- Add issue comments view.
-- Add comment creation.
-- Add issue transition support: view available transitions and move issue status.
-- Add assignment support.
 - Add epic and subtask support.
 - Add sprint and board support.
 - Add open-in-browser command for the selected issue.
@@ -29,17 +44,56 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
 - Add lightweight caching for issue detail and related data.
 - Add bounded concurrency controls for detail/comment/sprint fetches when parallel loading expands.
 
-## Later
+## Next: Comments And Workflow Actions
 
-- Create issue flow.
-- Edit issue fields.
+- Add issue transition support that fetches available transitions and transition field metadata for
+  the selected issue before rendering choices or moving issue status.
+
+## Later: Creation And Editing
+
+- Add Jira metadata discovery adapters for create metadata, edit metadata, transition metadata,
+  assignable user search, field options, priorities, statuses, issue types, boards, and sprints.
+- Add a ticket action menu/command palette for edit workflows so growing actions do not overload
+  single-key detail bindings.
+- Create issue flow that asks Jira for project/issue-type metadata, required fields, allowed field
+  values, and custom field shapes instead of hard-coding forms.
+- Edit issue flow that uses Jira edit metadata, supports all editable fields cleanly, and validates
+  against Jira-provided options before submitting updates.
+- Add issue link management using Jira metadata/API responses for link types and valid targets.
+- Add subtask creation from a selected issue using Jira create metadata for required fields.
+- Add comment editing with explicit confirmation and clear failure feedback.
+- Add assignment flow with Jira assignable-user lookup/search, account ID handling,
+  disambiguation, and permission-aware errors.
 - Worklog support.
 - Sprint/board views.
 - Saved filters.
 - Multi-site Jira profiles.
 - Packaging/install story: Homebrew tap, release binaries, or `go install`.
 
+## Later: Security And Auth
+
+- Add browser-based Jira OAuth or device authorization flow so users can authenticate without
+  storing long-lived API tokens directly in the config file.
+- Store OAuth credentials in the OS keychain or another secure credential store, with config holding
+  only non-secret profile metadata.
+- Keep API token auth as the current fallback until OAuth scopes, callback handling, token refresh,
+  and enterprise Jira compatibility are designed intentionally.
+
+## Later: Git And AI Workflows
+
+- Add git integration for opening a branch from the selected or assigned ticket with configurable
+  branch naming.
+- Detect the current git branch and related ticket key so Jira actions can attach to the right
+  issue intentionally.
+- Add PR helper workflow that drafts PR titles and bodies from ticket context and local git state.
+- Add Jira update helpers for branch/PR links, ticket comments, and status suggestions with explicit
+  confirmation before every write.
+- Add AI-assisted ticket summaries, implementation notes, PR prep, and comment drafts with visible
+  source context and user approval before posting or changing Jira.
+- Keep git provider integrations isolated behind internal boundaries so GitHub/GitLab/Bitbucket
+  support can be added without rewriting Jira UI flows.
+
 ## Questions
 
 - Should this optimize first for personal assigned work, team triage, or project/release management?
-- Should commands be modal inside one TUI, or should we also expose subcommands like `jira-tui issue ABC-123`?
+- Should commands be modal inside one TUI, or should we also expose subcommands like `jira issue ABC-123`?
