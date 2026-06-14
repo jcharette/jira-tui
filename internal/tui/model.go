@@ -2237,17 +2237,25 @@ func (m Model) renderHierarchySection(issue jira.Issue, width int) string {
 	children, subtasks := splitHierarchyRows(rows)
 	var lines []string
 	help := ""
-	if m.hierarchyFocus {
+	switch {
+	case m.hierarchyFocus:
 		help = "j/k select  enter open  esc leave"
+	case len(rows) > 0:
+		help = "enter focus"
 	}
 	lines = append(lines, m.detailSectionHeader("hierarchy", "Hierarchy", help, width))
+	pathRel := "Current"
+	pathIssue := issue.Key
 	if issue.ParentKey != "" {
-		parent := issue.ParentKey
+		pathRel = "Parent"
+		pathIssue = issue.ParentKey
 		if issue.ParentSummary != "" {
-			parent += "  " + issue.ParentSummary
+			pathIssue += "  " + issue.ParentSummary
 		}
-		lines = append(lines, m.renderHierarchyPath(parent, width))
+	} else if issue.Summary != "" {
+		pathIssue += "  " + issue.Summary
 	}
+	lines = append(lines, m.renderHierarchyPath(pathRel, pathIssue, width))
 	if len(rows) == 0 {
 		if issue.ParentKey == "" {
 			lines = append(lines, m.detailEmptyState("No parent or child issues in the current result.", width))
@@ -2276,7 +2284,8 @@ func (m Model) renderHierarchyGroup(label string, groupRows []hierarchyRow, widt
 	for _, row := range groupRows {
 		child := row.Issue
 		key := child.Key
-		if m.hierarchyFocus && row.Index == cursor {
+		selected := row.Index == cursor
+		if selected {
 			key = "> " + key
 		} else {
 			key = "  " + key
@@ -2291,6 +2300,9 @@ func (m Model) renderHierarchyGroup(label string, groupRows []hierarchyRow, widt
 	}
 	lines = append(lines, m.detailTable(0, []string{"KEY", "SUMMARY", "STATUS", "PRI", "OWNER"}, tableRows, func(row, col int) lipgloss.Style {
 		if col == 0 {
+			if m.hierarchyFocus && row >= 0 && row < len(groupRows) && groupRows[row].Index == cursor {
+				return m.theme.Selected
+			}
 			return m.theme.Key
 		}
 		return m.theme.Text
@@ -2298,15 +2310,10 @@ func (m Model) renderHierarchyGroup(label string, groupRows []hierarchyRow, widt
 	return strings.Join(lines, "\n")
 }
 
-func (m Model) renderHierarchyPath(parent string, width int) string {
-	lines := []string{m.theme.Muted.Render("Path")}
-	lines = append(lines, m.detailTable(0, []string{"REL", "ISSUE"}, [][]string{{"Parent", truncate(parent, max(12, width-14))}}, func(row, col int) lipgloss.Style {
-		if col == 0 {
-			return m.theme.Muted
-		}
-		return m.theme.Text
-	}))
-	return strings.Join(lines, "\n")
+func (m Model) renderHierarchyPath(rel string, issue string, width int) string {
+	label := m.theme.Muted.Render("Path")
+	relation := m.theme.Muted.Render(rel + ": ")
+	return label + "\n" + relation + m.theme.Text.Render(truncate(issue, max(12, width-lipgloss.Width(rel)-8)))
 }
 
 func (m Model) renderLinkedIssuesPlaceholder(width int) string {

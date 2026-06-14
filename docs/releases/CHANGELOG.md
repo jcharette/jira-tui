@@ -119,6 +119,8 @@ All notable changes to this project should be recorded here.
   status/priority/owner table for parent and epic workflows.
 - Reworked the ticket detail Hierarchy section into grouped Path, Children, Subtasks, and Linked
   Issues areas so parent and subtask relationships scan more clearly.
+- Fixed the Hierarchy section so the selected child row remains visibly marked before activation
+  and root issues still show a Path block for the current issue.
 - Added hierarchy focus inside ticket detail: activating the Hierarchy tab lets users select child
   issues with `j`/`k` and open the selected child with `enter`, using a dedicated key context that
   can later map cleanly to real panes.

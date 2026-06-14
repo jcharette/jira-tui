@@ -1125,6 +1125,35 @@ func TestHierarchySectionRendersGroupedTree(t *testing.T) {
 	}
 }
 
+func TestHierarchySectionShowsCursorBeforeActivation(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 120
+	model.height = 40
+	model.detailFocus = 1
+	model.hierarchyFocus = false
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Parent story", IssueType: "Story"},
+		{Key: "ABC-2", Summary: "Child task", IssueType: "Task", ParentKey: "ABC-1"},
+	}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {Issue: jira.Issue{Key: "ABC-1", Summary: "Parent story", IssueType: "Story"}},
+	}
+
+	view := model.render()
+
+	for _, want := range []string{"Path", "Current", "ABC-1", "Parent story", "enter focus", "> ABC-2"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in %q", want, view)
+		}
+	}
+	if activeKeyContext(model) != keyContextDetail {
+		t.Fatalf("activeKeyContext = %q", activeKeyContext(model))
+	}
+}
+
 func TestHierarchyEnterOpensSelectedGroupedSubtask(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()
