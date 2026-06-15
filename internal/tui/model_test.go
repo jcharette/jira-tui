@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -549,6 +550,16 @@ func lineContaining(value string, needle string) string {
 	return ""
 }
 
+func dialogBorderWidth(value string) int {
+	for _, line := range strings.Split(value, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.Contains(trimmed, "╭") && strings.Contains(trimmed, "╮") {
+			return lipgloss.Width(trimmed)
+		}
+	}
+	return 0
+}
+
 func visibleColumn(value string, needle string) int {
 	index := strings.Index(value, needle)
 	if index < 0 {
@@ -644,7 +655,7 @@ func TestDetailFooterKeepsSecondaryCopyActionsInHelp(t *testing.T) {
 
 	footer := model.renderFooterHelp(keyContextDetail, layout)
 
-	for _, want := range []string{"Ticket Detail", "esc back", "j/k scroll", "tab section", "a ai", "b browser"} {
+	for _, want := range []string{"Ticket Detail", "esc back", "j/k scroll", "tab section", "a ai", "o open"} {
 		if !strings.Contains(footer, want) {
 			t.Fatalf("missing %q in %q", want, footer)
 		}
@@ -653,6 +664,86 @@ func TestDetailFooterKeepsSecondaryCopyActionsInHelp(t *testing.T) {
 		if strings.Contains(footer, hidden) {
 			t.Fatalf("secondary action %q should stay in full help, footer = %q", hidden, footer)
 		}
+	}
+}
+
+func TestDetailOOpensIssueAndNoSortInDetail(t *testing.T) {
+	var opened string
+	withLinkActions(t, func(value string) error {
+		opened = value
+		return nil
+	}, nil)
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 120
+	model.height = 30
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", URL: "https://example.test/browse/ABC-1"},
+		{Key: "ABC-2", URL: "https://example.test/browse/ABC-2"},
+	}
+	model.sort = sortPriority
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "o", Code: 'o'}))
+	next := updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected open command in detail mode")
+	}
+	updated, _ = next.Update(cmd())
+	next = updated.(Model)
+	if opened != "https://example.test/browse/ABC-1" {
+		t.Fatalf("opened = %q", opened)
+	}
+	if next.sort != sortPriority {
+		t.Fatalf("sort changed in detail mode: %v", next.sort)
+	}
+}
+
+func TestDetailOUpperDoesNotSort(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.sort = sortPriority
+	model.issues = []jira.Issue{
+		{Key: "ABC-2"},
+		{Key: "ABC-1"},
+	}
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "O", Code: 'O'}))
+	next := updated.(Model)
+
+	if next.sort != sortPriority {
+		t.Fatalf("detail uppercase sort key changed sort: %v", next.sort)
+	}
+	if !reflect.DeepEqual(next.issues, []jira.Issue{{Key: "ABC-2"}, {Key: "ABC-1"}}) {
+		t.Fatalf("detail uppercase sort reordered issues: %#v", next.issues)
+	}
+}
+
+func TestTableSortKeysStillWork(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeTable
+	model.issues = []jira.Issue{
+		{Key: "ABC-2", Priority: "High"},
+		{Key: "ABC-1", Priority: "Low"},
+	}
+	model.sort = sortPriority
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "o", Code: 'o'}))
+	next := updated.(Model)
+	if next.sort == sortPriority {
+		t.Fatal("lowercase sort key should cycle sort in table")
+	}
+	firstSort := next.sort
+
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "O", Code: 'O'}))
+	next = updated.(Model)
+	if next.sort == firstSort {
+		t.Fatal("uppercase sort key should cycle sort in table")
 	}
 }
 
@@ -3035,7 +3126,7 @@ func TestHierarchyEnterOpensSelectedGroupedSubtask(t *testing.T) {
 	}
 }
 
-func TestDetailIssueActionsOpenAndCopySelectedIssue(t *testing.T) {
+func TestDetailIssueActionsOpenCopyAndIssueURL(t *testing.T) {
 	var opened string
 	var copied []string
 	withLinkActions(t, func(value string) error {
@@ -3059,7 +3150,7 @@ func TestDetailIssueActionsOpenAndCopySelectedIssue(t *testing.T) {
 		},
 	}
 
-	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "b", Code: 'b'}))
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "o", Code: 'o'}))
 	next := updated.(Model)
 	if cmd == nil {
 		t.Fatal("expected browser command")
@@ -4066,6 +4157,1066 @@ func TestCreateIssueTypePickerLoadsFieldsForSelection(t *testing.T) {
 	}
 }
 
+func TestCreateDraftShortcutNotAvailableInIssueTypeSelection(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.createOpen = true
+	model.createProjectKey = "ABC"
+	model.createIssueTypes = []jira.CreateIssueType{
+		{ID: "10001", Name: "Task"},
+		{ID: "10002", Name: "Bug"},
+	}
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "g", Code: 'g'}))
+	next := updated.(Model)
+	if next.detailNotice != "Select an issue type before generating a ticket draft." {
+		t.Fatalf("detailNotice = %q", next.detailNotice)
+	}
+}
+
+func TestCreateIssueTypeSelectionShowsAIGeneratedTab(t *testing.T) {
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, DraftTicket: true, Timeout: time.Second}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 120
+	model.height = 40
+	model.createOpen = true
+	model.createProjectKey = "ABC"
+	model.createIssueTypes = []jira.CreateIssueType{
+		{ID: "10001", Name: "Task"},
+		{ID: "10002", Name: "Bug"},
+	}
+
+	view := model.render()
+	for _, want := range []string{"Manual", "AI Generated", "ISSUE TYPE", "tab mode"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in %q", want, view)
+		}
+	}
+}
+
+func TestCreateIssueModeTabsDoNotTruncateStyledLabels(t *testing.T) {
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, DraftTicket: true, Timeout: time.Second}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
+	)
+	defer model.workers.Stop()
+	model.createAIGeneratedMode = true
+
+	tabs := model.renderCreateModeTabs(64)
+
+	for _, want := range []string{"Manual", "AI Generated"} {
+		if !strings.Contains(tabs, want) {
+			t.Fatalf("missing %q in %q", want, tabs)
+		}
+	}
+	if strings.Contains(tabs, "...") {
+		t.Fatalf("tabs should not byte-truncate styled labels: %q", tabs)
+	}
+	if lipgloss.Width(tabs) < len("Manual AI Generated") {
+		t.Fatalf("visible tab width too small: width=%d tabs=%q", lipgloss.Width(tabs), tabs)
+	}
+	if strings.Contains(tabs, "\x1b[48;") {
+		t.Fatalf("create mode tabs should avoid filled backgrounds: %q", tabs)
+	}
+}
+
+func TestCreateDraftPromptCanRunBeforeIssueTypeSelection(t *testing.T) {
+	runner := &fakeClaudeRunner{
+		result: claude.Result{Text: strings.Join([]string{
+			"Issue Type: Initiative",
+			"Summary: Stand up EKS clusters in staging",
+			"Description: Create a staging EKS cluster rollout plan with platform controllers.",
+		}, "\n")},
+	}
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, DraftTicket: true, Timeout: time.Second}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
+		WithClaudeRunner(runner),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 120
+	model.height = 40
+	model.createOpen = true
+	model.createProjectKey = "ABC"
+	model.createIssueTypes = []jira.CreateIssueType{
+		{ID: "10001", Name: "Initiative"},
+		{ID: "10002", Name: "Story"},
+	}
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "tab", Code: tea.KeyTab}))
+	next := updated.(Model)
+	if !next.createAIGeneratedMode {
+		t.Fatal("expected tab to switch to AI generated mode")
+	}
+	next.createAIPrompt = "I want to create an epic about building EKS clusters in staging."
+	next.createAIPromptEditor = newCreateAIPromptEditor(next.createAIPrompt)
+	next.createAIPromptEditorReady = true
+
+	updated, cmd := next.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected create AI prompt command before issue type selection")
+	}
+	resultMsg := <-runClaudePlanCommandAsyncForTest(cmd)
+	if !strings.Contains(runner.request.Prompt, "Issue Type: Not selected yet") {
+		t.Fatalf("prompt should allow missing issue type, got %q", runner.request.Prompt)
+	}
+	for _, want := range []string{"Available Jira Issue Types:", "- Initiative", "- Story"} {
+		if !strings.Contains(runner.request.Prompt, want) {
+			t.Fatalf("prompt missing Jira issue type %q in %q", want, runner.request.Prompt)
+		}
+	}
+	if strings.Contains(runner.request.Prompt, "- Task") {
+		t.Fatalf("prompt should not guess unsupported issue types: %q", runner.request.Prompt)
+	}
+
+	updated, cmd = next.Update(resultMsg)
+	next = updated.(Model)
+	if next.createIssueType.Name != "Initiative" {
+		t.Fatalf("issue type should apply Claude's Jira-supported recommendation, got %#v", next.createIssueType)
+	}
+	if !next.createFieldsLoading {
+		t.Fatal("expected recommended issue type to start loading create fields")
+	}
+	if cmd == nil {
+		t.Fatal("expected create fields command after AI issue type recommendation")
+	}
+	if next.createAIGeneratedMode {
+		t.Fatal("expected generated draft to return to manual mode")
+	}
+	if next.createSummaryDraft != "Stand up EKS clusters in staging" {
+		t.Fatalf("createSummaryDraft = %q", next.createSummaryDraft)
+	}
+	if !strings.Contains(next.detailNotice, "selected Initiative") {
+		t.Fatalf("detailNotice = %q", next.detailNotice)
+	}
+}
+
+func TestCreateDraftPromptLeavesTypeSelectionWhenRecommendationUnsupported(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.createOpen = true
+	model.createProjectKey = "ABC"
+	model.createIssueTypes = []jira.CreateIssueType{
+		{ID: "10001", Name: "Initiative"},
+		{ID: "10002", Name: "Story"},
+	}
+	model.activeCreateAIPromptReqID = 7
+	model.createAIPromptLoading = true
+
+	updated, cmd := model.Update(createAIPromptResultMsg{
+		id: 7,
+		text: strings.Join([]string{
+			"Issue Type: Task",
+			"Summary: Stand up EKS clusters in staging",
+			"Description: Create a staging EKS cluster rollout plan with platform controllers.",
+		}, "\n"),
+	})
+	next := updated.(Model)
+	if cmd != nil {
+		t.Fatal("unsupported issue type recommendation should not submit create fields")
+	}
+	if next.createIssueType.ID != "" {
+		t.Fatalf("issue type should remain unselected, got %#v", next.createIssueType)
+	}
+	if next.createSummaryDraft != "Stand up EKS clusters in staging" {
+		t.Fatalf("createSummaryDraft = %q", next.createSummaryDraft)
+	}
+	if !strings.Contains(next.detailNotice, "Select an issue type") {
+		t.Fatalf("detailNotice = %q", next.detailNotice)
+	}
+}
+
+func TestCreateDraftPromptCanOpenFromCreateForm(t *testing.T) {
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, DraftTicket: true, Timeout: time.Second}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 120
+	model.height = 35
+	model.createOpen = true
+	model.createProjectKey = "ABC"
+	model.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Task"}
+	model.createFields = nil
+	model.beginCreateForm()
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "tab", Code: tea.KeyTab}))
+	next := updated.(Model)
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "tab", Code: tea.KeyTab}))
+	next = updated.(Model)
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next = updated.(Model)
+
+	if !next.createAIPromptOpen {
+		t.Fatal("expected create AI prompt editor to open")
+	}
+	if next.createAIPromptErr != nil {
+		t.Fatalf("unexpected prompt error: %v", next.createAIPromptErr)
+	}
+}
+
+func TestCreateDraftPromptCanOpenFromCreateFormWithEnter(t *testing.T) {
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, DraftTicket: true, Timeout: time.Second}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 120
+	model.height = 35
+	model.createOpen = true
+	model.createProjectKey = "ABC"
+	model.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Task"}
+	model.createFields = []jira.CreateField{
+		{ID: "summary", Name: "Summary", Required: true},
+		{ID: "description", Name: "Description"},
+	}
+	model.beginCreateForm()
+	model.createSummaryDraft = "internal load balancer"
+	model.createDescriptionDraft = "need ecs service-to-service traffic over private alb"
+	model.createSummaryEditor = newSummaryEditor(model.createSummaryDraft)
+	model.createDescriptionEditor = newCommentEditor(model.createDescriptionDraft)
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "tab", Code: tea.KeyTab}))
+	next := updated.(Model)
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "tab", Code: tea.KeyTab}))
+	next = updated.(Model)
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next = updated.(Model)
+
+	if !next.createAIPromptOpen {
+		t.Fatal("expected create AI prompt editor to open via tab selection")
+	}
+}
+
+func TestCreateDraftPromptVisibleButUnavailableShowsNotice(t *testing.T) {
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, DraftTicket: true, Timeout: time.Second}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: false, Command: "claude", Message: "Claude version check failed", Err: errors.New("some error")}),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 120
+	model.height = 35
+	model.createOpen = true
+	model.createProjectKey = "ABC"
+	model.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Task"}
+	model.createFields = []jira.CreateField{
+		{ID: "summary", Name: "Summary", Required: true},
+		{ID: "description", Name: "Description"},
+	}
+	model.beginCreateForm()
+
+	view := model.render()
+	if !strings.Contains(view, "enter generate") {
+		t.Fatalf("expected create draft key in footer, got %q", view)
+	}
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "tab", Code: tea.KeyTab}))
+	next := updated.(Model)
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "tab", Code: tea.KeyTab}))
+	next = updated.(Model)
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next = updated.(Model)
+	if next.createAIPromptOpen {
+		t.Fatal("create draft prompt should not open while Claude is unavailable")
+	}
+	if next.detailNotice != "Claude ticket draft generation is currently unavailable." {
+		t.Fatalf("detailNotice = %q", next.detailNotice)
+	}
+}
+
+func TestCreateDraftPromptSubmissionParsesSummaryAndDescription(t *testing.T) {
+	runner := &fakeClaudeRunner{
+		result: claude.Result{
+			Text: strings.Join([]string{
+				"Summary: Add internal load balancer support",
+				"Description: Create a private ALB for ECS internal traffic.",
+				"",
+				"Implementation notes",
+				"- add module wiring",
+			}, "\n"),
+		},
+	}
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, DraftTicket: true, Timeout: time.Second}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
+		WithClaudeRunner(runner),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 120
+	model.height = 35
+	model.createOpen = true
+	model.createProjectKey = "ABC"
+	model.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Task"}
+	model.createFields = []jira.CreateField{
+		{ID: "summary", Name: "Summary", Required: true},
+		{ID: "description", Name: "Description"},
+	}
+	model.beginCreateForm()
+	model.createSummaryDraft = "internal load balancer"
+	model.createDescriptionDraft = "need ecs service-to-service traffic over private alb"
+	model.createSummaryEditor = newSummaryEditor(model.createSummaryDraft)
+	model.createDescriptionEditor = newCommentEditor(model.createDescriptionDraft)
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "tab", Code: tea.KeyTab}))
+	next := updated.(Model)
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "tab", Code: tea.KeyTab}))
+	next = updated.(Model)
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next = updated.(Model)
+
+	if !next.createAIPromptOpen {
+		t.Fatal("expected create AI prompt editor to open")
+	}
+	next.createAIPrompt = "Draft a ticket for internal-only load balancers."
+	next.createAIPromptEditor = newCreateAIPromptEditor(next.createAIPrompt)
+	next.createAIPromptEditorReady = true
+	updated, cmd := next.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected create AI prompt command")
+	}
+	resultMsg := <-runClaudePlanCommandAsyncForTest(cmd)
+	result, ok := resultMsg.(createAIPromptResultMsg)
+	if !ok {
+		t.Fatalf("expected createAIPromptResultMsg, got %T", resultMsg)
+	}
+	if result.err != nil {
+		t.Fatalf("expected no error, got %v", result.err)
+	}
+	for _, want := range []string{"Project: ABC", "Issue Type: Task", "User request", "Draft a ticket for internal-only load balancers."} {
+		if !strings.Contains(runner.request.Prompt, want) {
+			t.Fatalf("prompt missing %q in %q", want, runner.request.Prompt)
+		}
+	}
+	for _, want := range []string{"Current draft", "internal load balancer", "need ecs service-to-service traffic over private alb"} {
+		if !strings.Contains(runner.request.Prompt, want) {
+			t.Fatalf("prompt missing current draft %q in %q", want, runner.request.Prompt)
+		}
+	}
+
+	updated, _ = next.Update(resultMsg)
+	next = updated.(Model)
+	if next.createAIPromptOpen {
+		t.Fatal("expected prompt modal to close after applying generated draft")
+	}
+	if next.createSummaryDraft != "Add internal load balancer support" {
+		t.Fatalf("createSummaryDraft = %q", next.createSummaryDraft)
+	}
+	if next.createDescriptionDraft != "Create a private ALB for ECS internal traffic." {
+		t.Fatalf("createDescriptionDraft = %q", next.createDescriptionDraft)
+	}
+	if !strings.Contains(next.detailNotice, "Applied Claude ticket draft") {
+		t.Fatalf("detailNotice = %q", next.detailNotice)
+	}
+}
+
+func TestCreateDraftPromptKeepsOpenOnMissingSummary(t *testing.T) {
+	runner := &fakeClaudeRunner{
+		result: claude.Result{
+			Text: strings.Join([]string{
+				"Description: Create a private ALB for ECS internal traffic.",
+				"",
+				"Implementation notes",
+				"- add module wiring",
+			}, "\n"),
+		},
+	}
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, DraftTicket: true, Timeout: time.Second}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
+		WithClaudeRunner(runner),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 120
+	model.height = 35
+	model.createOpen = true
+	model.createProjectKey = "ABC"
+	model.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Task"}
+	model.createFields = []jira.CreateField{
+		{ID: "summary", Name: "Summary", Required: true},
+		{ID: "description", Name: "Description"},
+	}
+	model.beginCreateForm()
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "tab", Code: tea.KeyTab}))
+	next := updated.(Model)
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "tab", Code: tea.KeyTab}))
+	next = updated.(Model)
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next = updated.(Model)
+
+	if !next.createAIPromptOpen {
+		t.Fatal("expected create AI prompt editor to open")
+	}
+	next.createAIPrompt = "Draft a ticket for internal-only load balancers."
+	next.createAIPromptEditor = newCreateAIPromptEditor(next.createAIPrompt)
+	next.createAIPromptEditorReady = true
+	updated, cmd := next.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected create AI prompt command")
+	}
+	resultMsg := <-runClaudePlanCommandAsyncForTest(cmd)
+	result, ok := resultMsg.(createAIPromptResultMsg)
+	if !ok {
+		t.Fatalf("expected createAIPromptResultMsg, got %T", resultMsg)
+	}
+	if result.err != nil {
+		t.Fatalf("expected no error, got %v", result.err)
+	}
+
+	updated, _ = next.Update(resultMsg)
+	next = updated.(Model)
+	if !next.createAIPromptOpen {
+		t.Fatal("expected create AI prompt to stay open on parse failure")
+	}
+	if next.createAIPromptErr == nil || !strings.Contains(next.createAIPromptErr.Error(), "missing a summary") {
+		t.Fatalf("expected summary parse error, got %v", next.createAIPromptErr)
+	}
+	if next.createSummaryDraft != "" {
+		t.Fatalf("createSummaryDraft = %q", next.createSummaryDraft)
+	}
+}
+
+func TestParseCreateIssueDraftExtractsSummaryAndDescription(t *testing.T) {
+	summary, description := parseCreateIssueDraft(strings.Join([]string{
+		"Review",
+		"Some quick thoughts.",
+		"Summary: Add internal load balancer support",
+		"Description:",
+		"Create a private ALB for ECS internal traffic.",
+		"",
+		"Acceptance Criteria",
+		"- should expose route53 record",
+	}, "\n"))
+	if summary != "Add internal load balancer support" {
+		t.Fatalf("summary = %q", summary)
+	}
+	if description != "Create a private ALB for ECS internal traffic." {
+		t.Fatalf("description = %q", description)
+	}
+}
+
+func TestParseCreateIssueDraftFieldsExtractsNamedSections(t *testing.T) {
+	fields := parseCreateIssueDraftFields(strings.Join([]string{
+		"Summary: Install Kubernetes",
+		"Description:",
+		"Provision clusters.",
+		"",
+		"Components",
+		"acheron-migrations",
+		"active-users-report",
+		"",
+		"Investment Category",
+		"Growth",
+		"",
+		"Priority",
+		"P0 - Critical",
+	}, "\n"))
+
+	if fields["components"] != "acheron-migrations\nactive-users-report" {
+		t.Fatalf("components = %q", fields["components"])
+	}
+	if fields["investmentcategory"] != "Growth" {
+		t.Fatalf("investment category = %q fields=%#v", fields["investmentcategory"], fields)
+	}
+	if fields["priority"] != "P0 - Critical" {
+		t.Fatalf("priority = %q", fields["priority"])
+	}
+}
+
+func TestParseCreateIssueOpenQuestionsExtractsActionableQuestions(t *testing.T) {
+	questions := parseCreateIssueOpenQuestions(strings.Join([]string{
+		"Summary: Build Kubernetes platform",
+		"Description:",
+		"Provision clusters.",
+		"",
+		"Open Questions",
+		"- Which AWS accounts are in scope?",
+		"- Is this for staging only or production too?",
+		"",
+		"Priority",
+		"P2 - Medium",
+	}, "\n"))
+
+	if len(questions) != 2 {
+		t.Fatalf("questions = %#v", questions)
+	}
+	if questions[0].Question != "Which AWS accounts are in scope?" {
+		t.Fatalf("question[0] = %#v", questions[0])
+	}
+	if questions[1].Question != "Is this for staging only or production too?" {
+		t.Fatalf("question[1] = %#v", questions[1])
+	}
+}
+
+func TestCreateAIDraftKeepsOpenQuestionsOutOfDescription(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = DEVOPS")
+	defer model.workers.Stop()
+	model.loading = false
+	model.createOpen = true
+	model.createProjectKey = "DEVOPS"
+	model.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Epic"}
+	model.activeCreateAIPromptReqID = 12
+	model.createAIPromptLoading = true
+
+	updated, _ := model.Update(createAIPromptResultMsg{
+		id: 12,
+		text: strings.Join([]string{
+			"Summary: Build Kubernetes platform",
+			"Description:",
+			"Provision clusters.",
+			"",
+			"Open Questions",
+			"- Which AWS accounts are in scope?",
+			"- Is this staging only?",
+		}, "\n"),
+	})
+	next := updated.(Model)
+
+	if strings.Contains(next.createDescriptionDraft, "Open Questions") {
+		t.Fatalf("description should not include open questions: %q", next.createDescriptionDraft)
+	}
+	if len(next.createAIQuestions) != 2 {
+		t.Fatalf("questions = %#v", next.createAIQuestions)
+	}
+}
+
+func TestCreateFormRendersOpenQuestionsPanel(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = DEVOPS")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 140
+	model.height = 45
+	model.createOpen = true
+	model.createProjectKey = "DEVOPS"
+	model.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Epic"}
+	model.createFields = []jira.CreateField{
+		{ID: "summary", Name: "Summary", SchemaSystem: "summary", SchemaType: "string"},
+		{ID: "description", Name: "Description", SchemaSystem: "description", SchemaType: "string"},
+	}
+	model.createAIQuestions = []createAIQuestion{
+		{Question: "Which AWS accounts are in scope?"},
+		{Question: "Is this staging only?", Answer: "Staging first."},
+	}
+	model.beginCreateForm()
+	model.createFieldFocus = model.createQuestionsFieldIndex()
+
+	view := model.render()
+
+	for _, want := range []string{"Open Questions", "> Which AWS accounts are in scope?", "answered Is this staging only?", "enter answer"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in:\n%s", want, view)
+		}
+	}
+}
+
+func TestCreateQuestionAnswerStoresLocalFeedback(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = DEVOPS")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 140
+	model.height = 45
+	model.createOpen = true
+	model.createProjectKey = "DEVOPS"
+	model.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Epic"}
+	model.createFields = []jira.CreateField{
+		{ID: "summary", Name: "Summary", SchemaSystem: "summary", SchemaType: "string"},
+		{ID: "description", Name: "Description", SchemaSystem: "description", SchemaType: "string"},
+	}
+	model.createAIQuestions = []createAIQuestion{{Question: "Which AWS accounts are in scope?"}}
+	model.beginCreateForm()
+	model.createFieldFocus = model.createQuestionsFieldIndex()
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+	if !next.createAIQuestionAnswering {
+		t.Fatal("expected answer editor to open")
+	}
+	updated, _ = next.Update(tea.PasteMsg{Content: "All development AWS accounts."})
+	next = updated.(Model)
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next = updated.(Model)
+
+	if next.createAIQuestionAnswering {
+		t.Fatal("expected answer editor to close")
+	}
+	if next.createAIQuestions[0].Answer != "All development AWS accounts." {
+		t.Fatalf("answer = %q", next.createAIQuestions[0].Answer)
+	}
+}
+
+func TestCreateQuestionAnswerEnterSavesAndMovesToNextQuestion(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = DEVOPS")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 140
+	model.height = 45
+	model.createOpen = true
+	model.createProjectKey = "DEVOPS"
+	model.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Epic"}
+	model.createFields = []jira.CreateField{
+		{ID: "summary", Name: "Summary", SchemaSystem: "summary", SchemaType: "string"},
+		{ID: "description", Name: "Description", SchemaSystem: "description", SchemaType: "string"},
+	}
+	model.createAIQuestions = []createAIQuestion{
+		{Question: "Which Kubernetes flavor should we use?"},
+		{Question: "Which AWS accounts are in scope?"},
+	}
+	model.beginCreateForm()
+	model.createFieldFocus = model.createQuestionsFieldIndex()
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+	updated, _ = next.Update(tea.PasteMsg{Content: "EKS"})
+	next = updated.(Model)
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next = updated.(Model)
+
+	if next.createAIQuestions[0].Answer != "EKS" {
+		t.Fatalf("first answer = %q", next.createAIQuestions[0].Answer)
+	}
+	if next.selectedCreateAIQuestion != 1 {
+		t.Fatalf("selected question = %d, want 1", next.selectedCreateAIQuestion)
+	}
+	if !next.createAIQuestionAnswering {
+		t.Fatal("expected answer editor to stay open on the next question")
+	}
+	if value := next.createAIQuestionEditor.Value(); value != "" {
+		t.Fatalf("next answer editor should start empty, got %q", value)
+	}
+}
+
+func TestCreateQuestionsPanelShowsAndRunsRefineWithAnswers(t *testing.T) {
+	runner := &fakeClaudeRunner{
+		result: claude.Result{Text: strings.Join([]string{
+			"Summary: Build Kubernetes platform",
+			"Description: Refined draft.",
+		}, "\n")},
+	}
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = DEVOPS",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, DraftTicket: true, Timeout: time.Second}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
+		WithClaudeRunner(runner),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 140
+	model.height = 45
+	model.createOpen = true
+	model.createProjectKey = "DEVOPS"
+	model.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Epic"}
+	model.createFields = []jira.CreateField{
+		{ID: "summary", Name: "Summary", SchemaSystem: "summary", SchemaType: "string"},
+		{ID: "description", Name: "Description", SchemaSystem: "description", SchemaType: "string"},
+	}
+	model.createSummaryDraft = "Build Kubernetes platform"
+	model.createDescriptionDraft = "Provision clusters."
+	model.createAIQuestions = []createAIQuestion{
+		{Question: "Which Kubernetes flavor should we use?", Answer: "EKS"},
+		{Question: "Which AWS accounts are in scope?", Answer: "All development accounts."},
+	}
+	model.beginCreateForm()
+	model.createFieldFocus = model.createQuestionsFieldIndex()
+
+	view := model.render()
+	if !strings.Contains(view, "ctrl+r refine with answers") {
+		t.Fatalf("questions panel should expose refine action:\n%s", view)
+	}
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+r"}))
+	next := updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected ctrl+r to submit Claude refinement")
+	}
+	if !next.createAIPromptLoading {
+		t.Fatal("expected create AI prompt loading after refine")
+	}
+	resultMsg := <-runClaudePlanCommandAsyncForTest(cmd)
+	if _, ok := resultMsg.(createAIPromptResultMsg); !ok {
+		t.Fatalf("expected createAIPromptResultMsg, got %T", resultMsg)
+	}
+	for _, want := range []string{"User answers to Open Questions", "Q: Which Kubernetes flavor should we use?", "A: EKS", "Q: Which AWS accounts are in scope?", "A: All development accounts."} {
+		if !strings.Contains(runner.request.Prompt, want) {
+			t.Fatalf("prompt missing %q in:\n%s", want, runner.request.Prompt)
+		}
+	}
+}
+
+func TestCreateDraftPromptIncludesOpenQuestionAnswers(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = DEVOPS")
+	defer model.workers.Stop()
+	model.createProjectKey = "DEVOPS"
+	model.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Epic"}
+	model.createSummaryDraft = "Build Kubernetes platform"
+	model.createDescriptionDraft = "Provision clusters."
+	model.createAIQuestions = []createAIQuestion{
+		{Question: "Which AWS accounts are in scope?", Answer: "All development AWS accounts."},
+		{Question: "Is this staging only?"},
+	}
+
+	prompt := model.buildCreateIssueDraftPrompt("Refine with my answers.")
+
+	for _, want := range []string{"User answers to Open Questions", "Q: Which AWS accounts are in scope?", "A: All development AWS accounts.", "Still unanswered Open Questions", "- Is this staging only?"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q in:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestCreateAIDraftAppliesSupportedFieldsAfterMetadataLoads(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = DEVOPS")
+	defer model.workers.Stop()
+	model.loading = false
+	model.createOpen = true
+	model.createProjectKey = "DEVOPS"
+	model.activeCreateAIPromptReqID = 12
+	model.createAIPromptLoading = true
+
+	updated, _ := model.Update(createAIPromptResultMsg{
+		id: 12,
+		text: strings.Join([]string{
+			"Summary: Install Kubernetes across all development AWS accounts",
+			"Description:",
+			"Provision and standardize Kubernetes across development workloads.",
+			"",
+			"Components",
+			"acheron-migrations",
+			"active-users-report",
+			"",
+			"Investment Category",
+			"Growth",
+			"",
+			"Priority",
+			"P0 - Critical",
+		}, "\n"),
+	})
+	next := updated.(Model)
+
+	next.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Initiative"}
+	next.activeCreateFieldsReqID = 22
+	updated, _ = next.Update(workerResultMsg{result: worker.Result{
+		ID:   22,
+		Kind: worker.KindGetCreateFields,
+		GetCreateFields: &worker.GetCreateFieldsResult{
+			ProjectKey:  "DEVOPS",
+			IssueTypeID: "10001",
+			Fields: []jira.CreateField{
+				{ID: "summary", Name: "Summary", SchemaSystem: "summary", SchemaType: "string"},
+				{ID: "description", Name: "Description", SchemaSystem: "description", SchemaType: "string"},
+				{ID: "components", Name: "Components", SchemaSystem: "components", SchemaType: "array", AllowedValues: []jira.FieldOption{
+					{ID: "c1", Name: "acheron-migrations"},
+					{ID: "c2", Name: "active-users-report"},
+				}},
+				{ID: "customfield_10010", Name: "Investment Category", SchemaType: "option", AllowedValues: []jira.FieldOption{
+					{ID: "i1", Name: "KTLO"},
+					{ID: "i2", Name: "Growth"},
+				}},
+				{ID: "priority", Name: "Priority", SchemaSystem: "priority", SchemaType: "priority", AllowedValues: []jira.FieldOption{
+					{ID: "p0", Name: "P0 - Critical"},
+					{ID: "p2", Name: "P2 - Medium"},
+				}},
+			},
+		},
+	}})
+	next = updated.(Model)
+
+	if next.createSummaryDraft != "Install Kubernetes across all development AWS accounts" {
+		t.Fatalf("summary = %q", next.createSummaryDraft)
+	}
+	if got := next.createDynamicSelections["components"]; got != 0 {
+		t.Fatalf("components selection = %d", got)
+	}
+	if got := next.createDynamicSelections["customfield_10010"]; got != 1 {
+		t.Fatalf("investment category selection = %d", got)
+	}
+	if got := next.createDynamicSelections["priority"]; got != 0 {
+		t.Fatalf("priority selection = %d", got)
+	}
+}
+
+func TestCreateFormScrollsToFocusedLaterFields(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = DEVOPS")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 100
+	model.height = 24
+	model.createOpen = true
+	model.createProjectKey = "DEVOPS"
+	model.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Initiative"}
+	model.createFields = []jira.CreateField{
+		{ID: "summary", Name: "Summary", SchemaSystem: "summary", SchemaType: "string"},
+		{ID: "description", Name: "Description", SchemaSystem: "description", SchemaType: "string"},
+		{ID: "components", Name: "Components", SchemaSystem: "components", SchemaType: "array", AllowedValues: []jira.FieldOption{{ID: "c1", Name: "Component One"}}},
+		{ID: "customfield_1", Name: "Release Instructions", SchemaType: "string"},
+		{ID: "customfield_2", Name: "Investment Category", SchemaType: "option", AllowedValues: []jira.FieldOption{{ID: "g", Name: "Growth"}}},
+		{ID: "labels", Name: "Labels", SchemaSystem: "labels", SchemaType: "string"},
+		{ID: "priority", Name: "Priority", SchemaSystem: "priority", SchemaType: "priority", AllowedValues: []jira.FieldOption{{ID: "p0", Name: "P0 - Critical"}}},
+	}
+	model.beginCreateForm()
+	model.createFieldFocus = model.createDynamicFieldFocusIndex(4)
+
+	view := model.render()
+
+	if !strings.Contains(view, "Priority") || !strings.Contains(view, "P0 - Critical") {
+		t.Fatalf("focused later field should be visible:\n%s", view)
+	}
+	if strings.Contains(view, "Components") && strings.Contains(view, "Release Instructions") && strings.Contains(view, "Investment Category") {
+		t.Fatalf("create modal did not window long body:\n%s", view)
+	}
+	if !strings.Contains(view, "Create Lines") {
+		t.Fatalf("expected scroll indicator in long create form:\n%s", view)
+	}
+}
+
+func TestCreateFormRendersCompactMetadataRowsWhenNotFocused(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = DEVOPS", WithClaudeConfig(ClaudeConfig{Enabled: true, DraftTicket: true}), WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true}))
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 120
+	model.height = 40
+	model.createOpen = true
+	model.createProjectKey = "DEVOPS"
+	model.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Epic"}
+	model.createFields = []jira.CreateField{
+		{ID: "summary", Name: "Summary", SchemaSystem: "summary", SchemaType: "string"},
+		{ID: "description", Name: "Description", SchemaSystem: "description", SchemaType: "string"},
+		{ID: "components", Name: "Components", SchemaSystem: "components", SchemaType: "array", AllowedValues: []jira.FieldOption{
+			{ID: "c1", Name: "acheron-migrations"},
+			{ID: "c2", Name: "active-users-report"},
+			{ID: "c3", Name: "ad-hoc-projects"},
+		}},
+		{ID: "priority", Name: "Priority", SchemaSystem: "priority", SchemaType: "priority", AllowedValues: []jira.FieldOption{
+			{ID: "p0", Name: "P0 - Critical"},
+			{ID: "p1", Name: "P1 - High"},
+		}},
+	}
+	model.beginCreateForm()
+	model.createDynamicSelections["components"] = 1
+	model.createFieldFocus = createSummaryFieldIndex
+
+	view := model.render()
+
+	for _, want := range []string{"Components: active-users-report", "Priority: P0 - Critical", "Generate Draft"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in:\n%s", want, view)
+		}
+	}
+	for _, unwanted := range []string{"ad-hoc-projects", "P1 - High", "Options 1-"} {
+		if strings.Contains(view, unwanted) {
+			t.Fatalf("unfocused metadata should stay compact, found %q in:\n%s", unwanted, view)
+		}
+	}
+	if strings.Index(view, "Generate Draft") > strings.Index(view, "Components") {
+		t.Fatalf("Generate Draft should appear before metadata fields:\n%s", view)
+	}
+}
+
+func TestCreateFormFocusedPickerExpandsOptions(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = DEVOPS")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 120
+	model.height = 35
+	model.createOpen = true
+	model.createProjectKey = "DEVOPS"
+	model.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Epic"}
+	model.createFields = []jira.CreateField{
+		{ID: "summary", Name: "Summary", SchemaSystem: "summary", SchemaType: "string"},
+		{ID: "description", Name: "Description", SchemaSystem: "description", SchemaType: "string"},
+		{ID: "components", Name: "Components", SchemaSystem: "components", SchemaType: "array", AllowedValues: []jira.FieldOption{
+			{ID: "c1", Name: "acheron-migrations"},
+			{ID: "c2", Name: "active-users-report"},
+		}},
+	}
+	model.beginCreateForm()
+	model.createFieldFocus = model.createDynamicFieldFocusIndex(0)
+
+	view := model.render()
+
+	for _, want := range []string{"Components", "acheron-migrations", "active-users-report"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing focused picker value %q in:\n%s", want, view)
+		}
+	}
+}
+
+func TestCreateFormCanChangeTypeWithoutClearingDraft(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = DEVOPS")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 120
+	model.height = 35
+	model.createOpen = true
+	model.createProjectKey = "DEVOPS"
+	model.createIssueTypes = []jira.CreateIssueType{
+		{ID: "10001", Name: "Epic"},
+		{ID: "10002", Name: "Story"},
+	}
+	model.selectedCreateIssueType = 0
+	model.createIssueType = model.createIssueTypes[0]
+	model.createFields = []jira.CreateField{
+		{ID: "summary", Name: "Summary", SchemaSystem: "summary", SchemaType: "string"},
+		{ID: "description", Name: "Description", SchemaSystem: "description", SchemaType: "string"},
+	}
+	model.createSummaryDraft = "Deploy ArgoCD to Kubernetes clusters"
+	model.createDescriptionDraft = "Enable GitOps based deployments across clusters."
+	model.beginCreateForm()
+	model.createFieldFocus = createTypeFieldIndex
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+	if !next.createChangingType {
+		t.Fatal("expected type picker to open from focused Type row")
+	}
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "down", Code: tea.KeyDown}))
+	next = updated.(Model)
+	updated, cmd := next.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next = updated.(Model)
+
+	if next.createIssueType.Name != "Story" {
+		t.Fatalf("issue type = %#v", next.createIssueType)
+	}
+	if next.createSummaryDraft != "Deploy ArgoCD to Kubernetes clusters" {
+		t.Fatalf("summary cleared while changing type: %q", next.createSummaryDraft)
+	}
+	if next.createDescriptionDraft != "Enable GitOps based deployments across clusters." {
+		t.Fatalf("description cleared while changing type: %q", next.createDescriptionDraft)
+	}
+	if !next.createFieldsLoading {
+		t.Fatal("expected changing type to load new create fields")
+	}
+	if cmd == nil {
+		t.Fatal("expected create fields command for new issue type")
+	}
+}
+
+func TestCreateAIPromptLoadingSuppressesPartialAssistantAndDebugDetails(t *testing.T) {
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = DEVOPS",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, DraftTicket: true, Timeout: 2 * time.Minute, Command: "/Users/joncha/.local/bin/claude"}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "/Users/joncha/.local/bin/claude"}),
+	)
+	defer model.workers.Stop()
+	model.createAIPromptLoading = true
+	model.createAIPromptStartedAt = time.Date(2026, 6, 15, 12, 2, 30, 0, time.Local)
+	model.now = func() time.Time { return model.createAIPromptStartedAt.Add(21 * time.Second) }
+	model.createAIPromptProgress = []claude.Event{
+		{Kind: "output", Text: "Assistant: activity, IAM/access, logging, baseline add-ons. - Could ask follow-up questions."},
+	}
+
+	body := strings.Join(model.renderCreateAIPromptBody(90), "\n")
+
+	if !strings.Contains(body, "receiving response") {
+		t.Fatalf("loading body should keep a stable receiving status:\n%s", body)
+	}
+	for _, noisy := range []string{"Assistant:", "activity, IAM/access", "/Users/joncha", "Deadline:", "Started:"} {
+		if strings.Contains(body, noisy) {
+			t.Fatalf("loading body should hide noisy/debug detail %q:\n%s", noisy, body)
+		}
+	}
+}
+
+func TestCreateDialogUsesResponsiveWidth(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = DEVOPS")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 150
+	model.height = 40
+	model.createOpen = true
+	model.createProjectKey = "DEVOPS"
+	model.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Epic"}
+	model.createFields = []jira.CreateField{
+		{ID: "summary", Name: "Summary", SchemaSystem: "summary", SchemaType: "string"},
+		{ID: "description", Name: "Description", SchemaSystem: "description", SchemaType: "string"},
+	}
+	model.beginCreateForm()
+
+	width := dialogBorderWidth(model.render())
+
+	if width < 104 {
+		t.Fatalf("create dialog width = %d, want wider responsive modal", width)
+	}
+}
+
+func TestCreateSummaryFocusedUsesMultilineEditor(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = DEVOPS")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 140
+	model.height = 40
+	model.createOpen = true
+	model.createProjectKey = "DEVOPS"
+	model.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Epic"}
+	model.createFields = []jira.CreateField{
+		{ID: "summary", Name: "Summary", SchemaSystem: "summary", SchemaType: "string"},
+		{ID: "description", Name: "Description", SchemaSystem: "description", SchemaType: "string"},
+	}
+	model.createSummaryDraft = "Build Kubernetes clusters across all FloQast development AWS accounts"
+	model.beginCreateForm()
+	model.createFieldFocus = createSummaryFieldIndex
+
+	value := model.renderCreateSummaryValue(100)
+
+	if got := strings.Count(value, "\n") + 1; got < 3 {
+		t.Fatalf("focused summary editor should be multiline, rows=%d value:\n%s", got, value)
+	}
+}
+
+func TestCreateDescriptionFocusedGetsMoreEditorRows(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = DEVOPS")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 140
+	model.height = 50
+	model.createOpen = true
+	model.createProjectKey = "DEVOPS"
+	model.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Epic"}
+	model.createFields = []jira.CreateField{
+		{ID: "summary", Name: "Summary", SchemaSystem: "summary", SchemaType: "string"},
+		{ID: "description", Name: "Description", SchemaSystem: "description", SchemaType: "string"},
+	}
+	model.beginCreateForm()
+	model.createFieldFocus = createDescriptionFieldIndex
+
+	value := model.renderCreateDescriptionValue(64)
+
+	if got := strings.Count(value, "\n") + 1; got < 16 {
+		t.Fatalf("focused description editor should have more vertical space, rows=%d value:\n%s", got, value)
+	}
+}
+
 func TestCreateFormSubmitsSummaryAndDescription(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()
@@ -4179,7 +5330,7 @@ func TestCreateFormBoundsLongPickerOptions(t *testing.T) {
 		{ID: "components", Name: "Components", SchemaSystem: "components", SchemaType: "array", AllowedValues: options},
 	}
 	model.beginCreateForm()
-	model.createFieldFocus = 2
+	model.createFieldFocus = model.createDynamicFieldFocusIndex(0)
 
 	view := model.render()
 
@@ -6135,6 +7286,9 @@ func runClaudePlanCommandAsyncForTest(cmd tea.Cmd) <-chan tea.Msg {
 						results <- result
 					}
 					if _, ok := result.(claudeAssistResultMsg); ok {
+						results <- result
+					}
+					if _, ok := result.(createAIPromptResultMsg); ok {
 						results <- result
 					}
 				}(sub)

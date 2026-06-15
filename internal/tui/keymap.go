@@ -167,7 +167,7 @@ func detailBindings() []keyBinding {
 		{Keys: []string{"h"}, Label: "hierarchy", Description: "Jump to the Hierarchy section.", Group: "Sections"},
 		{Keys: []string{"l"}, Label: "links", Description: "Jump to and focus the Links section.", Group: "Links"},
 		{Keys: []string{"a"}, Label: "ai", Description: "Open contextual AI for supported sections, or jump to the Claude/AI section when available.", Group: "AI", Footer: true},
-		{Keys: []string{"b"}, Label: "browser", Description: "Open the selected Jira issue in the browser.", Group: "Issue", Footer: true},
+		{Keys: []string{"o"}, Label: "open", Description: "Open the selected Jira issue in the browser.", Group: "Issue", Footer: true},
 		{Keys: []string{"s"}, Label: "summary", Description: "Focus the Summary field for metadata-backed editing.", Group: "Fields", Footer: true},
 		{Keys: []string{"p"}, Label: "priority", Description: "Edit Priority with Jira edit metadata.", Group: "Fields", Footer: true},
 		{Keys: []string{"c"}, Label: "key", Description: "Copy the selected issue key.", Group: "Issue"},

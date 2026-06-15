@@ -4,6 +4,12 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Added an interactive Open Questions panel to Claude-assisted ticket creation so users can answer
+  draft blockers locally and feed those answers into the next AI refinement prompt.
+- Widened create-ticket dialogs, made Summary/Description editing roomier, and simplified
+  create-ticket AI loading output so partial Claude/debug details stay out of the normal modal.
+- Made Claude-assisted ticket creation use only Jira-returned issue types, auto-apply matching AI
+  type recommendations, and allow changing issue type from the create form without losing the draft.
 - Added persistent TOML config with a Bubble Tea config editor and required default project setup.
 - Renamed the installed binary to `jira` and added `make install-user` for updating `~/bin/jira`.
 - Added configurable appearance colors and shared Lip Gloss styling for config and issue screens.
@@ -84,6 +90,8 @@ All notable changes to this project should be recorded here.
   rows advertise their movement and activation commands before entering a sub-mode.
 - Routed selected-section Hierarchy, Links, and Actions commands before sub-mode activation so
   footer hints match actual key behavior.
+- Clarified detail-mode key semantics so `o` opens the selected issue URL in browser, while
+  `o`/`O` keep sorting behavior on the issue table.
 - Added a direct Status section in ticket detail that loads available Jira transitions through the
   worker pool, renders a Jira-populated transition picker, and applies the selected transition.
 - Added Jira client and worker support for listing and applying issue status transitions.

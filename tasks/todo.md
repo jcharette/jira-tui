@@ -1,5 +1,97 @@
 # Task Plan
 
+## Create Ticket Open Questions Loop
+
+- [x] Add tests that AI create drafts parse `Open Questions` separately from Description.
+- [x] Add tests that create form renders Open Questions as a selectable local feedback panel.
+- [x] Add tests that answering an Open Question stores local feedback without writing Jira.
+- [x] Add tests that refinement prompts include current draft plus question answers.
+- [x] Implement Open Questions parsing/state/rendering.
+- [x] Implement question answer editor and refine prompt context.
+- [x] Update lessons/review notes.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+
+### Create Ticket Open Questions Loop Scope
+
+Use the inline Questions panel approach. When Claude returns `Open Questions`, the create-ticket
+form should extract them from the generated draft and present them as actionable local feedback
+items. The user can focus the Questions panel, select a question, answer it locally, then run
+Generate Draft again so Claude receives the current draft plus those answers. Jira writes remain
+gated behind the normal explicit create action.
+
+### Create Ticket Open Questions Loop Review
+
+- AI create drafts now parse `Open Questions` into local actionable questions instead of leaving
+  them buried in Description.
+- The create form renders an `Open Questions` panel when Claude returned questions.
+- Users can focus the panel, select a question, press `enter`, type an answer, and save it locally
+  with `ctrl+s`.
+- While answering, `enter` saves the current answer and advances to the next question so users can
+  answer several questions before spending another Claude request.
+- The focused Questions panel exposes `ctrl+r refine with answers` so users can resync Claude
+  without tabbing away to find Generate Draft.
+- The next Generate Draft prompt includes answered questions and still-unanswered questions so
+  Claude can refine the existing draft from user feedback.
+- Existing Jira create remains the only write path; question answers are local drafting context.
+
+## Create Ticket Modal Readability
+
+- [x] Add tests that create-ticket AI loading stays calm and hides stream/debug detail.
+- [x] Add tests that create-ticket dialogs use responsive width instead of the old narrow cap.
+- [x] Add tests that focused Summary and Description editors get more usable space.
+- [x] Implement calmer create-ticket AI loading copy.
+- [x] Implement responsive create-ticket modal width and larger editors.
+- [x] Update lessons/review notes.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+
+### Create Ticket Modal Readability Scope
+
+Clean up the create-ticket modal after AI generation. The normal Claude waiting state should show
+that the subprocess is active without streaming noisy partial assistant snippets or command/debug
+details. The create form should use more of the terminal width, Summary should behave like a small
+multi-line editor when focused, and Description should get primary vertical space while focused.
+
+### Create Ticket Modal Readability Review
+
+- Create-ticket AI loading now shows stable response/elapsed state and hides partial assistant text,
+  command path, start time, and deadline from the normal modal.
+- Create-ticket dialogs use a responsive max width based on terminal size instead of the narrow
+  default dialog cap.
+- Focused Summary now uses a small multiline editor.
+- Focused Description now gets substantially more vertical space while staying inside the bounded
+  create body.
+
+## Create Ticket AI Issue Type Selection
+
+- [x] Add tests that Claude create-ticket prompts include only Jira-returned issue types.
+- [x] Add tests that Claude can recommend a Jira-supported issue type and preserve the generated draft.
+- [x] Add tests that users can change create-ticket type without restarting or losing Summary/Description.
+- [x] Implement Jira issue-type-aware prompt building and result handling.
+- [x] Implement a focusable Type row in the create form.
+- [x] Update lessons and review notes.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+
+### Create Ticket AI Issue Type Selection Scope
+
+Claude-assisted ticket creation must use the issue types Jira returned for the selected project. Do
+not guess common Jira types or hard-code presets into the prompt. When Claude has enough context, it
+can recommend one of those returned types; the TUI should apply that match and load the correct Jira
+create metadata while keeping the generated Summary/Description draft editable. Users must also be
+able to change the type from the create form without throwing away the draft.
+
+### Create Ticket AI Issue Type Selection Review
+
+- Claude create-ticket prompts now include an `Available Jira Issue Types` section built only from
+  Jira-returned project metadata.
+- Claude can recommend `Issue Type`; the TUI applies it only when it matches a returned Jira type by
+  name or ID, then loads create-field metadata through the existing worker path.
+- Unsupported or unknown AI type recommendations keep the local Summary/Description draft and return
+  the user to manual type selection.
+- The manual create form now has a focusable Type row. Press `enter` on Type to change issue type
+  without clearing Summary or Description.
+- Focus indexes are named helpers now, so tests and editor routing are less brittle after adding
+  Type to the focus order.
+
 ## Inline Description AI
 
 - [x] Add TUI tests that Description focus exposes `a AI` only when Claude Ticket Assist is available.
@@ -530,16 +622,131 @@ custom/required fields are not rendered yet; Jira errors should stay visible in 
 - Verified with focused Jira client, worker, and TUI tests, then `make check`, then
   `make install-user`.
 
+### Create Ticket Draft Assistance
+
+- [x] Add a create-form shortcut to open a "Generate Ticket Draft" prompt (`g`) when Claude draft
+  is enabled.
+- [x] Send contextual prompt with project and issue type, plus user instruction, to Claude.
+- [x] Parse returned summary and description into the create form editors.
+- [x] Keep modal open with a clear error if the draft result omits a parsable summary.
+- [x] Add TUI tests for draft modal open/submit/fail-fast parse behavior and parser extraction.
+
+### Create Ticket Draft Assistance Review
+
+- Added create-form draft prompt support (`g`) for create ticket flow when Draft Ticket feature is
+  enabled.
+- Wired prompt execution through the existing Claude async path and recorded request fields, progress,
+  and result handling.
+- Added draft parsing into Summary and Description editors with parse-failure guardrails.
+- Added focused create-draft tests for modal open, prompt result application, parse failure behavior,
+  and parser extraction.
+
 ## Keymap Clarity Review
 
-- [ ] Audit every active key context for redundant commands that do the same thing with different
+- [x] Audit every active key context for redundant commands that do the same thing with different
       semantics.
-- [ ] Keep conventional navigation aliases only where they reduce friction without changing meaning
+- [x] Keep conventional navigation aliases only where they reduce friction without changing meaning
       (`j`/`k` with arrows, page keys, home/end).
-- [ ] Prefer one primary action path per workflow: `tab` moves focus, `enter` acts on focus, and
+- [x] Prefer one primary action path per workflow: `tab` moves focus, `enter` acts on focus, and
       single-letter commands are stable accelerators for distinct actions.
-- [ ] Add tests for any removed or reassigned binding so help text and behavior stay aligned.
-- [ ] Update docs/changelog with the keymap clarity rules and the resulting command changes.
+- [x] Add tests for any removed or reassigned binding so help text and behavior stay aligned.
+- [x] Update docs/changelog with the keymap clarity rules and the resulting command changes.
+
+### Keymap Clarity Review Scope
+
+The first pass of this review focused on detail-mode `o` behavior, which previously triggered table
+sorting while not in the issue table. In table mode, `o/O` still cycles issue sort. In detail mode,
+`o` now opens the selected issue in the browser, keeping the key's meaning aligned with context.
+
+### Keymap Clarity Review Design
+
+This pass keeps table `o/O` as sort controls where they are meaningful, while detail-mode
+`o` is aligned with `b`-style issue-open behavior via footer/help visibility. `O` in detail mode
+does not alter sorting.
+
+### Keymap Clarity Review Result
+
+- Added `o` as the detail-mode issue-open accelerator in key bindings and updated footer help to
+  show `o open` in detail context.
+- Preserved table sort semantics so `o/O` cycle sorting only while in issue-table mode.
+- Added regression coverage that detail `o` opens the selected issue URL and does not affect sorting,
+  that uppercase detail `O` does not sort, and table `o/O` still sort in table mode.
+- Updated docs/project-state and changelog to reflect detail-mode open key semantics.
+
+## Create Ticket AI Tabs And Cleanup
+
+- [x] Add regression tests for `Manual` / `AI Generated` tabs on the first create-ticket modal.
+- [x] Add regression tests that `tab` enters AI-generated mode before issue type selection and `ctrl+s` asks Claude for a draft.
+- [x] Add regression tests that a generated draft returns to manual issue-type selection with Summary/Description prefilled.
+- [x] Add regression tests that manual-form AI cleanup includes the current user-entered Summary and Description in the Claude prompt.
+- [x] Implement tabbed create mode without adding one-letter shortcuts inside text entry.
+- [x] Keep Jira create metadata as the final authority: AI drafts populate local fields, but users still select issue type and review before `ctrl+s create`.
+- [x] Run focused create tests, `go test ./internal/tui`, and `go test ./...`.
+
+### Create Ticket AI Tabs And Cleanup Scope
+
+The first create-ticket modal should offer two tabbed modes: `Manual` for the Jira metadata-driven
+issue-type picker, and `AI Generated` for describing the ticket to Claude before choosing a Jira
+issue type. After Claude returns, the draft fills local Summary and Description and the flow returns
+to manual issue-type selection so Jira still controls available fields. The manual create form keeps
+its focused `Generate Draft` action, but its prompt must include the user's current draft so Claude
+can clean up or refine entered text instead of starting over.
+
+### Create Ticket AI Tabs And Cleanup Design
+
+Use a small create-mode boolean to switch the initial modal body. In AI mode, reuse the existing
+create AI prompt editor, Claude runner, progress, parser, and draft application code. `tab` changes
+between `Manual` and `AI Generated` only before issue type selection; after issue type selection,
+`tab` continues to move fields and `enter` activates the focused `Generate Draft` row. No AI
+generation is triggered by a printable letter while a text editor owns input.
+
+### Create Ticket AI Tabs And Cleanup Review
+
+- Added a first-screen `Manual` / `AI Generated` tab mode to create-ticket when Claude draft
+  generation is enabled.
+- `tab` switches between manual issue-type selection and AI generated mode before issue type
+  selection; after selecting an issue type, `tab` remains field navigation.
+- AI generated mode can ask Claude for a draft before issue type selection. Returned Summary and
+  Description are applied locally, then the flow returns to manual issue-type selection.
+- Manual-form `Generate Draft` still works as a focused row, and its prompt now includes the user's
+  current Summary and Description so Claude can clean up existing draft text.
+- Jira create metadata remains the final gate: users still pick issue type, review populated fields,
+  and explicitly create with `ctrl+s`.
+- Verification passed with focused create tests, `go test ./internal/tui`, `go test ./...`, `make
+  check`, and `make install-user`.
+
+## Create Ticket Progressive Layout
+
+- [x] Add regression tests that non-focused picker fields render as compact value rows instead of full option lists.
+- [x] Add regression tests that Description gets expanded editor space when focused.
+- [x] Add regression tests that the AI draft action stays near Summary/Description.
+- [x] Implement compact metadata field rows with focused picker expansion only.
+- [x] Increase focused Description editor height while keeping the modal bounded.
+- [x] Move `Generate Draft` before Jira metadata fields so AI cleanup is part of drafting, not buried after dropdowns.
+- [x] Run focused create tests, `go test ./internal/tui`, `make check`, and `make install-user`.
+
+### Create Ticket Progressive Layout Scope
+
+Make the manual create form usable for AI-assisted drafting. Summary and Description should be the
+primary authoring surface. Jira metadata should remain visible, but dropdown-backed fields should
+collapse to one-line selected values until focused. The AI draft action should sit near Summary and
+Description so users can improve the current draft without tabbing through every Jira field.
+
+### Create Ticket Progressive Layout Design
+
+Render the create form in this order: Type, Summary, Description, Generate Draft, then metadata
+fields. Description gets more visible rows while focused. Picker fields show `Field: selected value`
+when not focused and expand to the bounded option picker only when focused. Free-text dynamic fields
+show a compact `Field: value` row unless focused. Existing `tab` focus movement and `ctrl+s create`
+semantics remain unchanged.
+
+### Create Ticket Progressive Layout Review
+
+- Moved `Generate Draft` directly after Description so AI cleanup is part of the drafting surface.
+- Expanded the focused Description editor to use more modal space while keeping the create modal bounded.
+- Collapsed unfocused Jira metadata fields to one-line `Field: value` rows.
+- Kept focused picker fields expandable with the existing bounded option list.
+- Preserved `tab` focus movement, `enter` generate behavior, and `ctrl+s create` semantics.
 
 ## Sanitized API Debug Log
 

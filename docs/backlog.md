@@ -52,7 +52,6 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
 - Add a command/search input for changing JQL without restarting.
 - Add epic and subtask support.
 - Add sprint and board support.
-- Add open-in-browser command for the selected issue.
 - Add configuration file support for saved profiles and default queries.
 - Add lightweight caching for issue detail and related data.
 - Add bounded concurrency controls for detail/comment/sprint fetches when parallel loading expands.

@@ -86,6 +86,7 @@ func runApp() error {
 			Enabled:             cfg.Claude.Enabled,
 			TicketPlan:          cfg.Claude.Features.TicketPlan,
 			TicketAssist:        cfg.Claude.Features.TicketAssist,
+			DraftTicket:         cfg.Claude.Features.DraftTicket,
 			Command:             claudeCommand,
 			Timeout:             cfg.Claude.Timeout,
 			RequireConfirmation: cfg.Claude.Gates.RequireConfirmation,

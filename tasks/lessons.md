@@ -120,3 +120,40 @@
   `claude` CLI/session by default; treat direct API SDK integration as a separate optional provider.
 - Binary config values should use picker/toggle behavior in the TUI, not free-text editing. Users
   should not have to type raw `true` or `false` for feature flags, gates, or other boolean settings.
+- For create/AI workflows, don't overload summary/description text entry with extra one-key actions.
+  Navigate with focus movement keys (`tab`) and activate generate/apply actions on explicit focus state
+  (`enter`) so editing text never silently consumes workflow shortcuts.
+- AI-assisted ticket creation must be discoverable on the first create-ticket screen. Do not hide
+  generation behind issue-type selection or later field-entry state; use a visible mode/tab on the
+  initial create modal, then return generated drafts to the Jira metadata-driven manual flow for
+  review and final creation.
+- For compact TUI mode tabs, prefer plain selected markers like `>` over filled background styles.
+  Do not pass styled Lip Gloss strings through byte-based truncation; it can render as broken blocks
+  or clipped labels in real terminals.
+- Create-ticket forms must be bounded and focused-field aware. Jira metadata can return enough
+  fields/options to exceed the terminal height, so render a windowed body with line-range context
+  and keep the focused field plus its selected value visible.
+- AI-generated create drafts should preserve named sections beyond Summary/Description and apply
+  them conservatively to supported Jira create fields after metadata loads. Only map values through
+  actual Jira field names/options returned by Jira; never invent presets.
+- In create-ticket forms, keep the authoring surface primary. Summary/Description and AI draft
+  actions should appear before Jira metadata, while unfocused dropdown-backed metadata fields should
+  collapse to compact `Field: value` rows and expand only when focused.
+- Claude-assisted create-ticket prompts must feed only Jira-returned issue types and fields. Do not
+  guess common types like Task/Story/Epic unless Jira metadata for the selected project actually
+  returned them, and only auto-apply AI recommendations that match returned Jira metadata.
+- Create-ticket AI loading should use calm product progress, not stream/debug evidence. Hide partial
+  assistant snippets, command paths, start/deadline metadata, and other noisy execution details from
+  the normal modal; keep those details in diagnostics or error states.
+- Create-ticket authoring dialogs need responsive width and field-specific editor sizing. Summary can
+  be a compact multiline editor, while Description should take substantial vertical space when
+  focused because AI-generated drafts are long and need review in context.
+- AI-generated `Open Questions` should become actionable local feedback, not static description
+  text. Parse them into a focused panel, let users answer locally, and feed those answers into the
+  next Claude refinement prompt while keeping Jira writes behind explicit create/apply actions.
+- Open Questions need a multi-answer local loop. Do not make users submit one answer and call Claude
+  for each question; `enter` while answering should save and advance so several answers can be
+  batched into one later refinement request.
+- After users answer Open Questions, the Claude resync path must be visible in the same panel. Add
+  an explicit focused action such as `ctrl+r refine with answers` instead of requiring users to tab
+  away and infer that Generate Draft is the resync control.

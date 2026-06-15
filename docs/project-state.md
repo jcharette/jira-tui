@@ -367,7 +367,7 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   render as a distinct styled block instead of plain inline text.
 - Focused ticket detail supports section navigation with `tab`/`shift+tab`, direct jumps to
   description with `d`, comments with `m`, hierarchy with `h`, and links with `l`.
-- Focused ticket detail supports selected issue actions: `b` opens the Jira issue URL, `c` copies
+- Focused ticket detail supports selected issue actions: `o` opens the Jira issue URL, `c` copies
   the issue key, and `y` copies the issue URL when Links is not focused.
 - Jira ADF descriptions are rendered through `internal/adf`, which handles readable terminal output
   for links, mentions, inline code, code blocks, lists, blockquotes, panels/statuses, hard breaks,
