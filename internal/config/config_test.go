@@ -34,6 +34,29 @@ refresh_interval = "30s"
 request_timeout = "5s"
 workers = 4
 queue_size = 32
+
+[claude]
+enabled = true
+command = "/opt/homebrew/bin/claude"
+timeout = "45s"
+
+[claude.features]
+ticket_plan = true
+ticket_assist = true
+clarifying_questions = true
+draft_comment = false
+draft_ticket = true
+branch_plan = false
+code_changes = false
+pr_creation = false
+pr_review_response = true
+
+[claude.gates]
+require_confirmation = true
+allow_jira_writes = false
+allow_git_writes = true
+allow_github_writes = false
+allow_code_edits = false
 `)
 
 	cfg, err := Load(LoadOptions{Path: path})
@@ -73,6 +96,41 @@ queue_size = 32
 	}
 	if cfg.QueueSize != 32 {
 		t.Fatalf("QueueSize = %d", cfg.QueueSize)
+	}
+	if !cfg.Claude.Enabled {
+		t.Fatal("expected Claude to be enabled")
+	}
+	if cfg.Claude.Command != "/opt/homebrew/bin/claude" {
+		t.Fatalf("Claude.Command = %q", cfg.Claude.Command)
+	}
+	if cfg.Claude.Timeout != 45*time.Second {
+		t.Fatalf("Claude.Timeout = %s", cfg.Claude.Timeout)
+	}
+	if !cfg.Claude.Features.TicketPlan || !cfg.Claude.Features.TicketAssist || !cfg.Claude.Features.ClarifyingQuestions || !cfg.Claude.Features.DraftTicket || !cfg.Claude.Features.PRReviewResponse {
+		t.Fatalf("Claude.Features = %#v", cfg.Claude.Features)
+	}
+	if !cfg.Claude.Gates.RequireConfirmation || !cfg.Claude.Gates.AllowGitWrites {
+		t.Fatalf("Claude.Gates = %#v", cfg.Claude.Gates)
+	}
+}
+
+func TestDefaultsDisableClaudeWithSafeGates(t *testing.T) {
+	cfg := Defaults()
+
+	if cfg.Claude.Enabled {
+		t.Fatal("Claude should default to disabled")
+	}
+	if cfg.Claude.Command != "" {
+		t.Fatalf("Claude.Command = %q, want auto-detect empty command", cfg.Claude.Command)
+	}
+	if cfg.Claude.Timeout != 2*time.Minute {
+		t.Fatalf("Claude.Timeout = %s", cfg.Claude.Timeout)
+	}
+	if !cfg.Claude.Gates.RequireConfirmation {
+		t.Fatalf("Claude.Gates = %#v", cfg.Claude.Gates)
+	}
+	if cfg.Claude.Gates.AllowJiraWrites || cfg.Claude.Gates.AllowGitWrites || cfg.Claude.Gates.AllowGitHubWrites || cfg.Claude.Gates.AllowCodeEdits {
+		t.Fatalf("Claude write gates should default closed: %#v", cfg.Claude.Gates)
 	}
 }
 
@@ -145,6 +203,13 @@ func TestSaveWritesConfigFileWithPrivatePermissions(t *testing.T) {
 	cfg.WorkerCount = 4
 	cfg.QueueSize = 32
 	cfg.Display.SymbolMode = "emoji"
+	cfg.Claude.Enabled = true
+	cfg.Claude.Command = "/usr/local/bin/claude"
+	cfg.Claude.Timeout = 90 * time.Second
+	cfg.Claude.Features.TicketPlan = true
+	cfg.Claude.Features.TicketAssist = true
+	cfg.Claude.Features.ClarifyingQuestions = true
+	cfg.Claude.Gates.AllowGitWrites = true
 
 	if err := Save(path, cfg); err != nil {
 		t.Fatalf("Save() error = %v", err)
@@ -164,6 +229,56 @@ func TestSaveWritesConfigFileWithPrivatePermissions(t *testing.T) {
 	}
 	if !reflect.DeepEqual(loaded, cfg) {
 		t.Fatalf("loaded config = %#v", loaded)
+	}
+}
+
+func TestLoadRejectsInvalidClaudeTimeout(t *testing.T) {
+	path := writeConfig(t, `
+version = 1
+active_profile = "default"
+
+[profiles.default]
+base_url = "https://example.atlassian.net"
+email = "person@example.com"
+api_token = "secret"
+
+[queries]
+default_project = "ABC"
+
+[claude]
+enabled = true
+timeout = "-1s"
+`)
+
+	_, err := Load(LoadOptions{Path: path})
+	if err == nil {
+		t.Fatal("expected invalid Claude timeout error")
+	}
+}
+
+func TestLoadHonorsExplicitClaudeRequireConfirmationFalse(t *testing.T) {
+	path := writeConfig(t, `
+version = 1
+active_profile = "default"
+
+[profiles.default]
+base_url = "https://example.atlassian.net"
+email = "person@example.com"
+api_token = "secret"
+
+[queries]
+default_project = "ABC"
+
+[claude.gates]
+require_confirmation = false
+`)
+
+	cfg, err := Load(LoadOptions{Path: path})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Claude.Gates.RequireConfirmation {
+		t.Fatal("expected explicit require_confirmation=false to be honored")
 	}
 }
 

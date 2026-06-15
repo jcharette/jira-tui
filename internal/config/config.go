@@ -15,6 +15,7 @@ import (
 const defaultJQL = "assignee = currentUser() AND resolution = Unresolved ORDER BY updated DESC"
 const defaultRefreshInterval = 2 * time.Minute
 const defaultRequestTimeout = 20 * time.Second
+const defaultClaudeTimeout = 2 * time.Minute
 const defaultWorkerCount = 2
 const defaultQueueSize = 16
 const currentVersion = 1
@@ -33,6 +34,7 @@ type Config struct {
 	RequestTimeout  time.Duration
 	WorkerCount     int
 	QueueSize       int
+	Claude          Claude
 }
 
 type IssueView struct {
@@ -55,6 +57,34 @@ type Theme struct {
 
 type Display struct {
 	SymbolMode string
+}
+
+type Claude struct {
+	Enabled  bool
+	Command  string
+	Timeout  time.Duration
+	Features ClaudeFeatures
+	Gates    ClaudeGates
+}
+
+type ClaudeFeatures struct {
+	TicketPlan          bool
+	TicketAssist        bool
+	ClarifyingQuestions bool
+	DraftComment        bool
+	DraftTicket         bool
+	BranchPlan          bool
+	CodeChanges         bool
+	PRCreation          bool
+	PRReviewResponse    bool
+}
+
+type ClaudeGates struct {
+	RequireConfirmation bool
+	AllowJiraWrites     bool
+	AllowGitWrites      bool
+	AllowGitHubWrites   bool
+	AllowCodeEdits      bool
 }
 
 type LoadOptions struct {
@@ -91,6 +121,12 @@ func Defaults() Config {
 		RequestTimeout:  defaultRequestTimeout,
 		WorkerCount:     defaultWorkerCount,
 		QueueSize:       defaultQueueSize,
+		Claude: Claude{
+			Timeout: defaultClaudeTimeout,
+			Gates: ClaudeGates{
+				RequireConfirmation: true,
+			},
+		},
 	}
 }
 
@@ -213,6 +249,29 @@ func Save(path string, cfg Config) error {
 			Workers:         cfg.WorkerCount,
 			QueueSize:       cfg.QueueSize,
 		},
+		Claude: claudeConfig{
+			Enabled: cfg.Claude.Enabled,
+			Command: cfg.Claude.Command,
+			Timeout: cfg.Claude.Timeout.String(),
+			Features: claudeFeaturesConfig{
+				TicketPlan:          cfg.Claude.Features.TicketPlan,
+				TicketAssist:        cfg.Claude.Features.TicketAssist,
+				ClarifyingQuestions: cfg.Claude.Features.ClarifyingQuestions,
+				DraftComment:        cfg.Claude.Features.DraftComment,
+				DraftTicket:         cfg.Claude.Features.DraftTicket,
+				BranchPlan:          cfg.Claude.Features.BranchPlan,
+				CodeChanges:         cfg.Claude.Features.CodeChanges,
+				PRCreation:          cfg.Claude.Features.PRCreation,
+				PRReviewResponse:    cfg.Claude.Features.PRReviewResponse,
+			},
+			Gates: claudeGatesConfig{
+				RequireConfirmation: boolPtr(cfg.Claude.Gates.RequireConfirmation),
+				AllowJiraWrites:     cfg.Claude.Gates.AllowJiraWrites,
+				AllowGitWrites:      cfg.Claude.Gates.AllowGitWrites,
+				AllowGitHubWrites:   cfg.Claude.Gates.AllowGitHubWrites,
+				AllowCodeEdits:      cfg.Claude.Gates.AllowCodeEdits,
+			},
+		},
 	}
 
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
@@ -258,6 +317,9 @@ func Validate(cfg Config) error {
 	if cfg.QueueSize <= 0 {
 		problems = append(problems, "queue size must be greater than zero")
 	}
+	if cfg.Claude.Timeout < 0 {
+		problems = append(problems, "Claude timeout cannot be negative")
+	}
 	if len(cfg.Views) == 0 {
 		problems = append(problems, "at least one issue view is required")
 	}
@@ -292,6 +354,7 @@ type fileConfig struct {
 	Appearance    appearanceConfig         `toml:"appearance"`
 	Display       displayConfig            `toml:"display"`
 	Runtime       runtimeConfig            `toml:"runtime"`
+	Claude        claudeConfig             `toml:"claude"`
 }
 
 type profileConfig struct {
@@ -337,6 +400,34 @@ type runtimeConfig struct {
 	RequestTimeout  string `toml:"request_timeout"`
 	Workers         int    `toml:"workers"`
 	QueueSize       int    `toml:"queue_size"`
+}
+
+type claudeConfig struct {
+	Enabled  bool                 `toml:"enabled"`
+	Command  string               `toml:"command"`
+	Timeout  string               `toml:"timeout"`
+	Features claudeFeaturesConfig `toml:"features"`
+	Gates    claudeGatesConfig    `toml:"gates"`
+}
+
+type claudeFeaturesConfig struct {
+	TicketPlan          bool `toml:"ticket_plan"`
+	TicketAssist        bool `toml:"ticket_assist"`
+	ClarifyingQuestions bool `toml:"clarifying_questions"`
+	DraftComment        bool `toml:"draft_comment"`
+	DraftTicket         bool `toml:"draft_ticket"`
+	BranchPlan          bool `toml:"branch_plan"`
+	CodeChanges         bool `toml:"code_changes"`
+	PRCreation          bool `toml:"pr_creation"`
+	PRReviewResponse    bool `toml:"pr_review_response"`
+}
+
+type claudeGatesConfig struct {
+	RequireConfirmation *bool `toml:"require_confirmation"`
+	AllowJiraWrites     bool  `toml:"allow_jira_writes"`
+	AllowGitWrites      bool  `toml:"allow_git_writes"`
+	AllowGitHubWrites   bool  `toml:"allow_github_writes"`
+	AllowCodeEdits      bool  `toml:"allow_code_edits"`
 }
 
 func readFile(path string) (fileConfig, error) {
@@ -401,7 +492,40 @@ func applyFile(cfg *Config, fileCfg fileConfig) error {
 	if fileCfg.Runtime.QueueSize != 0 {
 		cfg.QueueSize = fileCfg.Runtime.QueueSize
 	}
+	cfg.Claude.Enabled = fileCfg.Claude.Enabled
+	if strings.TrimSpace(fileCfg.Claude.Command) != "" {
+		cfg.Claude.Command = strings.TrimSpace(fileCfg.Claude.Command)
+	}
+	if strings.TrimSpace(fileCfg.Claude.Timeout) != "" {
+		duration, err := parseDuration("Claude timeout", fileCfg.Claude.Timeout)
+		if err != nil {
+			return err
+		}
+		cfg.Claude.Timeout = duration
+	}
+	cfg.Claude.Features = ClaudeFeatures{
+		TicketPlan:          fileCfg.Claude.Features.TicketPlan,
+		TicketAssist:        fileCfg.Claude.Features.TicketAssist,
+		ClarifyingQuestions: fileCfg.Claude.Features.ClarifyingQuestions,
+		DraftComment:        fileCfg.Claude.Features.DraftComment,
+		DraftTicket:         fileCfg.Claude.Features.DraftTicket,
+		BranchPlan:          fileCfg.Claude.Features.BranchPlan,
+		CodeChanges:         fileCfg.Claude.Features.CodeChanges,
+		PRCreation:          fileCfg.Claude.Features.PRCreation,
+		PRReviewResponse:    fileCfg.Claude.Features.PRReviewResponse,
+	}
+	if fileCfg.Claude.Gates.RequireConfirmation != nil {
+		cfg.Claude.Gates.RequireConfirmation = *fileCfg.Claude.Gates.RequireConfirmation
+	}
+	cfg.Claude.Gates.AllowJiraWrites = fileCfg.Claude.Gates.AllowJiraWrites
+	cfg.Claude.Gates.AllowGitWrites = fileCfg.Claude.Gates.AllowGitWrites
+	cfg.Claude.Gates.AllowGitHubWrites = fileCfg.Claude.Gates.AllowGitHubWrites
+	cfg.Claude.Gates.AllowCodeEdits = fileCfg.Claude.Gates.AllowCodeEdits
 	return nil
+}
+
+func boolPtr(value bool) *bool {
+	return &value
 }
 
 func parsePositiveInt(name string, value string) (int, error) {

@@ -80,6 +80,117 @@ All notable changes to this project should be recorded here.
   the paginated help screen.
 - Added an active mode label to the footer so table, detail, link, hierarchy, action, and comment
   contexts are easier to distinguish.
+- Added selected-section footer hints in ticket detail so visible Hierarchy, Links, and Actions
+  rows advertise their movement and activation commands before entering a sub-mode.
+- Routed selected-section Hierarchy, Links, and Actions commands before sub-mode activation so
+  footer hints match actual key behavior.
+- Added a direct Status section in ticket detail that loads available Jira transitions through the
+  worker pool, renders a Jira-populated transition picker, and applies the selected transition.
+- Added Jira client and worker support for listing and applying issue status transitions.
+- Added direct Summary editing from the ticket detail header, backed by Jira edit metadata and
+  worker-submitted summary updates.
+- Added Jira client and worker support for issue edit metadata and summary updates.
+- Moved Summary editing and Status transition selection into a shared ticket-detail modal dialog
+  pattern so focused mutations have contextual data, explicit submit/cancel controls, and no inline
+  draft fields in the normal detail layout.
+- Fixed Summary modal editing for long values by showing the active input tail and cursor, and
+  removed the pre-modal Summary instruction notice from the detail body.
+- Changed the Summary shortcut so `s` starts the metadata-backed edit flow immediately and opens an
+  editor-backed modal instead of stopping in a footer-only focus state.
+- Added metadata-backed Priority editing with `p`, using Jira edit metadata allowed values in a
+  picker modal and worker-submitted priority updates.
+- Added direct Assignee editing from ticket detail with a type-to-filter Jira user picker, worker
+  submitted assignment by account ID, and immediate visible/cached assignee updates on success.
+- Added short-lived in-memory Jira user-search caching with `github.com/jellydator/ttlcache/v3` so
+  repeated typeahead queries can avoid duplicate Jira calls.
+- Added short-lived issue-detail freshness tracking with `github.com/jellydator/ttlcache/v3` so
+  fresh cached details avoid duplicate Jira reads and stale details refresh through the worker pool
+  while remaining visible.
+- Added Jira client and worker support for create metadata discovery, including project issue types
+  and selected issue-type create fields with required, schema, operation, and allowed-value data.
+- Added a go-atlassian create metadata fallback so issue type discovery retries the expanded
+  `Issue.Metadata.Create` response when the preferred paged issue type mapping endpoint returns
+  zero values.
+- Added the same expanded create metadata fallback for selected issue-type field discovery when the
+  preferred paged field mapping endpoint returns zero fields.
+- Added the first create-ticket workflow with `n` from the issue table and focused ticket detail:
+  choose a Jira-provided issue type, fill Summary and Description in a modal, and submit issue
+  creation through the worker pool.
+- Added dynamic create-field rendering and submission for supported Jira metadata fields beyond
+  Summary and Description, including Priority, Labels, Components, simple text/number fields, and
+  single-select option fields.
+- Bounded long create-field picker lists so Jira metadata with many options, such as Components,
+  stays inside the visible create-ticket modal.
+- Added sanitized create-field diagnostics with total, supported, unsupported-required, and
+  field ID/name/schema samples to explain why a create form renders only certain Jira fields.
+- Added the first Claude Code/CLI setup foundation: config schema, config menu fields, local command
+  auto-detection with optional manual path override, startup `--version` preflight, and Diagnostics
+  status. Claude workflows use the user's local CLI/session and do not require an Anthropic API key.
+- Added the first read-only Claude workflow: when enabled, available, and `ticket_plan` is flagged
+  on, ticket detail shows a Claude section that asks the local CLI for an implementation and
+  verification plan using selected ticket context, then renders the result in a modal with
+  Diagnostics submit/result events.
+- Improved the Claude ticket-plan modal so long-running local CLI calls show elapsed time,
+  configured timeout, and an `esc` cancel path instead of appearing stuck.
+- Added more Claude ticket-plan modal evidence: request type, read-only mode, sanitized command,
+  output wait state, start time, deadline, and timeout-specific failure copy.
+- Switched Claude ticket-plan runs to stream-json progress when the TUI requests progress, rendering
+  recent stdout/stderr/partial output events in the modal before the final result.
+- Parsed Claude nested `stream_event` envelopes into readable output/status rows and suppressed raw
+  JSON progress payloads in the modal.
+- Changed Claude progress rendering to a single rolling assistant preview so overlapping partial
+  chunks do not repeat as multiple `output:` rows.
+- Assembled Claude text-delta chunks into the rolling preview and bounded long final Claude plan
+  results inside the ticket-detail panel with a line-range hint.
+- Added scrolling for final Claude plan results with `j`/`k`, arrow keys, page keys, and top/bottom
+  jumps.
+- Made the Claude plan dialog use a responsive percentage of the available detail width instead of
+  the narrow default edit-dialog cap.
+- Simplified the Claude loading modal to concise subprocess activity, elapsed progress, stable output
+  state, and cancel; detailed command/timing evidence remains for timeout
+  troubleshooting instead of the normal waiting view.
+- Calmed Claude Plan and Ticket Assist loading modals by replacing constantly changing partial
+  assistant text with stable output states such as waiting, receiving response, and receiving CLI
+  messages; detailed stream events still flow to Diagnostics and final results/errors.
+- Rendered Markdown pipe tables in final Claude output through the existing fitted table renderer so
+  wide table rows no longer leak as raw, clipped pipe text.
+- Added a `ticket_assist` Claude feature flag and existing-ticket assistant workflow. The Claude
+  section can now evaluate a selected ticket, call out clarity/acceptance/test gaps, and return an
+  editable structured draft with first-class Acceptance Criteria before any Jira write exists.
+- Made the Ticket Assist draft modal usable for long Claude output: review text is bounded, draft
+  editor overflow shows line ranges and pages with `pgup`/`pgdn`, and `ctrl+y` copies the edited
+  draft to the clipboard.
+- Gave the Ticket Assist draft more primary modal space, rendered it as a distinct editable block,
+  and hid review preview on cramped terminals so the draft remains usable.
+- Added gated Ticket Assist apply-to-Jira support: when Claude Jira writes are enabled,
+  `ctrl+s` opens confirmation and then updates Summary and Description through the worker pool;
+  with writes disabled, the draft remains local and copyable.
+- Added an iterative Ticket Assist refinement loop: `r` opens an instruction editor, and submitting
+  it sends Claude the original ticket context, the current user-edited draft, and the user's
+  instruction before replacing the editable draft with the refined result.
+- Split Ticket Assist results into clearer `Claude Review`, `Local Draft`, and `Available Actions`
+  zones so generated review, local edits, and next actions do not read as one text blob.
+- Added a Ticket Assist comment path: `c` opens confirmation to post the current draft as a Jira
+  comment without editing Summary or Description, then refreshes comments through the worker pool.
+- Added inline Description AI from ticket detail: pressing `a` on Description opens a scoped AI
+  picker and returns editable drafts that can be refined, copied, posted as comments, or applied to
+  Description behind existing write gates.
+- Added Jira client and worker support for updating issue Description with ADF text.
+- Changed ticket-detail `a` to jump to the Claude/AI section when AI actions are available; add
+  comment remains available through the Actions workflow and as the fallback when Claude is not
+  available.
+- Changed boolean config fields, including Claude feature flags and write gates, to true/false
+  picker controls so users no longer type raw boolean strings.
+- Added clearer create-ticket empty metadata handling: when Jira returns zero creatable issue types,
+  the modal says so, keeps only relevant footer commands, and exposes `ctrl+d` diagnostics with
+  sanitized create metadata result counts.
+- Removed redundant ticket-detail `n` section navigation so `tab`/`shift+tab` own detail focus
+  movement and `n` consistently means new ticket.
+- Added a `ctrl+d` Diagnostics overlay that shows recent worker submit/result activity,
+  issue-detail cache hit/miss/stale-refresh decisions, summary counts, activity bars, and labeled
+  event rows from a bounded in-memory buffer.
+- Added ticket-detail field focus so `tab` moves through Summary, Assignee, Priority, and sections, and
+  `enter` opens the focused field or section mutation flow.
 - Reworked ticket detail into a focused-section workspace: the selected tab owns the body, and
   inactive section names and badges stay in the tab bar.
 - Removed inactive section previews from the focused ticket detail body; inactive section names and
@@ -100,6 +211,10 @@ All notable changes to this project should be recorded here.
   loading/error state rendering.
 - Reworked ticket detail comments into repeated left-ruled blocks with inset bodies and made comments/hierarchy
   empty states consistent.
+- Reworked ticket detail comment blocks to lead with author/date, keep comment counts secondary,
+  and add clearer spacing before the comment body.
+- Added a clearer gap between Description section headers and rich body content.
+- Aligned Description and Comments loading, empty, and error messages around a shared Status block.
 - Added comment numbering inside ticket detail comment blocks so longer threads have clearer
   landmarks.
 - Reworked the ticket detail Links section into a compact Lip Gloss table with cleaner selected-row

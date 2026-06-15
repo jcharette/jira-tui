@@ -44,6 +44,7 @@ type field struct {
 	label   string
 	value   string
 	secret  bool
+	boolean bool
 }
 
 type layout struct {
@@ -64,6 +65,7 @@ const (
 	sectionAppearance
 	sectionDisplay
 	sectionRuntime
+	sectionClaude
 	sectionTest
 	sectionSave
 	sectionQuit
@@ -75,6 +77,7 @@ var sectionLabels = []string{
 	"Appearance",
 	"Display",
 	"Runtime",
+	"Claude",
 	"Test Connection",
 	"Save and Exit",
 	"Quit Without Saving",
@@ -110,6 +113,23 @@ func NewModel(path string, cfg config.Config, problems []string) Model {
 			{section: sectionRuntime, label: "Request Timeout", value: cfg.RequestTimeout.String()},
 			{section: sectionRuntime, label: "Workers", value: strconv.Itoa(cfg.WorkerCount)},
 			{section: sectionRuntime, label: "Queue Size", value: strconv.Itoa(cfg.QueueSize)},
+			{section: sectionClaude, label: "Enabled", value: strconv.FormatBool(cfg.Claude.Enabled), boolean: true},
+			{section: sectionClaude, label: "Command", value: cfg.Claude.Command},
+			{section: sectionClaude, label: "Timeout", value: cfg.Claude.Timeout.String()},
+			{section: sectionClaude, label: "Ticket Plan", value: strconv.FormatBool(cfg.Claude.Features.TicketPlan), boolean: true},
+			{section: sectionClaude, label: "Ticket Assist", value: strconv.FormatBool(cfg.Claude.Features.TicketAssist), boolean: true},
+			{section: sectionClaude, label: "Clarifying Questions", value: strconv.FormatBool(cfg.Claude.Features.ClarifyingQuestions), boolean: true},
+			{section: sectionClaude, label: "Draft Comment", value: strconv.FormatBool(cfg.Claude.Features.DraftComment), boolean: true},
+			{section: sectionClaude, label: "Draft Ticket", value: strconv.FormatBool(cfg.Claude.Features.DraftTicket), boolean: true},
+			{section: sectionClaude, label: "Branch Plan", value: strconv.FormatBool(cfg.Claude.Features.BranchPlan), boolean: true},
+			{section: sectionClaude, label: "Code Changes", value: strconv.FormatBool(cfg.Claude.Features.CodeChanges), boolean: true},
+			{section: sectionClaude, label: "PR Creation", value: strconv.FormatBool(cfg.Claude.Features.PRCreation), boolean: true},
+			{section: sectionClaude, label: "PR Review Response", value: strconv.FormatBool(cfg.Claude.Features.PRReviewResponse), boolean: true},
+			{section: sectionClaude, label: "Require Confirmation", value: strconv.FormatBool(cfg.Claude.Gates.RequireConfirmation), boolean: true},
+			{section: sectionClaude, label: "Allow Jira Writes", value: strconv.FormatBool(cfg.Claude.Gates.AllowJiraWrites), boolean: true},
+			{section: sectionClaude, label: "Allow Git Writes", value: strconv.FormatBool(cfg.Claude.Gates.AllowGitWrites), boolean: true},
+			{section: sectionClaude, label: "Allow GitHub Writes", value: strconv.FormatBool(cfg.Claude.Gates.AllowGitHubWrites), boolean: true},
+			{section: sectionClaude, label: "Allow Code Edits", value: strconv.FormatBool(cfg.Claude.Gates.AllowCodeEdits), boolean: true},
 		},
 		problems: problems,
 		theme:    ui.NewTheme(cfg.Theme),
@@ -182,9 +202,22 @@ func (m Model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "down", "j":
 		m.moveField(1)
 	case "left", "shift+tab", "backtab", "h":
+		if m.currentField().boolean {
+			m.setCurrentValue("false")
+			return m, nil
+		}
 		m.switchSection(-1)
 	case "right", "tab", "l":
+		if m.currentField().boolean {
+			m.setCurrentValue("true")
+			return m, nil
+		}
 		m.switchSection(1)
+	case " ":
+		if m.currentField().boolean {
+			m.toggleCurrentBool()
+			return m, nil
+		}
 	case "enter":
 		switch m.section {
 		case sectionTest:
@@ -195,6 +228,10 @@ func (m Model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cancel = true
 			return m, tea.Quit
 		default:
+			if m.currentField().boolean {
+				m.toggleCurrentBool()
+				return m, nil
+			}
 			m.editing = true
 			m.buffer = m.currentField().value
 		}
@@ -501,6 +538,8 @@ func (m Model) renderFields(layout layout) string {
 			value = m.theme.Input.Render(value)
 		} else if field.section == sectionAppearance {
 			value = renderColorSwatch(m.theme, value)
+		} else if field.boolean {
+			value = renderBoolPicker(m.theme, field.value)
 		}
 
 		label := m.theme.FieldLabel.Render(field.label + ":")
@@ -606,6 +645,104 @@ func (m Model) configFromFields() (config.Config, error) {
 				return config.Config{}, config.ValidationError{Problems: []string{"queue size must be an integer"}}
 			}
 			cfg.QueueSize = parsed
+		case "Enabled":
+			parsed, err := parseBoolField("Claude enabled", value)
+			if err != nil {
+				return config.Config{}, err
+			}
+			cfg.Claude.Enabled = parsed
+		case "Command":
+			cfg.Claude.Command = value
+		case "Timeout":
+			duration, err := parseDuration(value)
+			if err != nil {
+				return config.Config{}, config.ValidationError{Problems: []string{"Claude timeout must be a valid Go duration"}}
+			}
+			cfg.Claude.Timeout = duration
+		case "Ticket Plan":
+			parsed, err := parseBoolField("ticket plan", value)
+			if err != nil {
+				return config.Config{}, err
+			}
+			cfg.Claude.Features.TicketPlan = parsed
+		case "Ticket Assist":
+			parsed, err := parseBoolField("ticket assist", value)
+			if err != nil {
+				return config.Config{}, err
+			}
+			cfg.Claude.Features.TicketAssist = parsed
+		case "Clarifying Questions":
+			parsed, err := parseBoolField("clarifying questions", value)
+			if err != nil {
+				return config.Config{}, err
+			}
+			cfg.Claude.Features.ClarifyingQuestions = parsed
+		case "Draft Comment":
+			parsed, err := parseBoolField("draft comment", value)
+			if err != nil {
+				return config.Config{}, err
+			}
+			cfg.Claude.Features.DraftComment = parsed
+		case "Draft Ticket":
+			parsed, err := parseBoolField("draft ticket", value)
+			if err != nil {
+				return config.Config{}, err
+			}
+			cfg.Claude.Features.DraftTicket = parsed
+		case "Branch Plan":
+			parsed, err := parseBoolField("branch plan", value)
+			if err != nil {
+				return config.Config{}, err
+			}
+			cfg.Claude.Features.BranchPlan = parsed
+		case "Code Changes":
+			parsed, err := parseBoolField("code changes", value)
+			if err != nil {
+				return config.Config{}, err
+			}
+			cfg.Claude.Features.CodeChanges = parsed
+		case "PR Creation":
+			parsed, err := parseBoolField("PR creation", value)
+			if err != nil {
+				return config.Config{}, err
+			}
+			cfg.Claude.Features.PRCreation = parsed
+		case "PR Review Response":
+			parsed, err := parseBoolField("PR review response", value)
+			if err != nil {
+				return config.Config{}, err
+			}
+			cfg.Claude.Features.PRReviewResponse = parsed
+		case "Require Confirmation":
+			parsed, err := parseBoolField("require confirmation", value)
+			if err != nil {
+				return config.Config{}, err
+			}
+			cfg.Claude.Gates.RequireConfirmation = parsed
+		case "Allow Jira Writes":
+			parsed, err := parseBoolField("allow Jira writes", value)
+			if err != nil {
+				return config.Config{}, err
+			}
+			cfg.Claude.Gates.AllowJiraWrites = parsed
+		case "Allow Git Writes":
+			parsed, err := parseBoolField("allow git writes", value)
+			if err != nil {
+				return config.Config{}, err
+			}
+			cfg.Claude.Gates.AllowGitWrites = parsed
+		case "Allow GitHub Writes":
+			parsed, err := parseBoolField("allow GitHub writes", value)
+			if err != nil {
+				return config.Config{}, err
+			}
+			cfg.Claude.Gates.AllowGitHubWrites = parsed
+		case "Allow Code Edits":
+			parsed, err := parseBoolField("allow code edits", value)
+			if err != nil {
+				return config.Config{}, err
+			}
+			cfg.Claude.Gates.AllowCodeEdits = parsed
 		}
 	}
 	if cfg.DefaultJQL == "" || cfg.DefaultJQL == config.Defaults().DefaultJQL {
@@ -650,6 +787,11 @@ func (m *Model) setCurrentValue(value string) {
 	}
 }
 
+func (m *Model) toggleCurrentBool() {
+	current := strings.EqualFold(strings.TrimSpace(m.currentField().value), "true")
+	m.setCurrentValue(strconv.FormatBool(!current))
+}
+
 func displayValue(field field) string {
 	if field.secret && field.value != "" {
 		return strings.Repeat("*", len(field.value))
@@ -660,6 +802,18 @@ func displayValue(field field) string {
 func renderColorSwatch(theme ui.Theme, value string) string {
 	style := lipgloss.NewStyle().Background(lipgloss.Color(value)).Foreground(lipgloss.Color(value))
 	return style.Render("  ") + " " + theme.Text.Render(value)
+}
+
+func renderBoolPicker(theme ui.Theme, value string) string {
+	enabled := strings.EqualFold(strings.TrimSpace(value), "true")
+	falseValue := theme.Text.Render("false")
+	trueValue := theme.Text.Render("true")
+	if enabled {
+		trueValue = theme.Selected.Render("true")
+	} else {
+		falseValue = theme.Selected.Render("false")
+	}
+	return falseValue + theme.Muted.Render(" / ") + trueValue
 }
 
 func sanitizePastedText(value string) string {
@@ -695,6 +849,14 @@ func explainConnectionError(err error, cfg config.Config) (string, string) {
 
 func parseDuration(value string) (time.Duration, error) {
 	return time.ParseDuration(value)
+}
+
+func parseBoolField(name string, value string) (bool, error) {
+	parsed, err := strconv.ParseBool(strings.TrimSpace(value))
+	if err != nil {
+		return false, config.ValidationError{Problems: []string{name + " must be true or false"}}
+	}
+	return parsed, nil
 }
 
 func truncate(value string, width int) string {

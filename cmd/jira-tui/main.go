@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/jon/jira-tui/internal/claude"
 	"github.com/jon/jira-tui/internal/config"
 	"github.com/jon/jira-tui/internal/configui"
 	"github.com/jon/jira-tui/internal/jira"
@@ -60,6 +62,15 @@ func runApp() error {
 		}
 	}
 
+	claudeStatus := claude.LocalRunner{}.Check(context.Background(), claude.Config{
+		Enabled: cfg.Claude.Enabled,
+		Command: cfg.Claude.Command,
+		Timeout: cfg.Claude.Timeout,
+	})
+	claudeCommand := claudeStatus.Command
+	if claudeCommand == "" {
+		claudeCommand = cfg.Claude.Command
+	}
 	client := jira.NewClient(cfg)
 	model := jiratui.NewModel(
 		client,
@@ -71,6 +82,23 @@ func runApp() error {
 		jiratui.WithQueueSize(cfg.QueueSize),
 		jiratui.WithTheme(cfg.Theme),
 		jiratui.WithDisplay(cfg.Display),
+		jiratui.WithClaudeConfig(jiratui.ClaudeConfig{
+			Enabled:             cfg.Claude.Enabled,
+			TicketPlan:          cfg.Claude.Features.TicketPlan,
+			TicketAssist:        cfg.Claude.Features.TicketAssist,
+			Command:             claudeCommand,
+			Timeout:             cfg.Claude.Timeout,
+			RequireConfirmation: cfg.Claude.Gates.RequireConfirmation,
+			AllowJiraWrites:     cfg.Claude.Gates.AllowJiraWrites,
+		}),
+		jiratui.WithClaudeStatus(jiratui.ClaudeStatus{
+			Enabled:   claudeStatus.Enabled,
+			Available: claudeStatus.Available,
+			Command:   claudeStatus.Command,
+			Version:   claudeStatus.Version,
+			Message:   claudeStatus.Message,
+			Err:       claudeStatus.Err,
+		}),
 	)
 
 	if _, err := tea.NewProgram(model).Run(); err != nil {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,9 +15,11 @@ import (
 	"github.com/jon/jira-tui/internal/adf"
 	"github.com/jon/jira-tui/internal/config"
 	"github.com/jon/jira-tui/internal/linkdetect"
+	"github.com/tidwall/gjson"
 )
 
 const defaultMaxResults = 25
+const createMetadataMaxResults = 50
 
 type Client struct {
 	baseURL        string
@@ -24,6 +27,7 @@ type Client struct {
 	issue          issueService
 	comment        commentService
 	userSearch     userSearchService
+	metadata       metadataService
 	requestTimeout time.Duration
 }
 
@@ -32,7 +36,12 @@ type issueSearchService interface {
 }
 
 type issueService interface {
+	Create(ctx context.Context, payload *model.IssueScheme, customFields *model.CustomFields) (*model.IssueResponseScheme, *model.ResponseScheme, error)
 	Get(ctx context.Context, issueKeyOrID string, fields, expand []string) (*model.IssueScheme, *model.ResponseScheme, error)
+	Update(ctx context.Context, issueKeyOrID string, notify bool, payload *model.IssueScheme, customFields *model.CustomFields, operations *model.UpdateOperations) (*model.ResponseScheme, error)
+	Transitions(ctx context.Context, issueKeyOrID string) (*model.IssueTransitionsScheme, *model.ResponseScheme, error)
+	Move(ctx context.Context, issueKeyOrID, transitionID string, options *model.IssueMoveOptionsV3) (*model.ResponseScheme, error)
+	Assign(ctx context.Context, issueKeyOrID, accountID string) (*model.ResponseScheme, error)
 }
 
 type commentService interface {
@@ -42,6 +51,13 @@ type commentService interface {
 
 type userSearchService interface {
 	Do(ctx context.Context, accountID, query string, startAt, maxResults int) ([]*model.UserScheme, *model.ResponseScheme, error)
+}
+
+type metadataService interface {
+	Get(ctx context.Context, issueKeyOrID string, overrideScreenSecurity, overrideEditableFlag bool) (gjson.Result, *model.ResponseScheme, error)
+	Create(ctx context.Context, opts *model.IssueMetadataCreateOptions) (gjson.Result, *model.ResponseScheme, error)
+	FetchIssueMappings(ctx context.Context, projectKeyOrID string, startAt, maxResults int) (gjson.Result, *model.ResponseScheme, error)
+	FetchFieldMappings(ctx context.Context, projectKeyOrID, issueTypeID string, startAt, maxResults int) (gjson.Result, *model.ResponseScheme, error)
 }
 
 type Issue struct {
@@ -92,6 +108,72 @@ type Mention struct {
 	Text      string
 }
 
+type Transition struct {
+	ID          string
+	Name        string
+	ToStatus    string
+	HasScreen   bool
+	IsAvailable bool
+}
+
+type EditMetadata struct {
+	Summary  EditField
+	Priority EditField
+}
+
+type EditField struct {
+	ID            string
+	Name          string
+	Required      bool
+	Editable      bool
+	AllowedValues []FieldOption
+}
+
+type FieldOption struct {
+	ID   string
+	Name string
+}
+
+type CreateIssueType struct {
+	ID             string
+	Name           string
+	Description    string
+	Subtask        bool
+	HierarchyLevel int
+}
+
+type CreateField struct {
+	ID              string
+	Key             string
+	Name            string
+	Required        bool
+	HasDefaultValue bool
+	SchemaType      string
+	SchemaSystem    string
+	SchemaItems     string
+	SchemaCustom    string
+	SchemaCustomID  int
+	Operations      []string
+	AllowedValues   []FieldOption
+	AutoCompleteURL string
+}
+
+type CreateIssueRequest struct {
+	ProjectKey  string
+	IssueTypeID string
+	Summary     string
+	Description string
+	Fields      []CreateIssueFieldValue
+}
+
+type CreateIssueFieldValue struct {
+	FieldID      string
+	SchemaType   string
+	SchemaSystem string
+	Text         string
+	Option       FieldOption
+}
+
 func NewClient(cfg config.Config) *Client {
 	requestTimeout := cfg.RequestTimeout
 	if requestTimeout <= 0 {
@@ -109,21 +191,23 @@ func NewClient(cfg config.Config) *Client {
 			issue:          failingIssueService{err: err},
 			comment:        failingCommentService{err: err},
 			userSearch:     failingUserSearchService{err: err},
+			metadata:       failingMetadataService{err: err},
 			requestTimeout: requestTimeout,
 		}
 	}
 	api.Auth.SetBasicAuth(cfg.Email, cfg.APIToken)
 
-	return newClient(cfg.BaseURL, api.Issue.Search, api.Issue, api.Issue.Comment, api.User.Search, requestTimeout)
+	return newClient(cfg.BaseURL, api.Issue.Search, api.Issue, api.Issue.Comment, api.User.Search, api.Issue.Metadata, requestTimeout)
 }
 
-func newClient(baseURL string, search jiraservice.SearchADFConnector, issue jiraservice.IssueADFConnector, comment commentService, userSearch userSearchService, requestTimeout time.Duration) *Client {
+func newClient(baseURL string, search jiraservice.SearchADFConnector, issue jiraservice.IssueADFConnector, comment commentService, userSearch userSearchService, metadata jiraservice.MetadataConnector, requestTimeout time.Duration) *Client {
 	return &Client{
 		baseURL:        baseURL,
 		search:         search,
 		issue:          issue,
 		comment:        comment,
 		userSearch:     userSearch,
+		metadata:       metadata,
 		requestTimeout: requestTimeout,
 	}
 }
@@ -186,6 +270,354 @@ func (c *Client) GetIssue(ctx context.Context, key string) (IssueDetail, error) 
 		return IssueDetail{}, fmt.Errorf("get jira issue %s: empty response", key)
 	}
 	return c.parseIssueDetail(raw), nil
+}
+
+func (c *Client) GetTransitions(ctx context.Context, key string) ([]Transition, error) {
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+
+	response, _, err := c.issue.Transitions(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("get jira transitions %s: %w", key, err)
+	}
+	if response == nil {
+		return nil, fmt.Errorf("get jira transitions %s: empty response", key)
+	}
+
+	transitions := make([]Transition, 0, len(response.Transitions))
+	for _, raw := range response.Transitions {
+		if transition, ok := parseTransition(raw); ok {
+			transitions = append(transitions, transition)
+		}
+	}
+	return transitions, nil
+}
+
+func (c *Client) GetEditMetadata(ctx context.Context, key string) (EditMetadata, error) {
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+	if c.metadata == nil {
+		return EditMetadata{}, fmt.Errorf("get jira edit metadata %s: metadata service unavailable", key)
+	}
+
+	response, _, err := c.metadata.Get(ctx, key, false, false)
+	if err != nil {
+		return EditMetadata{}, fmt.Errorf("get jira edit metadata %s: %w", key, err)
+	}
+	return parseEditMetadata(response), nil
+}
+
+func (c *Client) GetCreateIssueTypes(ctx context.Context, projectKey string) ([]CreateIssueType, error) {
+	projectKey = strings.TrimSpace(projectKey)
+	if projectKey == "" {
+		return nil, fmt.Errorf("get jira create issue types: missing project key")
+	}
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+	if c.metadata == nil {
+		return nil, fmt.Errorf("get jira create issue types %s: metadata service unavailable", projectKey)
+	}
+
+	response, _, err := c.metadata.FetchIssueMappings(ctx, projectKey, 0, createMetadataMaxResults)
+	if err != nil {
+		return nil, fmt.Errorf("get jira create issue types %s: %w", projectKey, err)
+	}
+	issueTypes := parseCreateIssueTypes(response)
+	if len(issueTypes) > 0 {
+		return issueTypes, nil
+	}
+	fallback, _, err := c.metadata.Create(ctx, &model.IssueMetadataCreateOptions{
+		ProjectKeys: []string{projectKey},
+		Expand:      "projects.issuetypes",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get jira expanded create metadata %s: %w", projectKey, err)
+	}
+	return parseExpandedCreateIssueTypes(fallback, projectKey), nil
+}
+
+func (c *Client) GetCreateFields(ctx context.Context, projectKey string, issueTypeID string) ([]CreateField, error) {
+	projectKey = strings.TrimSpace(projectKey)
+	issueTypeID = strings.TrimSpace(issueTypeID)
+	if projectKey == "" || issueTypeID == "" {
+		return nil, fmt.Errorf("get jira create fields: missing project key or issue type ID")
+	}
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+	if c.metadata == nil {
+		return nil, fmt.Errorf("get jira create fields %s/%s: metadata service unavailable", projectKey, issueTypeID)
+	}
+
+	response, _, err := c.metadata.FetchFieldMappings(ctx, projectKey, issueTypeID, 0, createMetadataMaxResults)
+	if err != nil {
+		return nil, fmt.Errorf("get jira create fields %s/%s: %w", projectKey, issueTypeID, err)
+	}
+	fields := parseCreateFields(response)
+	if len(fields) > 0 {
+		return fields, nil
+	}
+	fallback, _, err := c.metadata.Create(ctx, &model.IssueMetadataCreateOptions{
+		ProjectKeys:  []string{projectKey},
+		IssueTypeIDs: []string{issueTypeID},
+		Expand:       "projects.issuetypes.fields",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get jira expanded create fields %s/%s: %w", projectKey, issueTypeID, err)
+	}
+	return parseExpandedCreateFields(fallback, projectKey, issueTypeID), nil
+}
+
+func (c *Client) CreateIssue(ctx context.Context, request CreateIssueRequest) (Issue, error) {
+	request.ProjectKey = strings.TrimSpace(request.ProjectKey)
+	request.IssueTypeID = strings.TrimSpace(request.IssueTypeID)
+	request.Summary = strings.TrimSpace(request.Summary)
+	if request.ProjectKey == "" || request.IssueTypeID == "" || request.Summary == "" {
+		return Issue{}, fmt.Errorf("create jira issue: missing project key, issue type ID, or summary")
+	}
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+
+	payload := &model.IssueScheme{
+		Fields: &model.IssueFieldsScheme{
+			Project:   &model.ProjectScheme{Key: request.ProjectKey},
+			IssueType: &model.IssueTypeScheme{ID: request.IssueTypeID},
+			Summary:   request.Summary,
+		},
+	}
+	if strings.TrimSpace(request.Description) != "" {
+		payload.Fields.Description = plainTextADF(request.Description, nil)
+	}
+	customFields, err := applyCreateIssueFieldValues(payload.Fields, request.Fields)
+	if err != nil {
+		return Issue{}, err
+	}
+	response, _, err := c.issue.Create(ctx, payload, customFields)
+	if err != nil {
+		return Issue{}, fmt.Errorf("create jira issue: %w", err)
+	}
+	if response == nil || strings.TrimSpace(response.Key) == "" {
+		return Issue{}, fmt.Errorf("create jira issue: empty response")
+	}
+	return Issue{
+		Key:       response.Key,
+		Summary:   request.Summary,
+		IssueType: request.IssueTypeID,
+		URL:       c.baseURL + "/browse/" + response.Key,
+	}, nil
+}
+
+func applyCreateIssueFieldValues(fields *model.IssueFieldsScheme, values []CreateIssueFieldValue) (*model.CustomFields, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	customFields := &model.CustomFields{}
+	for _, value := range values {
+		fieldID := strings.TrimSpace(value.FieldID)
+		if fieldID == "" || fieldID == "summary" || fieldID == "description" {
+			continue
+		}
+		system := strings.TrimSpace(value.SchemaSystem)
+		schemaType := strings.TrimSpace(value.SchemaType)
+		switch {
+		case fieldID == "priority" || system == "priority":
+			option := createFieldOptionPayload(value.Option)
+			if len(option) == 0 {
+				continue
+			}
+			fields.Priority = &model.PriorityScheme{ID: value.Option.ID, Name: value.Option.Name}
+		case fieldID == "labels" || system == "labels":
+			labels := splitCreateLabels(value.Text)
+			if len(labels) > 0 {
+				fields.Labels = labels
+			}
+		case fieldID == "components" || system == "components":
+			option := value.Option
+			if strings.TrimSpace(option.ID) != "" || strings.TrimSpace(option.Name) != "" {
+				fields.Components = []*model.ComponentScheme{{ID: strings.TrimSpace(option.ID), Name: strings.TrimSpace(option.Name)}}
+			}
+		case strings.HasPrefix(fieldID, "customfield_"):
+			raw, ok := createCustomFieldPayload(value, schemaType)
+			if !ok {
+				continue
+			}
+			if err := customFields.Raw(fieldID, raw); err != nil {
+				return nil, fmt.Errorf("create jira issue field %s: %w", fieldID, err)
+			}
+		}
+	}
+	if len(customFields.Fields) == 0 {
+		return nil, nil
+	}
+	return customFields, nil
+}
+
+func createCustomFieldPayload(value CreateIssueFieldValue, schemaType string) (interface{}, bool) {
+	text := strings.TrimSpace(value.Text)
+	switch schemaType {
+	case "number":
+		if text == "" {
+			return nil, false
+		}
+		number, err := strconv.ParseFloat(text, 64)
+		if err != nil {
+			return nil, false
+		}
+		return number, true
+	case "option", "priority":
+		option := createFieldOptionPayload(value.Option)
+		if len(option) == 0 {
+			return nil, false
+		}
+		return option, true
+	default:
+		if value.Option.ID != "" || value.Option.Name != "" {
+			option := createFieldOptionPayload(value.Option)
+			if len(option) > 0 {
+				return option, true
+			}
+		}
+		if text == "" {
+			return nil, false
+		}
+		return text, true
+	}
+}
+
+func createFieldOptionPayload(option FieldOption) map[string]interface{} {
+	payload := map[string]interface{}{}
+	if strings.TrimSpace(option.ID) != "" {
+		payload["id"] = strings.TrimSpace(option.ID)
+	}
+	if strings.TrimSpace(option.Name) != "" {
+		payload["value"] = strings.TrimSpace(option.Name)
+	}
+	return payload
+}
+
+func splitCreateLabels(value string) []string {
+	var labels []string
+	for _, part := range strings.Split(value, ",") {
+		label := strings.TrimSpace(part)
+		if label != "" {
+			labels = append(labels, label)
+		}
+	}
+	return labels
+}
+
+func (c *Client) UpdateSummary(ctx context.Context, key string, summary string) error {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return fmt.Errorf("update jira summary %s: empty summary", key)
+	}
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+
+	payload := &model.IssueScheme{
+		Fields: &model.IssueFieldsScheme{
+			Summary: summary,
+		},
+	}
+	if _, err := c.issue.Update(ctx, key, false, payload, nil, nil); err != nil {
+		return fmt.Errorf("update jira summary %s: %w", key, err)
+	}
+	return nil
+}
+
+func (c *Client) UpdateDescription(ctx context.Context, key string, description string) error {
+	description = strings.TrimSpace(description)
+	if description == "" {
+		return fmt.Errorf("update jira description %s: empty description", key)
+	}
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+
+	payload := &model.IssueScheme{
+		Fields: &model.IssueFieldsScheme{
+			Description: plainTextADF(description, nil),
+		},
+	}
+	if _, err := c.issue.Update(ctx, key, false, payload, nil, nil); err != nil {
+		return fmt.Errorf("update jira description %s: %w", key, err)
+	}
+	return nil
+}
+
+func (c *Client) UpdatePriority(ctx context.Context, key string, priority FieldOption) error {
+	priority.ID = strings.TrimSpace(priority.ID)
+	priority.Name = strings.TrimSpace(priority.Name)
+	if priority.ID == "" && priority.Name == "" {
+		return fmt.Errorf("update jira priority %s: empty priority", key)
+	}
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+
+	payload := &model.IssueScheme{
+		Fields: &model.IssueFieldsScheme{
+			Priority: &model.PriorityScheme{
+				ID:   priority.ID,
+				Name: priority.Name,
+			},
+		},
+	}
+	if _, err := c.issue.Update(ctx, key, false, payload, nil, nil); err != nil {
+		return fmt.Errorf("update jira priority %s: %w", key, err)
+	}
+	return nil
+}
+
+func (c *Client) UpdateAssignee(ctx context.Context, key string, assignee User) error {
+	assignee.AccountID = strings.TrimSpace(assignee.AccountID)
+	if assignee.AccountID == "" {
+		return fmt.Errorf("update jira assignee %s: missing account ID", key)
+	}
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+
+	if _, err := c.issue.Assign(ctx, key, assignee.AccountID); err != nil {
+		return fmt.Errorf("update jira assignee %s: %w", key, err)
+	}
+	return nil
+}
+
+func (c *Client) TransitionIssue(ctx context.Context, key string, transitionID string) error {
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+
+	if _, err := c.issue.Move(ctx, key, transitionID, nil); err != nil {
+		return fmt.Errorf("transition jira issue %s: %w", key, err)
+	}
+	return nil
 }
 
 func (c *Client) GetComments(ctx context.Context, key string, maxResults int) ([]Comment, error) {
@@ -410,6 +842,188 @@ func parseUser(raw *model.UserScheme) (User, bool) {
 		Email:       raw.EmailAddress,
 		Active:      raw.Active,
 	}, true
+}
+
+func parseTransition(raw *model.IssueTransitionScheme) (Transition, bool) {
+	if raw == nil || raw.ID == "" {
+		return Transition{}, false
+	}
+	transition := Transition{
+		ID:          raw.ID,
+		Name:        raw.Name,
+		HasScreen:   raw.HasScreen,
+		IsAvailable: raw.IsAvailable,
+	}
+	if raw.To != nil {
+		transition.ToStatus = raw.To.Name
+	}
+	return transition, true
+}
+
+func parseEditMetadata(raw gjson.Result) EditMetadata {
+	return EditMetadata{
+		Summary:  parseEditField("summary", raw.Get("fields.summary")),
+		Priority: parseEditField("priority", raw.Get("fields.priority")),
+	}
+}
+
+func parseCreateIssueTypes(raw gjson.Result) []CreateIssueType {
+	var issueTypes []CreateIssueType
+	for _, item := range raw.Get("values").Array() {
+		issueType := CreateIssueType{
+			ID:             strings.TrimSpace(item.Get("id").String()),
+			Name:           strings.TrimSpace(item.Get("name").String()),
+			Description:    strings.TrimSpace(item.Get("description").String()),
+			Subtask:        item.Get("subtask").Bool(),
+			HierarchyLevel: int(item.Get("hierarchyLevel").Int()),
+		}
+		if issueType.ID == "" && issueType.Name == "" {
+			continue
+		}
+		issueTypes = append(issueTypes, issueType)
+	}
+	return issueTypes
+}
+
+func parseExpandedCreateIssueTypes(raw gjson.Result, projectKey string) []CreateIssueType {
+	projectKey = strings.TrimSpace(projectKey)
+	var issueTypes []CreateIssueType
+	for _, project := range raw.Get("projects").Array() {
+		if projectKey != "" && !strings.EqualFold(strings.TrimSpace(project.Get("key").String()), projectKey) {
+			continue
+		}
+		for _, item := range project.Get("issuetypes").Array() {
+			issueType := CreateIssueType{
+				ID:             strings.TrimSpace(item.Get("id").String()),
+				Name:           strings.TrimSpace(item.Get("name").String()),
+				Description:    strings.TrimSpace(item.Get("description").String()),
+				Subtask:        item.Get("subtask").Bool(),
+				HierarchyLevel: int(item.Get("hierarchyLevel").Int()),
+			}
+			if issueType.ID == "" && issueType.Name == "" {
+				continue
+			}
+			issueTypes = append(issueTypes, issueType)
+		}
+	}
+	return issueTypes
+}
+
+func parseCreateFields(raw gjson.Result) []CreateField {
+	var fields []CreateField
+	for _, item := range raw.Get("values").Array() {
+		field := parseCreateField("", item)
+		if field.ID == "" && field.Key == "" && field.Name == "" {
+			continue
+		}
+		fields = append(fields, field)
+	}
+	return fields
+}
+
+func parseExpandedCreateFields(raw gjson.Result, projectKey string, issueTypeID string) []CreateField {
+	projectKey = strings.TrimSpace(projectKey)
+	issueTypeID = strings.TrimSpace(issueTypeID)
+	var fields []CreateField
+	for _, project := range raw.Get("projects").Array() {
+		if projectKey != "" && !strings.EqualFold(strings.TrimSpace(project.Get("key").String()), projectKey) {
+			continue
+		}
+		for _, issueType := range project.Get("issuetypes").Array() {
+			if issueTypeID != "" && strings.TrimSpace(issueType.Get("id").String()) != issueTypeID {
+				continue
+			}
+			rawFields := issueType.Get("fields")
+			fieldIDs := make([]string, 0, len(rawFields.Map()))
+			rawFields.ForEach(func(key, _ gjson.Result) bool {
+				if fieldID := strings.TrimSpace(key.String()); fieldID != "" {
+					fieldIDs = append(fieldIDs, fieldID)
+				}
+				return true
+			})
+			sort.Strings(fieldIDs)
+			for _, fieldID := range fieldIDs {
+				field := parseCreateField(fieldID, rawFields.Get(fieldID))
+				if field.ID == "" && field.Key == "" && field.Name == "" {
+					continue
+				}
+				fields = append(fields, field)
+			}
+		}
+	}
+	return fields
+}
+
+func parseCreateField(defaultID string, item gjson.Result) CreateField {
+	field := CreateField{
+		ID:              strings.TrimSpace(firstNonEmpty(item.Get("fieldId").String(), item.Get("id").String(), defaultID)),
+		Key:             strings.TrimSpace(firstNonEmpty(item.Get("key").String(), defaultID)),
+		Name:            strings.TrimSpace(item.Get("name").String()),
+		Required:        item.Get("required").Bool(),
+		HasDefaultValue: item.Get("hasDefaultValue").Bool(),
+		SchemaType:      strings.TrimSpace(item.Get("schema.type").String()),
+		SchemaSystem:    strings.TrimSpace(item.Get("schema.system").String()),
+		SchemaItems:     strings.TrimSpace(item.Get("schema.items").String()),
+		SchemaCustom:    strings.TrimSpace(item.Get("schema.custom").String()),
+		SchemaCustomID:  int(item.Get("schema.customId").Int()),
+		AutoCompleteURL: strings.TrimSpace(item.Get("autoCompleteUrl").String()),
+	}
+	for _, operation := range item.Get("operations").Array() {
+		if value := strings.TrimSpace(operation.String()); value != "" {
+			field.Operations = append(field.Operations, value)
+		}
+	}
+	for _, allowed := range item.Get("allowedValues").Array() {
+		option := parseFieldOption(allowed)
+		if option.ID == "" && option.Name == "" {
+			continue
+		}
+		field.AllowedValues = append(field.AllowedValues, option)
+	}
+	return field
+}
+
+func parseEditField(id string, raw gjson.Result) EditField {
+	field := EditField{
+		ID:       id,
+		Name:     raw.Get("name").String(),
+		Required: raw.Get("required").Bool(),
+	}
+	for _, operation := range raw.Get("operations").Array() {
+		if operation.String() == "set" {
+			field.Editable = true
+			break
+		}
+	}
+	for _, allowed := range raw.Get("allowedValues").Array() {
+		option := parseFieldOption(allowed)
+		if option.ID == "" && option.Name == "" {
+			continue
+		}
+		field.AllowedValues = append(field.AllowedValues, option)
+	}
+	return field
+}
+
+func parseFieldOption(raw gjson.Result) FieldOption {
+	return FieldOption{
+		ID: strings.TrimSpace(raw.Get("id").String()),
+		Name: strings.TrimSpace(firstNonEmpty(
+			raw.Get("name").String(),
+			raw.Get("value").String(),
+			raw.Get("displayName").String(),
+			raw.Get("key").String(),
+		)),
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func jiraUserDisplayName(raw *model.UserScheme, fallback string) string {
@@ -678,8 +1292,28 @@ type failingIssueService struct {
 	err error
 }
 
+func (f failingIssueService) Create(_ context.Context, _ *model.IssueScheme, _ *model.CustomFields) (*model.IssueResponseScheme, *model.ResponseScheme, error) {
+	return nil, nil, f.err
+}
+
 func (f failingIssueService) Get(_ context.Context, _ string, _, _ []string) (*model.IssueScheme, *model.ResponseScheme, error) {
 	return nil, nil, f.err
+}
+
+func (f failingIssueService) Update(_ context.Context, _ string, _ bool, _ *model.IssueScheme, _ *model.CustomFields, _ *model.UpdateOperations) (*model.ResponseScheme, error) {
+	return nil, f.err
+}
+
+func (f failingIssueService) Transitions(_ context.Context, _ string) (*model.IssueTransitionsScheme, *model.ResponseScheme, error) {
+	return nil, nil, f.err
+}
+
+func (f failingIssueService) Move(_ context.Context, _, _ string, _ *model.IssueMoveOptionsV3) (*model.ResponseScheme, error) {
+	return nil, f.err
+}
+
+func (f failingIssueService) Assign(_ context.Context, _, _ string) (*model.ResponseScheme, error) {
+	return nil, f.err
 }
 
 type failingCommentService struct {
@@ -700,4 +1334,24 @@ type failingUserSearchService struct {
 
 func (f failingUserSearchService) Do(_ context.Context, _, _ string, _, _ int) ([]*model.UserScheme, *model.ResponseScheme, error) {
 	return nil, nil, f.err
+}
+
+type failingMetadataService struct {
+	err error
+}
+
+func (f failingMetadataService) Get(_ context.Context, _ string, _, _ bool) (gjson.Result, *model.ResponseScheme, error) {
+	return gjson.Result{}, nil, f.err
+}
+
+func (f failingMetadataService) Create(_ context.Context, _ *model.IssueMetadataCreateOptions) (gjson.Result, *model.ResponseScheme, error) {
+	return gjson.Result{}, nil, f.err
+}
+
+func (f failingMetadataService) FetchIssueMappings(_ context.Context, _ string, _, _ int) (gjson.Result, *model.ResponseScheme, error) {
+	return gjson.Result{}, nil, f.err
+}
+
+func (f failingMetadataService) FetchFieldMappings(_ context.Context, _, _ string, _, _ int) (gjson.Result, *model.ResponseScheme, error) {
+	return gjson.Result{}, nil, f.err
 }

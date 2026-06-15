@@ -26,12 +26,22 @@ var (
 type Kind string
 
 const (
-	KindSearchIssues Kind = "search_issues"
-	KindGetIssue     Kind = "get_issue"
-	KindGetComments  Kind = "get_comments"
-	KindAddComment   Kind = "add_comment"
-	KindSearchUsers  Kind = "search_users"
-	KindExpandIssues Kind = "expand_issues"
+	KindSearchIssues        Kind = "search_issues"
+	KindGetIssue            Kind = "get_issue"
+	KindGetComments         Kind = "get_comments"
+	KindAddComment          Kind = "add_comment"
+	KindSearchUsers         Kind = "search_users"
+	KindExpandIssues        Kind = "expand_issues"
+	KindGetTransitions      Kind = "get_transitions"
+	KindTransitionIssue     Kind = "transition_issue"
+	KindGetEditMetadata     Kind = "get_edit_metadata"
+	KindGetCreateIssueTypes Kind = "get_create_issue_types"
+	KindGetCreateFields     Kind = "get_create_fields"
+	KindUpdateSummary       Kind = "update_summary"
+	KindUpdateDescription   Kind = "update_description"
+	KindUpdatePriority      Kind = "update_priority"
+	KindUpdateAssignee      Kind = "update_assignee"
+	KindCreateIssue         Kind = "create_issue"
 )
 
 type JiraClient interface {
@@ -40,6 +50,16 @@ type JiraClient interface {
 	GetComments(ctx context.Context, key string, maxResults int) ([]jira.Comment, error)
 	AddComment(ctx context.Context, key string, body string, mentions []jira.Mention) (jira.Comment, error)
 	SearchUsers(ctx context.Context, query string, maxResults int) ([]jira.User, error)
+	GetTransitions(ctx context.Context, key string) ([]jira.Transition, error)
+	TransitionIssue(ctx context.Context, key string, transitionID string) error
+	GetEditMetadata(ctx context.Context, key string) (jira.EditMetadata, error)
+	GetCreateIssueTypes(ctx context.Context, projectKey string) ([]jira.CreateIssueType, error)
+	GetCreateFields(ctx context.Context, projectKey string, issueTypeID string) ([]jira.CreateField, error)
+	CreateIssue(ctx context.Context, request jira.CreateIssueRequest) (jira.Issue, error)
+	UpdateSummary(ctx context.Context, key string, summary string) error
+	UpdateDescription(ctx context.Context, key string, description string) error
+	UpdatePriority(ctx context.Context, key string, priority jira.FieldOption) error
+	UpdateAssignee(ctx context.Context, key string, assignee jira.User) error
 }
 
 type Request struct {
@@ -47,12 +67,22 @@ type Request struct {
 	Kind    Kind
 	Timeout time.Duration
 
-	SearchIssues *SearchIssuesRequest
-	GetIssue     *GetIssueRequest
-	GetComments  *GetCommentsRequest
-	AddComment   *AddCommentRequest
-	SearchUsers  *SearchUsersRequest
-	ExpandIssues *ExpandIssuesRequest
+	SearchIssues        *SearchIssuesRequest
+	GetIssue            *GetIssueRequest
+	GetComments         *GetCommentsRequest
+	AddComment          *AddCommentRequest
+	SearchUsers         *SearchUsersRequest
+	ExpandIssues        *ExpandIssuesRequest
+	GetTransitions      *GetTransitionsRequest
+	TransitionIssue     *TransitionIssueRequest
+	GetEditMetadata     *GetEditMetadataRequest
+	GetCreateIssueTypes *GetCreateIssueTypesRequest
+	GetCreateFields     *GetCreateFieldsRequest
+	UpdateSummary       *UpdateSummaryRequest
+	UpdateDescription   *UpdateDescriptionRequest
+	UpdatePriority      *UpdatePriorityRequest
+	UpdateAssignee      *UpdateAssigneeRequest
+	CreateIssue         *CreateIssueRequest
 }
 
 type SearchIssuesRequest struct {
@@ -93,17 +123,78 @@ type ExpandIssuesRequest struct {
 	MaxResults int
 }
 
+type GetTransitionsRequest struct {
+	Key string
+}
+
+type TransitionIssueRequest struct {
+	Key          string
+	TransitionID string
+	ToStatus     string
+}
+
+type GetEditMetadataRequest struct {
+	Key string
+}
+
+type GetCreateIssueTypesRequest struct {
+	ProjectKey string
+}
+
+type GetCreateFieldsRequest struct {
+	ProjectKey  string
+	IssueTypeID string
+}
+
+type UpdateSummaryRequest struct {
+	Key     string
+	Summary string
+}
+
+type UpdateDescriptionRequest struct {
+	Key         string
+	Description string
+}
+
+type UpdatePriorityRequest struct {
+	Key      string
+	Priority jira.FieldOption
+}
+
+type UpdateAssigneeRequest struct {
+	Key      string
+	Assignee jira.User
+}
+
+type CreateIssueRequest struct {
+	ProjectKey  string
+	IssueTypeID string
+	Summary     string
+	Description string
+	Fields      []jira.CreateIssueFieldValue
+}
+
 type Result struct {
 	ID   int
 	Kind Kind
 	Err  error
 
-	SearchIssues *SearchIssuesResult
-	GetIssue     *GetIssueResult
-	GetComments  *GetCommentsResult
-	AddComment   *AddCommentResult
-	SearchUsers  *SearchUsersResult
-	ExpandIssues *ExpandIssuesResult
+	SearchIssues        *SearchIssuesResult
+	GetIssue            *GetIssueResult
+	GetComments         *GetCommentsResult
+	AddComment          *AddCommentResult
+	SearchUsers         *SearchUsersResult
+	ExpandIssues        *ExpandIssuesResult
+	GetTransitions      *GetTransitionsResult
+	TransitionIssue     *TransitionIssueResult
+	GetEditMetadata     *GetEditMetadataResult
+	GetCreateIssueTypes *GetCreateIssueTypesResult
+	GetCreateFields     *GetCreateFieldsResult
+	UpdateSummary       *UpdateSummaryResult
+	UpdateDescription   *UpdateDescriptionResult
+	UpdatePriority      *UpdatePriorityResult
+	UpdateAssignee      *UpdateAssigneeResult
+	CreateIssue         *CreateIssueResult
 }
 
 type SearchIssuesResult struct {
@@ -140,6 +231,66 @@ type ExpandIssuesResult struct {
 	Mode      ExpandMode
 	Issues    []jira.Issue
 	SyncedAt  time.Time
+}
+
+type GetTransitionsResult struct {
+	Key         string
+	Transitions []jira.Transition
+	SyncedAt    time.Time
+}
+
+type TransitionIssueResult struct {
+	Key      string
+	ToStatus string
+	SyncedAt time.Time
+}
+
+type GetEditMetadataResult struct {
+	Key      string
+	Metadata jira.EditMetadata
+	SyncedAt time.Time
+}
+
+type GetCreateIssueTypesResult struct {
+	ProjectKey string
+	IssueTypes []jira.CreateIssueType
+	SyncedAt   time.Time
+}
+
+type GetCreateFieldsResult struct {
+	ProjectKey  string
+	IssueTypeID string
+	Fields      []jira.CreateField
+	SyncedAt    time.Time
+}
+
+type UpdateSummaryResult struct {
+	Key      string
+	Summary  string
+	SyncedAt time.Time
+}
+
+type UpdateDescriptionResult struct {
+	Key         string
+	Description string
+	SyncedAt    time.Time
+}
+
+type UpdatePriorityResult struct {
+	Key      string
+	Priority jira.FieldOption
+	SyncedAt time.Time
+}
+
+type UpdateAssigneeResult struct {
+	Key      string
+	Assignee jira.User
+	SyncedAt time.Time
+}
+
+type CreateIssueResult struct {
+	Issue    jira.Issue
+	SyncedAt time.Time
 }
 
 type Option func(*Pool)
@@ -296,8 +447,258 @@ func (p *Pool) handle(request Request) Result {
 		return p.handleSearchUsers(request)
 	case KindExpandIssues:
 		return p.handleExpandIssues(request)
+	case KindGetTransitions:
+		return p.handleGetTransitions(request)
+	case KindTransitionIssue:
+		return p.handleTransitionIssue(request)
+	case KindGetEditMetadata:
+		return p.handleGetEditMetadata(request)
+	case KindGetCreateIssueTypes:
+		return p.handleGetCreateIssueTypes(request)
+	case KindGetCreateFields:
+		return p.handleGetCreateFields(request)
+	case KindUpdateSummary:
+		return p.handleUpdateSummary(request)
+	case KindUpdateDescription:
+		return p.handleUpdateDescription(request)
+	case KindUpdatePriority:
+		return p.handleUpdatePriority(request)
+	case KindUpdateAssignee:
+		return p.handleUpdateAssignee(request)
+	case KindCreateIssue:
+		return p.handleCreateIssue(request)
 	default:
 		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+}
+
+func (p *Pool) handleGetCreateIssueTypes(request Request) Result {
+	if request.GetCreateIssueTypes == nil || request.GetCreateIssueTypes.ProjectKey == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	issueTypes, err := p.client.GetCreateIssueTypes(ctx, request.GetCreateIssueTypes.ProjectKey)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		GetCreateIssueTypes: &GetCreateIssueTypesResult{
+			ProjectKey: request.GetCreateIssueTypes.ProjectKey,
+			IssueTypes: issueTypes,
+			SyncedAt:   time.Now(),
+		},
+	}
+}
+
+func (p *Pool) handleGetCreateFields(request Request) Result {
+	if request.GetCreateFields == nil || request.GetCreateFields.ProjectKey == "" || request.GetCreateFields.IssueTypeID == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	fields, err := p.client.GetCreateFields(ctx, request.GetCreateFields.ProjectKey, request.GetCreateFields.IssueTypeID)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		GetCreateFields: &GetCreateFieldsResult{
+			ProjectKey:  request.GetCreateFields.ProjectKey,
+			IssueTypeID: request.GetCreateFields.IssueTypeID,
+			Fields:      fields,
+			SyncedAt:    time.Now(),
+		},
+	}
+}
+
+func (p *Pool) handleCreateIssue(request Request) Result {
+	if request.CreateIssue == nil || request.CreateIssue.ProjectKey == "" || request.CreateIssue.IssueTypeID == "" || request.CreateIssue.Summary == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	issue, err := p.client.CreateIssue(ctx, jira.CreateIssueRequest{
+		ProjectKey:  request.CreateIssue.ProjectKey,
+		IssueTypeID: request.CreateIssue.IssueTypeID,
+		Summary:     request.CreateIssue.Summary,
+		Description: request.CreateIssue.Description,
+		Fields:      request.CreateIssue.Fields,
+	})
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		CreateIssue: &CreateIssueResult{
+			Issue:    issue,
+			SyncedAt: time.Now(),
+		},
+	}
+}
+
+func (p *Pool) handleGetEditMetadata(request Request) Result {
+	if request.GetEditMetadata == nil || request.GetEditMetadata.Key == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	metadata, err := p.client.GetEditMetadata(ctx, request.GetEditMetadata.Key)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		GetEditMetadata: &GetEditMetadataResult{
+			Key:      request.GetEditMetadata.Key,
+			Metadata: metadata,
+			SyncedAt: time.Now(),
+		},
+	}
+}
+
+func (p *Pool) handleUpdateSummary(request Request) Result {
+	if request.UpdateSummary == nil || request.UpdateSummary.Key == "" || request.UpdateSummary.Summary == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	err := p.client.UpdateSummary(ctx, request.UpdateSummary.Key, request.UpdateSummary.Summary)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		UpdateSummary: &UpdateSummaryResult{
+			Key:      request.UpdateSummary.Key,
+			Summary:  request.UpdateSummary.Summary,
+			SyncedAt: time.Now(),
+		},
+	}
+}
+
+func (p *Pool) handleUpdateDescription(request Request) Result {
+	if request.UpdateDescription == nil || request.UpdateDescription.Key == "" || request.UpdateDescription.Description == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	err := p.client.UpdateDescription(ctx, request.UpdateDescription.Key, request.UpdateDescription.Description)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		UpdateDescription: &UpdateDescriptionResult{
+			Key:         request.UpdateDescription.Key,
+			Description: request.UpdateDescription.Description,
+			SyncedAt:    time.Now(),
+		},
+	}
+}
+
+func (p *Pool) handleGetTransitions(request Request) Result {
+	if request.GetTransitions == nil || request.GetTransitions.Key == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	transitions, err := p.client.GetTransitions(ctx, request.GetTransitions.Key)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		GetTransitions: &GetTransitionsResult{
+			Key:         request.GetTransitions.Key,
+			Transitions: transitions,
+			SyncedAt:    time.Now(),
+		},
+	}
+}
+
+func (p *Pool) handleTransitionIssue(request Request) Result {
+	if request.TransitionIssue == nil || request.TransitionIssue.Key == "" || request.TransitionIssue.TransitionID == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	err := p.client.TransitionIssue(ctx, request.TransitionIssue.Key, request.TransitionIssue.TransitionID)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		TransitionIssue: &TransitionIssueResult{
+			Key:      request.TransitionIssue.Key,
+			ToStatus: request.TransitionIssue.ToStatus,
+			SyncedAt: time.Now(),
+		},
 	}
 }
 
@@ -334,6 +735,62 @@ func (p *Pool) handleExpandIssues(request Request) Result {
 			Mode:      mode,
 			Issues:    issues,
 			SyncedAt:  time.Now(),
+		},
+	}
+}
+
+func (p *Pool) handleUpdatePriority(request Request) Result {
+	if request.UpdatePriority == nil || request.UpdatePriority.Key == "" || (request.UpdatePriority.Priority.ID == "" && request.UpdatePriority.Priority.Name == "") {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	err := p.client.UpdatePriority(ctx, request.UpdatePriority.Key, request.UpdatePriority.Priority)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		UpdatePriority: &UpdatePriorityResult{
+			Key:      request.UpdatePriority.Key,
+			Priority: request.UpdatePriority.Priority,
+			SyncedAt: time.Now(),
+		},
+	}
+}
+
+func (p *Pool) handleUpdateAssignee(request Request) Result {
+	if request.UpdateAssignee == nil || request.UpdateAssignee.Key == "" || request.UpdateAssignee.Assignee.AccountID == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	err := p.client.UpdateAssignee(ctx, request.UpdateAssignee.Key, request.UpdateAssignee.Assignee)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		UpdateAssignee: &UpdateAssigneeResult{
+			Key:      request.UpdateAssignee.Key,
+			Assignee: request.UpdateAssignee.Assignee,
+			SyncedAt: time.Now(),
 		},
 	}
 }

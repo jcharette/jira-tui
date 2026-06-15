@@ -1,6 +1,6 @@
 # Project State
 
-Last updated: 2026-06-13
+Last updated: 2026-06-14
 
 ## Goal
 
@@ -119,11 +119,38 @@ refresh_interval = "2m0s"
 request_timeout = "20s"
 workers = 2
 queue_size = 16
+
+[claude]
+enabled = false
+command = ""
+timeout = "2m0s"
+
+[claude.features]
+ticket_plan = false
+ticket_assist = false
+clarifying_questions = false
+draft_comment = false
+draft_ticket = false
+branch_plan = false
+code_changes = false
+pr_creation = false
+pr_review_response = false
+
+[claude.gates]
+require_confirmation = true
+allow_jira_writes = false
+allow_git_writes = false
+allow_github_writes = false
+allow_code_edits = false
 ```
 
 If required config is missing or invalid at startup, the app launches the config editor before
 starting the issue list. Runtime settings are updated through `jira config`, not command-line flags
-or environment variables.
+or environment variables. Claude is configured in the same config editor. It defaults disabled; an
+empty Claude command means auto-detect the local `claude` CLI with `exec.LookPath`, while a manual
+path such as `/opt/homebrew/bin/claude` is honored as an override. This Claude Code path uses the
+user's local CLI/session and does not require an Anthropic API key. Boolean config fields render as
+true/false picker controls instead of requiring users to type raw boolean strings.
 
 Default JQL:
 
@@ -136,12 +163,84 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
 - Loads up to 50 Jira issues matching the active saved view JQL.
 - Refreshes issues in the background on a configurable interval.
 - Routes Jira refresh work through a typed dispatcher and bounded worker pool powered by `ants`.
+- The TUI is the only frontend and must remain responsive. Jira IO, cache refresh, TTL expiry
+  handling, prefetching, and background sync work should run off the Bubble Tea update/render loop
+  through bounded workers or well-maintained libraries. More background workers/threads are
+  acceptable when they reduce UI blocking or repeated Jira calls.
+- Pressing `ctrl+d` opens a read-only Diagnostics overlay with recent background worker and
+  detail-cache activity from a bounded in-memory buffer. The overlay includes summary counts,
+  simple activity bars, active worker request counts, and labeled event rows for visibility and
+  troubleshooting only; it does not make Jira calls, persist logs, or block the TUI. Create
+  metadata results include sanitized result counts such as issue type and field counts, supported
+  create-field counts, unsupported required counts, and short field ID/name/schema samples so empty
+  or filtered Jira metadata responses can be diagnosed without logging raw response bodies or
+  credentials.
 - Uses request IDs to ignore stale Jira responses.
 - Preserves the selected issue across refreshes when it still exists in the refreshed list.
 - Bounds Jira calls with a configurable request timeout.
 - Displays issues in a styled Bubble Tea alternate-screen TUI with compact filter metadata and a
   full-width issue table. The redundant selected-issue side summary was removed; `enter` opens the
   focused detail view instead.
+- In the issue table and focused ticket detail, `n` opens the first create-ticket flow. The modal
+  loads Jira issue types for the active project, loads create fields for the selected issue type,
+  renders Summary and Description editors plus supported metadata-backed fields, and submits
+  creation through the worker pool. Supported extra create fields include Priority, Labels,
+  Components, simple string/text/number fields, and single-select option fields with Jira-provided
+  allowed values. Unsupported required Jira fields are surfaced as blocking warnings before submit.
+  If Jira returns zero creatable issue types, the modal reports that empty metadata response and
+  keeps `ctrl+d` diagnostics available. Issue type and field discovery use go-atlassian's paged
+  create metadata mapping endpoints first, then fall back to the expanded create metadata endpoint
+  when the preferred endpoint succeeds with zero values. Long Jira option lists in create fields are
+  rendered in bounded picker windows so the modal stays inside the visible terminal.
+- Startup runs a local Claude Code/CLI preflight from config. Disabled Claude records a disabled
+  status; enabled Claude resolves `claude` from PATH unless a command/path override is configured,
+  runs a bounded `--version` check, and records ready/unavailable status in Diagnostics. When
+  Claude is enabled, available, and the `ticket_plan` feature flag is true, focused ticket detail
+  shows a Claude section that sends selected ticket context to the local Claude CLI in the
+  background and renders the returned read-only implementation/verification plan in a modal. While
+  Claude is running, the modal shows concise subprocess activity, elapsed progress, stable output
+  state, and an `esc` cancel path that cancels the in-flight local CLI
+  process. Timeout errors retain start/deadline/command evidence for troubleshooting. While
+  running, the app requests Claude stream-json partial output, parses nested stream events, records
+  progress in Diagnostics, and suppresses raw JSON/protocol noise from the loading modal. Loading
+  modals show stable states such as waiting, receiving response, or receiving CLI messages instead
+  of constantly updating partial assistant text. True delta chunks are assembled into final readable
+  output while repeated cumulative partials are deduped. Auth failures or partial model output are
+  still available through Diagnostics and final error/result states. Claude plan dialogs use a
+  responsive percentage of the available detail
+  width for readability. Final Claude plans are bounded inside the visible detail panel, render
+  Markdown pipe tables through the existing fitted table renderer, scroll with `j`/`k`, arrows,
+  page keys, and `g`/`G`, and show a Claude line-range hint. Future write-capable workflows must
+  still check feature flags and write gates before showing actions, before enqueueing work, and
+  before applying generated changes. A planned local workspace mapping feature should let a ticket
+  map to one or more local repository folders so future Claude/code workflows can run with the right
+  repo context.
+- When Claude is enabled, available, and the `ticket_assist` feature flag is true, focused ticket
+  detail also exposes a Ticket Assist action in the Claude section. Ticket Assist sends the current
+  ticket context to the local Claude CLI in read-only mode and asks for review findings plus a
+  structured rewrite draft with Summary, Problem / Goal, Acceptance Criteria, Test / Verification,
+  Implementation Notes, and Open Questions. Returned drafts open in an editable local modal using a
+  textarea editor; the draft receives the majority of modal space and is rendered as a distinct
+  editable block from the bounded review preview. `pgup`/`pgdn` page long drafts and `ctrl+y`
+  copies the edited draft. When `allow_jira_writes` is disabled, `ctrl+s` keeps the draft local and
+  explains that writes are gated. When `allow_jira_writes` and confirmation are enabled, `ctrl+s`
+  opens an apply confirmation and a second `ctrl+s` updates Jira Summary and Description through the
+  worker pool. Pressing `r` opens a refinement instruction editor; submitting it sends Claude the
+  original ticket context, the current user-edited draft, and the user's instruction, then replaces
+  the editable draft with the refined result while keeping Jira writes gated. Pressing `c` opens a
+  confirmation to post the current draft as a Jira comment without editing Summary or Description,
+  useful for tickets owned by someone else. Ticket Assist result modals render distinct `Claude
+  Review`, `Local Draft`, and `Available Actions` zones so generated review, local edits, and next
+  actions are easier to separate. Acceptance Criteria are treated as a first-class draft section and
+  are written into Description for now. When Description is the focused ticket-detail section and
+  Claude Ticket Assist is enabled and available, `a` opens `AI for Description` instead of jumping
+  to the Claude tab. The picker can improve clarity, extract acceptance criteria, answer a user
+  question, or draft a clarifying comment. Results reuse the Ticket Assist modal, but
+  Description-scoped apply writes only Description through the worker-backed Jira update path.
+  Future inline AI actions for Comments should reuse this same draft/refine/apply/comment machinery
+  without disrupting the existing comment composer. Pressing `a` elsewhere in ticket detail jumps
+  to the Claude/AI section when any Claude action is available; otherwise it keeps the old
+  add-comment fallback.
 - The issue table is a compact tree-backed list with a fixed-width hierarchy gutter, icon-only
   issue type column, key, summary, status, priority, shortened assignee, and selected-row metadata.
   Returned child issues are rendered under their parent when both are present in the result set,
@@ -159,14 +258,50 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   open child issues for the selected parent and `X` loads all child issues, including resolved/done
   children. Expansion runs through the worker pool and merges new child rows into the current list.
 - Fetches read-only issue details for the selected issue through the worker pool, caches details by
-  issue key, and ignores stale detail responses when selection changes.
+  issue key, and ignores stale detail responses when selection changes. Issue detail uses
+  short-lived TTL freshness tracking via `github.com/jellydator/ttlcache/v3`: fresh cached detail
+  avoids duplicate Jira reads, while stale cached detail remains visible and refreshes in the
+  background.
 - Issue detail includes description text, reporter, creator, labels, components, fix versions,
   created date, and updated date when Jira returns those fields.
 - Focused ticket detail loads the latest Jira comments for the selected issue through the worker
   pool and renders them with the same ADF-aware terminal formatting as descriptions.
-- Focused ticket detail can add a Jira comment with `a`; the composer uses `ctrl+s` to
+- Focused ticket detail can add a Jira comment from the Actions section; the composer uses `ctrl+s` to
   review, `y` to post, `n` to return to editing, and `esc` to cancel. Successful posts refresh the
   issue comments.
+- Focused ticket detail can edit Summary directly from the header field: `s` focuses Summary,
+  `enter` loads Jira edit metadata through the worker pool, and a focused edit dialog owns the
+  summary draft, validation notice, save, and cancel controls. Successful updates refresh the
+  visible issue row and cached detail summary immediately.
+- Focused ticket detail includes a direct Status section. Selecting Status and pressing `enter`
+  loads available Jira transitions through the worker pool, then opens the shared detail dialog
+  pattern with Jira-populated transition choices. Successful transitions update the visible issue
+  and cached detail status immediately.
+- Focused ticket detail can edit Priority directly with `p`. The flow loads Jira edit metadata
+  through the worker pool, opens a picker modal populated from Jira `allowedValues`, and submits the
+  selected priority through the worker pool. Successful updates refresh the visible issue row and
+  cached detail priority immediately.
+- Focused ticket detail can edit Assignee directly from the header metadata. Selecting Assignee and
+  pressing `enter` opens a `Change Assignee` modal; typing filters Jira users through the worker
+  pool, arrow keys select a result, and `enter` assigns by Jira account ID. Successful updates
+  refresh the visible issue row and cached detail assignee immediately.
+- Focused ticket detail treats Summary, Assignee, and Priority as first-class focus targets before
+  the section tabs. `tab` and `shift+tab` move through editable fields and sections, while `enter`
+  opens the contextual edit modal or picker for the focused target. Single-letter shortcuts such as
+  `s` and `p` remain accelerators, not the primary editing model.
+- Key bindings should prefer one clear semantic path per workflow. Conventional navigation aliases
+  are acceptable when they mean the same thing, but unrelated keys should not duplicate the same
+  action; `tab` owns focus movement, `enter` acts on focus, and single-letter keys are distinct
+  accelerators.
+- Ticket detail mutations should use focused modal dialogs as the default pattern: the selected
+  field or section provides context, the dialog renders Jira-derived data and validation state, and
+  submit/cancel controls stay keyboard-owned without relying on a generic Actions menu.
+- Text-backed mutation dialogs, such as Summary and future comment/edit fields, should use a real
+  editor surface in the modal. Enumerated mutation dialogs, such as Status and future Priority,
+  should use a picker/dropdown-style list with arrow or `j`/`k` selection and a single apply action.
+- The current typed Jira client supports listing and applying issue transitions, but does not
+  expose Jira transition-screen field metadata. Future transition-field editing should add a
+  lower-level Jira request for `expand=transitions.fields` instead of hard-coding presets.
 - Comment composition uses a bounded multi-line editor surface with independent draft pagination;
   future rich comment work should build on that editor instead of reverting to single-line input.
 - Comment composition shares the ticket detail section-header and notice-block grammar, so add,
@@ -199,7 +334,7 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   between long descriptions, links, hierarchy, comments, and actions restores the last position for
   that section.
 - Focused ticket detail keeps key ticket identity and compact metadata in the panel header, then
-  renders Description, Links, Hierarchy, Comments, and Actions as consistent workspace sections
+  renders Description, Links, Hierarchy, Comments, Actions, and Status as consistent workspace sections
   with shared ruled headers. Section tabs and headers expose useful
   context badges such as child issue counts, discovered links, and comment count/loading/error
   state. The focused section is marked in the tab bar and footer context label, while section
@@ -211,22 +346,27 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   band, metadata, a subtle divider, and tabs so navigation no longer competes with the ticket title.
 - The always-visible ticket detail footer is intentionally limited to primary actions (`esc`,
   `j`/`k`, `tab`, `a`, and `b`); secondary section jumps and copy actions remain in `? help`.
+  When an interactive section is selected but not yet activated, the footer swaps in the visible
+  section commands, such as child, link, or action selection and activation, and those keys operate
+  on the visible section immediately.
 - Long ticket detail views right-align their viewport line indicator at the bottom of the panel so
   pagination state reads as panel chrome instead of another content row. The indicator includes
   the active detail section name on the left and the line range on the right.
-- The Links section uses a Lip Gloss table, and Comments render as numbered, repeated left-ruled
-  blocks with inset bodies so long detail views have clearer visual hierarchy. The Hierarchy section
-  always renders a Path block for either the current issue or known parent context, separates
-  visible child issues from subtasks, keeps the selected row marked before activation, routes
-  `j`/`k` and arrow keys to that selected row while the Hierarchy tab is selected, and reserves a
-  linked-issues placeholder until Jira linked issue data is loaded through a real API path. Detail
-  tables share one renderer so future pane/table styling stays centralized.
+- The Links section uses a Lip Gloss table, and Comments render as repeated left-ruled blocks with
+  author/date-first headers, secondary comment counts, and a clear header/body gap. Description
+  content also separates its ruled header from rich body content, while Description and Comments
+  loading, empty, and error messages share a consistent Status block. The Hierarchy section always
+  renders a Path block for either the current issue or known parent context, separates visible child
+  issues from subtasks, keeps the selected row marked before activation, routes `j`/`k` and arrow
+  keys to that selected row while the Hierarchy tab is selected, and reserves a linked-issues
+  placeholder until Jira linked issue data is loaded through a real API path. Detail tables share
+  one renderer so future pane/table styling stays centralized.
 - Focused ticket detail does not append a permanent hierarchy/URL footer under every section;
   hierarchy data lives in the Hierarchy section and issue URL workflows live in actions/key bindings.
 - The Actions section uses a compact table with action state and detail columns. Detail notices
   render as a distinct styled block instead of plain inline text.
-- Focused ticket detail supports section navigation with `n`/`p`, direct jumps to description with
-  `d`, comments with `m`, hierarchy with `h`, and links with `l`.
+- Focused ticket detail supports section navigation with `tab`/`shift+tab`, direct jumps to
+  description with `d`, comments with `m`, hierarchy with `h`, and links with `l`.
 - Focused ticket detail supports selected issue actions: `b` opens the Jira issue URL, `c` copies
   the issue key, and `y` copies the issue URL when Links is not focused.
 - Jira ADF descriptions are rendered through `internal/adf`, which handles readable terminal output
@@ -268,13 +408,18 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
 - Config supports a single saved profile today, with a TOML shape designed for multiple profiles.
 - There is no OAuth flow; API token auth is the only supported auth mode.
 - There is no git repository initialized in this folder yet.
-- The Jira client uses `go-atlassian` for search, issue detail, comment reads, and comment
-  creation, including ADF payload construction for text, links, and selected user mentions. Transitions,
-  metadata, sprint, and board APIs are not exposed through
-  `internal/jira` yet.
+- The Jira client uses `go-atlassian` for search, issue detail, comment reads, comment creation,
+  issue creation, edit metadata, create metadata discovery, summary updates, priority updates, and issue
+  transitions, including ADF payload construction for text, links, and selected user mentions.
+  Sprint and board APIs are not exposed through `internal/jira` yet.
 - Jira user display strings prefer real display/name/email/key fields over generic privacy aliases
   such as `User e31ec`; ticket detail also preserves a better selected-list assignee if the detail
   response returns a generic alias.
+- User-search results are cached in memory with a short TTL using `github.com/jellydator/ttlcache/v3`.
+  The first uses are Assignee typeahead and issue-detail freshness. Broader cache work should keep
+  reads async, use maintained library hooks where possible, and refresh important ticket/view data
+  in the background instead of blocking the TUI.
 - The worker pool currently supports issue search, explicit parent expansion, issue detail, comment
-  reads, comment creation, and Jira user search; sprint data is the next background workflow family
-  to add.
+  reads, comment creation, Jira user search, edit metadata, create issue type metadata, create field
+  metadata, issue creation, summary updates, priority updates, assignee updates, and issue
+  transitions; sprint data is the next background workflow family to add.

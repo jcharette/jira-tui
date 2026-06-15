@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +16,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 	lipglosstable "github.com/charmbracelet/lipgloss/table"
+	"github.com/jellydator/ttlcache/v3"
+	"github.com/jon/jira-tui/internal/claude"
 	"github.com/jon/jira-tui/internal/config"
 	"github.com/jon/jira-tui/internal/jira"
 	"github.com/jon/jira-tui/internal/linkdetect"
@@ -25,6 +29,8 @@ import (
 const (
 	maxIssues             = 50
 	maxComments           = 10
+	userSearchCacheTTL    = 2 * time.Minute
+	issueDetailCacheTTL   = 45 * time.Second
 	initialRequestID      = 1
 	defaultRequestTimeout = 20 * time.Second
 	defaultWorkerCount    = 2
@@ -36,6 +42,7 @@ const (
 	issueTreeRootGutter   = 2
 	issueTreeMaxGutter    = 12
 	issueTypeColumnWidth  = 2
+	createPickerMaxRows   = 6
 )
 
 type browserLayout struct {
@@ -114,61 +121,189 @@ type Model struct {
 	mode    mode
 	sort    sortMode
 
-	issues              []jira.Issue
-	selected            int
-	offset              int
-	detailOffset        int
-	detailSectionOffset map[string]int
-	detailFocus         int
-	detailBackStack     []int
-	hierarchyFocus      bool
-	selectedHierarchy   int
-	actionFocus         bool
-	selectedAction      int
-	detailViewport      viewport.Model
-	detailViewportReady bool
-	linkFocus           bool
-	selectedLink        int
-	width               int
-	height              int
-	helpOpen            bool
-	helpOffset          int
+	issues                             []jira.Issue
+	selected                           int
+	offset                             int
+	detailOffset                       int
+	detailSectionOffset                map[string]int
+	detailFocus                        int
+	detailBackStack                    []int
+	hierarchyFocus                     bool
+	selectedHierarchy                  int
+	actionFocus                        bool
+	selectedAction                     int
+	transitionFocus                    bool
+	selectedTransition                 int
+	priorityFocus                      bool
+	selectedPriority                   int
+	assigneeFocus                      bool
+	selectedAssignee                   int
+	assigneeUsers                      []jira.User
+	assigneeQuery                      string
+	assigneeSearchLoading              bool
+	assigneeSearchErr                  error
+	assigneeSearchReqID                int
+	assigneeSubmitting                 bool
+	assigneeSubmitKey                  string
+	assigneeSubmitValue                jira.User
+	userSearchCache                    *ttlcache.Cache[string, []jira.User]
+	summaryFocus                       bool
+	summaryEditing                     bool
+	summaryDraft                       string
+	summaryDirty                       bool
+	summaryEditor                      textarea.Model
+	summaryEditorReady                 bool
+	createOpen                         bool
+	createProjectKey                   string
+	createIssueTypes                   []jira.CreateIssueType
+	selectedCreateIssueType            int
+	createIssueTypesLoading            bool
+	createIssueTypesErr                error
+	createFields                       []jira.CreateField
+	createFieldsLoading                bool
+	createFieldsErr                    error
+	createIssueType                    jira.CreateIssueType
+	createFieldFocus                   int
+	createSummaryDraft                 string
+	createDescriptionDraft             string
+	createSummaryEditor                textarea.Model
+	createSummaryEditorReady           bool
+	createDescriptionEditor            textarea.Model
+	createDescriptionEditorReady       bool
+	createSubmitting                   bool
+	createSubmitSummary                string
+	createSubmitDescription            string
+	createDynamicValues                map[string]string
+	createDynamicSelections            map[string]int
+	createSubmitFields                 []jira.CreateIssueFieldValue
+	detailViewport                     viewport.Model
+	detailViewportReady                bool
+	linkFocus                          bool
+	selectedLink                       int
+	width                              int
+	height                             int
+	helpOpen                           bool
+	helpOffset                         int
+	diagnosticsOpen                    bool
+	diagnosticsEvents                  []diagnosticEvent
+	claudeConfig                       ClaudeConfig
+	claudeStatus                       ClaudeStatus
+	claudeRunner                       claudeRunner
+	selectedClaudeAction               int
+	inlineAIOpen                       bool
+	selectedInlineAIAction             int
+	inlineAIInstructionOpen            bool
+	inlineAIInstruction                string
+	inlineAIInstructionEditor          textarea.Model
+	inlineAIInstructionReady           bool
+	claudePlanLoading                  bool
+	claudePlanOpen                     bool
+	claudePlanText                     string
+	claudePlanErr                      error
+	claudePlanKey                      string
+	claudePlanOffset                   int
+	claudePlanStartedAt                time.Time
+	claudePlanCancel                   context.CancelFunc
+	claudePlanEvents                   chan claude.Event
+	claudePlanProgress                 []claude.Event
+	activeClaudePlanReqID              int
+	claudeAssistLoading                bool
+	claudeAssistOpen                   bool
+	claudeAssistText                   string
+	claudeAssistErr                    error
+	claudeAssistKey                    string
+	claudeAssistStartedAt              time.Time
+	claudeAssistCancel                 context.CancelFunc
+	claudeAssistEvents                 chan claude.Event
+	claudeAssistProgress               []claude.Event
+	activeClaudeAssistReqID            int
+	claudeAssistDraft                  string
+	claudeAssistEditor                 textarea.Model
+	claudeAssistEditorReady            bool
+	claudeAssistTarget                 claudeAssistTarget
+	claudeAssistConfirmApply           bool
+	claudeAssistApplying               bool
+	claudeAssistApplySummary           string
+	claudeAssistApplyDescription       string
+	activeClaudeAssistSummaryReqID     int
+	activeClaudeAssistDescriptionReqID int
+	claudeAssistSummaryApplied         bool
+	claudeAssistDescriptionApplied     bool
+	claudeAssistConfirmComment         bool
+	claudeAssistPostingComment         bool
+	activeClaudeAssistCommentReqID     int
+	claudeAssistRefining               bool
+	claudeAssistRefineInstruction      string
+	claudeAssistRefineEditor           textarea.Model
+	claudeAssistRefineEditorReady      bool
+	now                                func() time.Time
 
 	loading    bool
 	refreshing bool
 	err        error
 	lastSynced time.Time
 
-	details               map[string]jira.IssueDetail
-	detailLoading         bool
-	detailErr             error
-	detailRequestKey      string
-	comments              map[string][]jira.Comment
-	commentsLoading       bool
-	commentsErr           error
-	commentsRequestKey    string
-	commentDraft          string
-	commentEditor         textarea.Model
-	commentEditorReady    bool
-	commentConfirm        bool
-	commentSubmitting     bool
-	commentRequestKey     string
-	commentMentions       []jira.Mention
-	mentionPickerOpen     bool
-	mentionUsers          []jira.User
-	mentionCursor         int
-	mentionQuery          string
-	mentionSearchLoading  bool
-	mentionSearchErr      error
-	mentionSearchReqID    int
-	detailNotice          string
-	activeDetailRequestID int
-	activeCommentsReqID   int
-	activeCommentReqID    int
-	activeExpandReqID     int
-	expandLoading         bool
-	expandRequestKey      string
-	expandMode            worker.ExpandMode
+	details                     map[string]jira.IssueDetail
+	detailFreshnessCache        *ttlcache.Cache[string, struct{}]
+	detailLoading               bool
+	detailErr                   error
+	detailRequestKey            string
+	comments                    map[string][]jira.Comment
+	commentsLoading             bool
+	commentsErr                 error
+	commentsRequestKey          string
+	commentDraft                string
+	commentEditor               textarea.Model
+	commentEditorReady          bool
+	commentConfirm              bool
+	commentSubmitting           bool
+	commentRequestKey           string
+	commentMentions             []jira.Mention
+	mentionPickerOpen           bool
+	mentionUsers                []jira.User
+	mentionCursor               int
+	mentionQuery                string
+	mentionSearchLoading        bool
+	mentionSearchErr            error
+	mentionSearchReqID          int
+	detailNotice                string
+	activeDetailRequestID       int
+	activeCommentsReqID         int
+	activeCommentReqID          int
+	activeExpandReqID           int
+	activeTransitionsReqID      int
+	activeTransitionReqID       int
+	activeSummaryMetadataReqID  int
+	activeSummaryReqID          int
+	activePriorityMetadataReqID int
+	activePriorityReqID         int
+	activeAssigneeReqID         int
+	activeCreateIssueTypesReqID int
+	activeCreateFieldsReqID     int
+	activeCreateIssueReqID      int
+	expandLoading               bool
+	expandRequestKey            string
+	expandMode                  worker.ExpandMode
+	transitions                 map[string][]jira.Transition
+	transitionLoading           bool
+	transitionSubmitting        bool
+	transitionRequestKey        string
+	transitionSubmitKey         string
+	transitionSubmitToStatus    string
+	transitionErr               error
+	editMetadata                map[string]jira.EditMetadata
+	summaryMetadataLoading      bool
+	summaryMetadataRequestKey   string
+	summaryMetadataErr          error
+	summarySubmitting           bool
+	summarySubmitKey            string
+	summarySubmitValue          string
+	priorityMetadataLoading     bool
+	priorityMetadataRequestKey  string
+	priorityMetadataErr         error
+	prioritySubmitting          bool
+	prioritySubmitKey           string
+	prioritySubmitValue         jira.FieldOption
 
 	refreshInterval time.Duration
 	requestTimeout  time.Duration
@@ -200,6 +335,47 @@ const (
 
 type detailLink = linkdetect.Link
 
+const maxDiagnosticsEvents = 80
+
+type diagnosticKind string
+
+const (
+	diagnosticKindWorker diagnosticKind = "worker"
+	diagnosticKindCache  diagnosticKind = "cache"
+	diagnosticKindClaude diagnosticKind = "claude"
+)
+
+type diagnosticEvent struct {
+	At     time.Time
+	Kind   diagnosticKind
+	Label  string
+	Status string
+	Detail string
+}
+
+type ClaudeStatus struct {
+	Enabled   bool
+	Available bool
+	Command   string
+	Version   string
+	Message   string
+	Err       error
+}
+
+type ClaudeConfig struct {
+	Enabled             bool
+	TicketPlan          bool
+	TicketAssist        bool
+	Command             string
+	Timeout             time.Duration
+	RequireConfirmation bool
+	AllowJiraWrites     bool
+}
+
+type claudeRunner interface {
+	Run(context.Context, claude.Request) (claude.Result, error)
+}
+
 type detailAction struct {
 	ID          string
 	Label       string
@@ -212,6 +388,20 @@ type detailSection struct {
 	Label string
 	Short string
 	Badge string
+}
+
+type detailTargetKind string
+
+const (
+	detailTargetField   detailTargetKind = "field"
+	detailTargetSection detailTargetKind = "section"
+)
+
+type detailTarget struct {
+	ID      string
+	Label   string
+	Kind    detailTargetKind
+	Section detailSection
 }
 
 type hierarchyRow struct {
@@ -292,8 +482,54 @@ func WithViews(views []config.IssueView, active string) Option {
 	}
 }
 
+func WithClaudeStatus(status ClaudeStatus) Option {
+	return func(m *Model) {
+		m.claudeStatus = status
+		state := "disabled"
+		if status.Enabled && status.Available {
+			state = "ready"
+		} else if status.Enabled {
+			state = "unavailable"
+		}
+		detailParts := []string{state}
+		if strings.TrimSpace(status.Command) != "" {
+			detailParts = append(detailParts, strings.TrimSpace(status.Command))
+		}
+		if strings.TrimSpace(status.Version) != "" {
+			detailParts = append(detailParts, strings.TrimSpace(status.Version))
+		}
+		if strings.TrimSpace(status.Message) != "" {
+			detailParts = append(detailParts, strings.TrimSpace(status.Message))
+		}
+		if status.Err != nil {
+			detailParts = append(detailParts, truncate(status.Err.Error(), 80))
+		}
+		eventStatus := "ok"
+		if status.Enabled && !status.Available {
+			eventStatus = "error"
+		}
+		m.recordDiagnosticEvent(diagnosticKindClaude, "claude", eventStatus, strings.Join(detailParts, " "))
+	}
+}
+
+func WithClaudeConfig(config ClaudeConfig) Option {
+	return func(m *Model) {
+		m.claudeConfig = config
+	}
+}
+
+func WithClaudeRunner(runner claudeRunner) Option {
+	return func(m *Model) {
+		m.claudeRunner = runner
+	}
+}
+
 type refreshTickMsg struct{}
-type workSubmittedMsg struct{}
+type workSubmittedMsg struct {
+	kind worker.Kind
+	id   int
+	key  string
+}
 type noDetailRequestMsg struct{}
 type workerStoppedMsg struct{}
 
@@ -307,20 +543,60 @@ type linkActionMsg struct {
 	err    error
 }
 
+type claudePlanResultMsg struct {
+	id   int
+	key  string
+	text string
+	err  error
+}
+
+type claudePlanTickMsg struct {
+	id int
+}
+
+type claudePlanProgressMsg struct {
+	id    int
+	key   string
+	event claude.Event
+}
+
+type claudeAssistResultMsg struct {
+	id   int
+	key  string
+	text string
+	err  error
+}
+
+type claudeAssistTickMsg struct {
+	id int
+}
+
+type claudeAssistProgressMsg struct {
+	id    int
+	key   string
+	event claude.Event
+}
+
 func NewModel(client worker.JiraClient, jql string, options ...Option) Model {
 	model := Model{
-		jql:                 jql,
-		loading:             true,
-		requestTimeout:      defaultRequestTimeout,
-		workerCount:         defaultWorkerCount,
-		queueSize:           defaultQueueSize,
-		nextRequestID:       initialRequestID,
-		activeRequestID:     initialRequestID,
-		theme:               ui.NewTheme(config.DefaultTheme()),
-		symbolMode:          symbolModeAuto,
-		details:             make(map[string]jira.IssueDetail),
-		comments:            make(map[string][]jira.Comment),
-		detailSectionOffset: make(map[string]int),
+		jql:                  jql,
+		loading:              true,
+		requestTimeout:       defaultRequestTimeout,
+		workerCount:          defaultWorkerCount,
+		queueSize:            defaultQueueSize,
+		nextRequestID:        initialRequestID,
+		activeRequestID:      initialRequestID,
+		theme:                ui.NewTheme(config.DefaultTheme()),
+		symbolMode:           symbolModeAuto,
+		details:              make(map[string]jira.IssueDetail),
+		detailFreshnessCache: ttlcache.New[string, struct{}](ttlcache.WithTTL[string, struct{}](issueDetailCacheTTL)),
+		comments:             make(map[string][]jira.Comment),
+		transitions:          make(map[string][]jira.Transition),
+		editMetadata:         make(map[string]jira.EditMetadata),
+		detailSectionOffset:  make(map[string]int),
+		userSearchCache:      ttlcache.New[string, []jira.User](ttlcache.WithTTL[string, []jira.User](userSearchCacheTTL)),
+		claudeRunner:         claude.LocalRunner{},
+		now:                  time.Now,
 	}
 	for _, option := range options {
 		option(&model)
@@ -356,14 +632,49 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmd, m.scheduleRefresh())
 	case workerResultMsg:
 		var cmd tea.Cmd
+		m.recordWorkerResult(resultDiagnosticEvent(msg.result))
 		m, cmd = m.handleWorkerResult(msg.result)
 		return m, tea.Batch(cmd, m.waitForWorkerResult())
+	case claudePlanResultMsg:
+		m = m.handleClaudePlanResult(msg)
+		return m, nil
+	case claudePlanTickMsg:
+		if m.claudePlanLoading && msg.id == m.activeClaudePlanReqID {
+			return m, m.scheduleClaudePlanTick(msg.id)
+		}
+		return m, nil
+	case claudePlanProgressMsg:
+		m = m.handleClaudePlanProgress(msg)
+		if m.claudePlanLoading && msg.id == m.activeClaudePlanReqID {
+			return m, m.waitForClaudePlanProgress(msg.id, msg.key)
+		}
+		return m, nil
+	case claudeAssistResultMsg:
+		m = m.handleClaudeAssistResult(msg)
+		return m, nil
+	case claudeAssistTickMsg:
+		if m.claudeAssistLoading && msg.id == m.activeClaudeAssistReqID {
+			return m, m.scheduleClaudeAssistTick(msg.id)
+		}
+		return m, nil
+	case claudeAssistProgressMsg:
+		m = m.handleClaudeAssistProgress(msg)
+		if m.claudeAssistLoading && msg.id == m.activeClaudeAssistReqID {
+			return m, m.waitForClaudeAssistProgress(msg.id, msg.key)
+		}
+		return m, nil
 	case linkActionMsg:
 		m.detailNotice = linkActionNotice(msg)
 		return m, nil
-	case workerStoppedMsg, workSubmittedMsg, noDetailRequestMsg:
+	case workSubmittedMsg:
+		m.recordDiagnosticEvent(diagnosticKindWorker, string(msg.kind), "submit", workerDiagnosticDetail(msg.id, msg.key, nil))
+		return m, nil
+	case workerStoppedMsg, noDetailRequestMsg:
 		return m, nil
 	case tea.PasteMsg:
+		if m.createOpen {
+			return m.updateCreatePaste(msg)
+		}
 		if m.mode == modeComment {
 			return m.updateCommentComposer(msg)
 		}
@@ -393,8 +704,70 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if m.diagnosticsOpen {
+			switch msg.String() {
+			case "esc", "ctrl+d":
+				m.diagnosticsOpen = false
+			}
+			return m, nil
+		}
+		if msg.String() == "ctrl+d" {
+			m.diagnosticsOpen = true
+			return m, nil
+		}
+		if m.claudePlanOpen && msg.String() == "esc" {
+			if m.claudePlanLoading {
+				m = m.cancelClaudeTicketPlan()
+				return m, nil
+			}
+			m.claudePlanOpen = false
+			return m, nil
+		}
+		if m.claudePlanOpen && !m.claudePlanLoading && strings.TrimSpace(m.claudePlanText) != "" {
+			switch msg.String() {
+			case "j", "down":
+				m.scrollClaudePlanResult(1)
+				return m, nil
+			case "k", "up":
+				m.scrollClaudePlanResult(-1)
+				return m, nil
+			case "pgdown", "space", "ctrl+f":
+				m.scrollClaudePlanResult(m.claudePlanResultRows())
+				return m, nil
+			case "pgup", "ctrl+b":
+				m.scrollClaudePlanResult(-m.claudePlanResultRows())
+				return m, nil
+			case "g", "home":
+				m.claudePlanOffset = 0
+				return m, nil
+			case "G", "end":
+				m.scrollClaudePlanResult(1 << 20)
+				return m, nil
+			}
+		}
+		if m.claudeAssistOpen {
+			if m.claudeAssistLoading && msg.String() == "esc" {
+				m = m.cancelClaudeTicketAssist()
+				return m, nil
+			}
+			if !m.claudeAssistLoading {
+				return m.updateClaudeAssistEditor(msg)
+			}
+		}
+		if m.inlineAIOpen {
+			return m.updateInlineAIPicker(msg)
+		}
+		if m.createOpen {
+			return m.updateCreateIssue(msg)
+		}
 		if m.mode == modeComment {
 			return m.updateCommentComposer(msg)
+		}
+		if m.mode == modeDetail && m.summaryEditing {
+			return m.updateSummaryEditor(msg)
+		}
+		if m.mode == modeDetail && m.assigneeFocus {
+			return m.updateAssigneePicker(msg)
 		}
 		switch msg.String() {
 		case "ctrl+c", "q":
@@ -402,8 +775,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "esc":
 			if m.mode == modeDetail {
+				if m.summaryFocus {
+					m.summaryFocus = false
+					m.detailNotice = ""
+					return m, nil
+				}
 				if m.actionFocus {
 					m.actionFocus = false
+					m.detailNotice = ""
+					return m, nil
+				}
+				if m.transitionFocus {
+					m.transitionFocus = false
+					m.detailNotice = ""
+					return m, nil
+				}
+				if m.priorityFocus {
+					m.priorityFocus = false
+					m.detailNotice = ""
+					return m, nil
+				}
+				if m.assigneeFocus {
+					m.assigneeFocus = false
 					m.detailNotice = ""
 					return m, nil
 				}
@@ -425,11 +818,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.linkFocus = false
 				m.hierarchyFocus = false
 				m.actionFocus = false
+				m.transitionFocus = false
+				m.priorityFocus = false
+				m.assigneeFocus = false
+				m.summaryFocus = false
 				m.detailNotice = ""
 			}
 		case "r":
 			m.err = nil
 			return m.startRefresh()
+		case "n":
+			return m.startCreateIssue()
 		case "x":
 			if m.mode == modeTable {
 				return m.startExpandSelectedIssue(worker.ExpandModeOpen)
@@ -461,6 +860,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.mode == modeDetail && m.linkFocus {
 				return m.copySelectedDetailLink()
 			}
+			if m.canUseLinkSelection() {
+				return m.copySelectedDetailLink()
+			}
 			if m.mode == modeDetail {
 				return m.copySelectedIssueURL()
 			}
@@ -474,8 +876,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "a":
 			if m.mode == modeDetail {
+				if m.inlineDescriptionAIAvailable() {
+					return m.openInlineDescriptionAI()
+				}
+				if m.claudeAvailable() {
+					m.jumpDetailSection("Claude")
+					return m, nil
+				}
 				m.startCommentComposer()
 				return m, nil
+			}
+		case "s":
+			if m.mode == modeDetail {
+				return m.startSummaryEditor()
+			}
+		case "p":
+			if m.mode == modeDetail {
+				return m.startPriorityEditor()
 			}
 		case "enter":
 			if m.mode == modeDetail && m.linkFocus {
@@ -484,12 +901,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.mode == modeDetail && m.actionFocus {
 				return m.runSelectedDetailAction()
 			}
+			if m.mode == modeDetail && m.transitionFocus {
+				return m.submitSelectedTransition()
+			}
+			if m.mode == modeDetail && m.priorityFocus {
+				return m.submitSelectedPriority()
+			}
+			if m.mode == modeDetail && m.assigneeFocus {
+				return m.submitSelectedAssignee()
+			}
+			if m.mode == modeDetail && m.summaryFocus {
+				return m.startSummaryEditor()
+			}
 			if m.mode == modeDetail && m.hierarchyFocus {
 				return m.openSelectedHierarchyIssue()
 			}
 			if m.mode == modeDetail {
-				m.activateDetailFocus()
-				return m, nil
+				return m.activateFocusedDetailTarget()
 			}
 			if m.mode != modeDetail && len(m.issues) > 0 {
 				m.mode = modeDetail
@@ -510,8 +938,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.moveSelectedDetailAction(-1)
 					return m, nil
 				}
+				if m.transitionFocus {
+					m.moveSelectedTransition(-1)
+					return m, nil
+				}
+				if m.priorityFocus {
+					m.moveSelectedPriority(-1)
+					return m, nil
+				}
+				if m.assigneeFocus {
+					m.moveSelectedAssignee(-1)
+					return m, nil
+				}
 				if m.hierarchyFocus {
 					m.moveSelectedHierarchyIssue(-1)
+					return m, nil
+				}
+				if m.canUseLinkSelection() {
+					m.moveSelectedDetailLink(-1)
+					return m, nil
+				}
+				if m.canUseActionSelection() {
+					m.moveSelectedDetailAction(-1)
+					return m, nil
+				}
+				if m.canUseClaudeSelection() {
+					m.moveSelectedClaudeAction(-1)
 					return m, nil
 				}
 				if m.canMoveHierarchySelection() {
@@ -533,8 +985,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.moveSelectedDetailAction(1)
 					return m, nil
 				}
+				if m.transitionFocus {
+					m.moveSelectedTransition(1)
+					return m, nil
+				}
+				if m.priorityFocus {
+					m.moveSelectedPriority(1)
+					return m, nil
+				}
+				if m.assigneeFocus {
+					m.moveSelectedAssignee(1)
+					return m, nil
+				}
 				if m.hierarchyFocus {
 					m.moveSelectedHierarchyIssue(1)
+					return m, nil
+				}
+				if m.canUseLinkSelection() {
+					m.moveSelectedDetailLink(1)
+					return m, nil
+				}
+				if m.canUseActionSelection() {
+					m.moveSelectedDetailAction(1)
+					return m, nil
+				}
+				if m.canUseClaudeSelection() {
+					m.moveSelectedClaudeAction(1)
 					return m, nil
 				}
 				if m.canMoveHierarchySelection() {
@@ -564,6 +1040,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.mode == modeDetail {
 				m.setDetailOffset(0)
 				m.linkFocus = false
+				m.transitionFocus = false
+				m.priorityFocus = false
+				m.assigneeFocus = false
 				return m, nil
 			}
 			m.selected = 0
@@ -573,6 +1052,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.mode == modeDetail {
 				m.scrollDetailToBottom()
 				m.linkFocus = false
+				m.transitionFocus = false
+				m.priorityFocus = false
+				m.assigneeFocus = false
 				return m, nil
 			}
 			m.selected = max(0, len(m.issues)-1)
@@ -588,6 +1070,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.linkFocus = false
 				m.hierarchyFocus = false
 				m.actionFocus = false
+				m.transitionFocus = false
+				m.priorityFocus = false
+				m.assigneeFocus = false
 				m.jumpDetailSection("Description")
 				return m, nil
 			}
@@ -596,6 +1081,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.linkFocus = false
 				m.hierarchyFocus = false
 				m.actionFocus = false
+				m.transitionFocus = false
+				m.priorityFocus = false
+				m.assigneeFocus = false
 				m.jumpDetailSection("Hierarchy")
 				return m, nil
 			}
@@ -604,17 +1092,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.linkFocus = false
 				m.hierarchyFocus = false
 				m.actionFocus = false
+				m.transitionFocus = false
+				m.priorityFocus = false
+				m.assigneeFocus = false
 				m.jumpDetailSection("Comments")
-				return m, nil
-			}
-		case "n":
-			if m.mode == modeDetail {
-				m.moveDetailFocus(1)
-				return m, nil
-			}
-		case "p":
-			if m.mode == modeDetail {
-				m.moveDetailFocus(-1)
 				return m, nil
 			}
 		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
@@ -636,14 +1117,436 @@ func (m Model) handleWorkerResult(result worker.Result) (Model, tea.Cmd) {
 	case worker.KindGetComments:
 		return m.handleCommentsResult(result), nil
 	case worker.KindAddComment:
+		if result.ID == m.activeClaudeAssistCommentReqID {
+			return m.handleClaudeAssistCommentResult(result)
+		}
 		return m.handleAddCommentResult(result)
 	case worker.KindSearchUsers:
 		return m.handleUserSearchResult(result), nil
 	case worker.KindExpandIssues:
 		return m.handleExpandIssuesResult(result), nil
+	case worker.KindGetTransitions:
+		return m.handleGetTransitionsResult(result), nil
+	case worker.KindTransitionIssue:
+		return m.handleTransitionIssueResult(result), nil
+	case worker.KindGetEditMetadata:
+		return m.handleEditMetadataResult(result), nil
+	case worker.KindUpdateSummary:
+		if result.ID == m.activeClaudeAssistSummaryReqID {
+			return m.handleClaudeAssistApplyResult(result), nil
+		}
+		return m.handleUpdateSummaryResult(result), nil
+	case worker.KindUpdateDescription:
+		return m.handleClaudeAssistApplyResult(result), nil
+	case worker.KindUpdatePriority:
+		return m.handleUpdatePriorityResult(result), nil
+	case worker.KindUpdateAssignee:
+		return m.handleUpdateAssigneeResult(result), nil
+	case worker.KindGetCreateIssueTypes:
+		return m.handleGetCreateIssueTypesResult(result), nil
+	case worker.KindGetCreateFields:
+		return m.handleGetCreateFieldsResult(result), nil
+	case worker.KindCreateIssue:
+		return m.handleCreateIssueResult(result), nil
 	default:
 		return m, nil
 	}
+}
+
+func (m Model) handleAssigneeSearchResult(result worker.Result) Model {
+	if result.ID != m.assigneeSearchReqID {
+		return m
+	}
+	m.assigneeSearchLoading = false
+	if result.Err != nil {
+		m.assigneeSearchErr = result.Err
+		m.detailNotice = "Assignee search failed: " + result.Err.Error()
+		return m
+	}
+	if result.SearchUsers == nil {
+		m.assigneeSearchErr = worker.ErrInvalidRequest
+		m.detailNotice = "Assignee search failed: " + worker.ErrInvalidRequest.Error()
+		return m
+	}
+	if result.SearchUsers.Query != m.assigneeQuery {
+		return m
+	}
+	m.cacheUserSearch(result.SearchUsers.Query, result.SearchUsers.Users)
+	m.assigneeUsers = result.SearchUsers.Users
+	m.selectedAssignee = clamp(m.selectedAssignee, 0, max(0, len(m.assigneeUsers)-1))
+	m.assigneeSearchErr = nil
+	m.detailNotice = ""
+	return m
+}
+
+func (m Model) cachedUserSearch(query string) ([]jira.User, bool) {
+	if m.userSearchCache == nil {
+		return nil, false
+	}
+	item := m.userSearchCache.Get(userSearchCacheKey(query))
+	if item == nil {
+		return nil, false
+	}
+	return item.Value(), true
+}
+
+func (m Model) cacheUserSearch(query string, users []jira.User) {
+	if m.userSearchCache == nil || strings.TrimSpace(query) == "" {
+		return
+	}
+	m.userSearchCache.Set(userSearchCacheKey(query), users, ttlcache.DefaultTTL)
+}
+
+func userSearchCacheKey(query string) string {
+	return strings.ToLower(strings.TrimSpace(query))
+}
+
+func (m Model) handleEditMetadataResult(result worker.Result) Model {
+	if result.ID != m.activeSummaryMetadataReqID && result.ID != m.activePriorityMetadataReqID {
+		return m
+	}
+	isPriorityRequest := result.ID == m.activePriorityMetadataReqID
+	if isPriorityRequest {
+		m.priorityMetadataLoading = false
+	} else {
+		m.summaryMetadataLoading = false
+	}
+	if result.Err != nil {
+		if isPriorityRequest {
+			m.priorityMetadataErr = result.Err
+			m.detailNotice = "Priority metadata failed: " + result.Err.Error()
+		} else {
+			m.summaryMetadataErr = result.Err
+			m.detailNotice = "Summary metadata failed: " + result.Err.Error()
+		}
+		return m
+	}
+	if result.GetEditMetadata == nil {
+		if isPriorityRequest {
+			m.priorityMetadataErr = worker.ErrInvalidRequest
+			m.detailNotice = "Priority metadata failed: " + worker.ErrInvalidRequest.Error()
+		} else {
+			m.summaryMetadataErr = worker.ErrInvalidRequest
+			m.detailNotice = "Summary metadata failed: " + worker.ErrInvalidRequest.Error()
+		}
+		return m
+	}
+	requestKey := m.summaryMetadataRequestKey
+	if isPriorityRequest {
+		requestKey = m.priorityMetadataRequestKey
+	}
+	if result.GetEditMetadata.Key != requestKey {
+		return m
+	}
+	selected, ok := m.selectedIssue()
+	if !ok || selected.Key != result.GetEditMetadata.Key {
+		return m
+	}
+	if m.editMetadata == nil {
+		m.editMetadata = make(map[string]jira.EditMetadata)
+	}
+	m.editMetadata[result.GetEditMetadata.Key] = result.GetEditMetadata.Metadata
+	if isPriorityRequest {
+		m.priorityMetadataErr = nil
+		return m.beginPriorityEditing(result.GetEditMetadata.Metadata)
+	}
+	m.summaryMetadataErr = nil
+	if !result.GetEditMetadata.Metadata.Summary.Editable {
+		m.detailNotice = "Summary is not editable for " + result.GetEditMetadata.Key + "."
+		return m
+	}
+	m.beginSummaryEditing()
+	return m
+}
+
+func (m Model) handleUpdateSummaryResult(result worker.Result) Model {
+	if result.ID != m.activeSummaryReqID {
+		return m
+	}
+	m.summarySubmitting = false
+	if result.Err != nil {
+		m.detailNotice = "Summary update failed: " + result.Err.Error()
+		return m
+	}
+	if result.UpdateSummary == nil {
+		m.detailNotice = "Summary update failed: " + worker.ErrInvalidRequest.Error()
+		return m
+	}
+	if result.UpdateSummary.Key != m.summarySubmitKey {
+		return m
+	}
+	m.updateIssueSummary(result.UpdateSummary.Key, result.UpdateSummary.Summary)
+	m.summaryEditing = false
+	m.summaryDirty = false
+	m.summarySubmitKey = ""
+	m.summarySubmitValue = ""
+	m.detailNotice = "Summary updated."
+	return m
+}
+
+func (m Model) handleClaudeAssistApplyResult(result worker.Result) Model {
+	if !m.claudeAssistApplying {
+		return m
+	}
+	switch result.Kind {
+	case worker.KindUpdateSummary:
+		if result.ID != m.activeClaudeAssistSummaryReqID {
+			return m
+		}
+		if result.Err != nil {
+			m.claudeAssistApplying = false
+			m.claudeAssistConfirmApply = false
+			m.detailNotice = "Ticket assist apply failed: " + result.Err.Error()
+			return m
+		}
+		if result.UpdateSummary == nil {
+			m.claudeAssistApplying = false
+			m.detailNotice = "Ticket assist apply failed: " + worker.ErrInvalidRequest.Error()
+			return m
+		}
+		m.updateIssueSummary(result.UpdateSummary.Key, result.UpdateSummary.Summary)
+		m.claudeAssistSummaryApplied = true
+	case worker.KindUpdateDescription:
+		if result.ID != m.activeClaudeAssistDescriptionReqID {
+			return m
+		}
+		if result.Err != nil {
+			m.claudeAssistApplying = false
+			m.claudeAssistConfirmApply = false
+			m.detailNotice = "Ticket assist apply failed: " + result.Err.Error()
+			return m
+		}
+		if result.UpdateDescription == nil {
+			m.claudeAssistApplying = false
+			m.detailNotice = "Ticket assist apply failed: " + worker.ErrInvalidRequest.Error()
+			return m
+		}
+		m.updateIssueDescription(result.UpdateDescription.Key, result.UpdateDescription.Description)
+		m.claudeAssistDescriptionApplied = true
+	default:
+		return m
+	}
+	if m.claudeAssistSummaryApplied && m.claudeAssistDescriptionApplied {
+		m.claudeAssistApplying = false
+		m.claudeAssistConfirmApply = false
+		m.claudeAssistOpen = false
+		m.activeClaudeAssistSummaryReqID = 0
+		m.activeClaudeAssistDescriptionReqID = 0
+		m.detailNotice = "Ticket assist draft applied."
+	}
+	return m
+}
+
+func (m Model) handleClaudeAssistCommentResult(result worker.Result) (Model, tea.Cmd) {
+	if result.ID != m.activeClaudeAssistCommentReqID {
+		return m, nil
+	}
+	m.claudeAssistPostingComment = false
+	if result.Err != nil {
+		m.detailNotice = "Ticket assist comment failed: " + result.Err.Error()
+		return m, nil
+	}
+	if result.AddComment == nil {
+		m.detailNotice = "Ticket assist comment failed: " + worker.ErrInvalidRequest.Error()
+		return m, nil
+	}
+	key := result.AddComment.Key
+	m.claudeAssistConfirmComment = false
+	m.claudeAssistOpen = false
+	m.activeClaudeAssistCommentReqID = 0
+	m.detailNotice = "Ticket assist draft posted as a comment."
+	if m.comments != nil {
+		delete(m.comments, key)
+	}
+	m.nextRequestID++
+	m.activeCommentsReqID = m.nextRequestID
+	m.commentsRequestKey = key
+	m.commentsLoading = true
+	m.commentsErr = nil
+	return m, m.submitIssueComments(m.activeCommentsReqID, key)
+}
+
+func (m Model) handleUpdatePriorityResult(result worker.Result) Model {
+	if result.ID != m.activePriorityReqID {
+		return m
+	}
+	m.prioritySubmitting = false
+	if result.Err != nil {
+		m.detailNotice = "Priority update failed: " + result.Err.Error()
+		return m
+	}
+	if result.UpdatePriority == nil {
+		m.detailNotice = "Priority update failed: " + worker.ErrInvalidRequest.Error()
+		return m
+	}
+	if result.UpdatePriority.Key != m.prioritySubmitKey {
+		return m
+	}
+	priorityName := displayValue(result.UpdatePriority.Priority.Name, result.UpdatePriority.Priority.ID)
+	m.updateIssuePriority(result.UpdatePriority.Key, priorityName)
+	m.priorityFocus = false
+	m.prioritySubmitKey = ""
+	m.prioritySubmitValue = jira.FieldOption{}
+	m.detailNotice = "Priority updated to " + displayValue(priorityName, "Unknown") + "."
+	return m
+}
+
+func (m Model) handleUpdateAssigneeResult(result worker.Result) Model {
+	if result.ID != m.activeAssigneeReqID {
+		return m
+	}
+	m.assigneeSubmitting = false
+	if result.Err != nil {
+		m.detailNotice = "Assignee update failed: " + result.Err.Error()
+		return m
+	}
+	if result.UpdateAssignee == nil {
+		m.detailNotice = "Assignee update failed: " + worker.ErrInvalidRequest.Error()
+		return m
+	}
+	if result.UpdateAssignee.Key != m.assigneeSubmitKey {
+		return m
+	}
+	assigneeName := displayValue(result.UpdateAssignee.Assignee.DisplayName, result.UpdateAssignee.Assignee.Email)
+	m.updateIssueAssignee(result.UpdateAssignee.Key, assigneeName)
+	m.assigneeFocus = false
+	m.assigneeSubmitKey = ""
+	m.assigneeSubmitValue = jira.User{}
+	m.detailNotice = "Assignee updated to " + displayValue(assigneeName, "Unknown") + "."
+	return m
+}
+
+func (m Model) handleGetCreateIssueTypesResult(result worker.Result) Model {
+	if result.ID != m.activeCreateIssueTypesReqID {
+		return m
+	}
+	m.createIssueTypesLoading = false
+	if result.Err != nil {
+		m.createIssueTypesErr = result.Err
+		return m
+	}
+	if result.GetCreateIssueTypes == nil {
+		m.createIssueTypesErr = worker.ErrInvalidRequest
+		return m
+	}
+	if result.GetCreateIssueTypes.ProjectKey != m.createProjectKey {
+		return m
+	}
+	m.createIssueTypes = result.GetCreateIssueTypes.IssueTypes
+	m.selectedCreateIssueType = clamp(m.selectedCreateIssueType, 0, max(0, len(m.createIssueTypes)-1))
+	m.createIssueTypesErr = nil
+	return m
+}
+
+func (m Model) handleGetCreateFieldsResult(result worker.Result) Model {
+	if result.ID != m.activeCreateFieldsReqID {
+		return m
+	}
+	m.createFieldsLoading = false
+	if result.Err != nil {
+		m.createFieldsErr = result.Err
+		return m
+	}
+	if result.GetCreateFields == nil {
+		m.createFieldsErr = worker.ErrInvalidRequest
+		return m
+	}
+	if result.GetCreateFields.ProjectKey != m.createProjectKey || result.GetCreateFields.IssueTypeID != m.createIssueType.ID {
+		return m
+	}
+	m.createFields = result.GetCreateFields.Fields
+	m.createFieldsErr = nil
+	m.beginCreateForm()
+	return m
+}
+
+func (m Model) handleCreateIssueResult(result worker.Result) Model {
+	if result.ID != m.activeCreateIssueReqID {
+		return m
+	}
+	m.createSubmitting = false
+	if result.Err != nil {
+		m.detailNotice = "Create issue failed: " + result.Err.Error()
+		return m
+	}
+	if result.CreateIssue == nil {
+		m.detailNotice = "Create issue failed: " + worker.ErrInvalidRequest.Error()
+		return m
+	}
+	created := result.CreateIssue.Issue
+	if strings.TrimSpace(created.Key) == "" {
+		m.detailNotice = "Create issue failed: empty Jira response."
+		return m
+	}
+	m.createOpen = false
+	m.issues = prependIssue(m.issues, created)
+	m.selected = 0
+	m.offset = 0
+	m.mode = modeTable
+	m.detailNotice = "Created " + created.Key + "."
+	m.resetCreateIssueState()
+	return m
+}
+
+func (m Model) handleGetTransitionsResult(result worker.Result) Model {
+	if result.ID != m.activeTransitionsReqID {
+		return m
+	}
+	m.transitionLoading = false
+	if result.Err != nil {
+		m.transitionErr = result.Err
+		m.detailNotice = "Transitions failed: " + result.Err.Error()
+		return m
+	}
+	if result.GetTransitions == nil {
+		m.transitionErr = worker.ErrInvalidRequest
+		m.detailNotice = "Transitions failed: " + worker.ErrInvalidRequest.Error()
+		return m
+	}
+	if result.GetTransitions.Key != m.transitionRequestKey {
+		return m
+	}
+	selected, ok := m.selectedIssue()
+	if !ok || selected.Key != result.GetTransitions.Key {
+		return m
+	}
+	if m.transitions == nil {
+		m.transitions = make(map[string][]jira.Transition)
+	}
+	m.transitions[result.GetTransitions.Key] = result.GetTransitions.Transitions
+	m.selectedTransition = clamp(m.selectedTransition, 0, max(0, len(result.GetTransitions.Transitions)-1))
+	m.transitionFocus = len(result.GetTransitions.Transitions) > 0
+	m.transitionErr = nil
+	if len(result.GetTransitions.Transitions) == 0 {
+		m.detailNotice = "No available status transitions for " + result.GetTransitions.Key + "."
+	} else {
+		m.detailNotice = fmt.Sprintf("Loaded %d status transitions for %s.", len(result.GetTransitions.Transitions), result.GetTransitions.Key)
+	}
+	return m
+}
+
+func (m Model) handleTransitionIssueResult(result worker.Result) Model {
+	if result.ID != m.activeTransitionReqID {
+		return m
+	}
+	m.transitionSubmitting = false
+	if result.Err != nil {
+		m.detailNotice = "Status update failed: " + result.Err.Error()
+		return m
+	}
+	if result.TransitionIssue == nil {
+		m.detailNotice = "Status update failed: " + worker.ErrInvalidRequest.Error()
+		return m
+	}
+	if result.TransitionIssue.Key != m.transitionSubmitKey {
+		return m
+	}
+	m.updateIssueStatus(result.TransitionIssue.Key, result.TransitionIssue.ToStatus)
+	m.transitionFocus = false
+	m.transitionSubmitKey = ""
+	m.transitionSubmitToStatus = ""
+	m.detailNotice = "Status updated to " + displayValue(result.TransitionIssue.ToStatus, "Unknown") + "."
+	return m
 }
 
 func (m Model) handleExpandIssuesResult(result worker.Result) Model {
@@ -721,8 +1624,23 @@ func (m Model) handleDetailResult(result worker.Result) Model {
 		m.details = make(map[string]jira.IssueDetail)
 	}
 	m.details[result.GetIssue.Key] = result.GetIssue.Detail
+	m.markIssueDetailFresh(result.GetIssue.Key)
 	m.detailErr = nil
 	return m
+}
+
+func (m Model) isIssueDetailFresh(key string) bool {
+	if m.detailFreshnessCache == nil || strings.TrimSpace(key) == "" {
+		return false
+	}
+	return m.detailFreshnessCache.Get(key) != nil
+}
+
+func (m Model) markIssueDetailFresh(key string) {
+	if m.detailFreshnessCache == nil || strings.TrimSpace(key) == "" {
+		return
+	}
+	m.detailFreshnessCache.Set(key, struct{}{}, ttlcache.DefaultTTL)
 }
 
 func (m Model) handleAddCommentResult(result worker.Result) (Model, tea.Cmd) {
@@ -766,6 +1684,9 @@ func (m Model) handleAddCommentResult(result worker.Result) (Model, tea.Cmd) {
 }
 
 func (m Model) handleUserSearchResult(result worker.Result) Model {
+	if result.ID == m.assigneeSearchReqID {
+		return m.handleAssigneeSearchResult(result)
+	}
 	if result.ID != m.mentionSearchReqID {
 		return m
 	}
@@ -849,17 +1770,31 @@ func (m Model) render() string {
 		return b.String()
 	}
 
+	if m.diagnosticsOpen {
+		b.WriteString(m.renderDiagnostics(layout))
+		b.WriteString("\n\n")
+		b.WriteString(m.renderFooterHelp(keyContextDiagnostics, layout))
+		return b.String()
+	}
+
+	if m.createOpen {
+		b.WriteString(m.renderCreateIssue(layout))
+		b.WriteString("\n\n")
+		b.WriteString(m.renderModelFooterHelp(layout))
+		return b.String()
+	}
+
 	if m.mode == modeComment && len(m.issues) > 0 {
 		b.WriteString(m.renderCommentComposer(layout))
 		b.WriteString("\n\n")
-		b.WriteString(m.renderFooterHelp(activeKeyContext(m), layout))
+		b.WriteString(m.renderModelFooterHelp(layout))
 		return b.String()
 	}
 
 	if m.mode == modeDetail && len(m.issues) > 0 {
 		b.WriteString(m.renderFullDetail(layout))
 		b.WriteString("\n\n")
-		b.WriteString(m.renderFooterHelp(activeKeyContext(m), layout))
+		b.WriteString(m.renderModelFooterHelp(layout))
 		return b.String()
 	}
 
@@ -923,10 +1858,52 @@ func (m Model) renderStatePanel(layout browserLayout, title string, body string)
 }
 
 func (m Model) renderFooterHelp(context keyContext, layout browserLayout) string {
+	return m.renderFooterHelpWithBindings(context, footerBindings(context), layout)
+}
+
+func (m Model) renderModelFooterHelp(layout browserLayout) string {
+	context := activeKeyContext(m)
+	bindings := footerBindings(context)
+	if context == keyContextDetail {
+		bindings = m.detailFooterBindings()
+	}
+	if context == keyContextCreate {
+		bindings = m.createFooterBindings()
+	}
+	return m.renderFooterHelpWithBindings(context, bindings, layout)
+}
+
+func (m Model) createFooterBindings() []keyBinding {
+	bindings := []keyBinding{
+		{Keys: []string{"?"}, Label: "help", Description: "Open the keyboard help screen.", Group: "Global", Footer: true},
+		{Keys: []string{"ctrl+d"}, Label: "diagnostics", Description: "Open recent background worker and cache activity.", Group: "Global", Footer: true},
+		{Keys: []string{"esc"}, Label: "cancel", Description: "Cancel ticket creation.", Group: "Create", Footer: true},
+	}
+	switch {
+	case m.createIssueTypesLoading, m.createIssueTypesErr != nil:
+		return bindings
+	case len(m.createIssueTypes) == 0 && m.createIssueType.ID == "":
+		return bindings
+	case m.createIssueType.ID == "":
+		return append(bindings,
+			keyBinding{Keys: []string{"up", "down", "j", "k"}, FooterKey: "j/k", Label: "type", Description: "Select an issue type while choosing ticket type.", Group: "Create", Footer: true},
+			keyBinding{Keys: []string{"enter"}, Label: "continue", Description: "Continue with the selected issue type.", Group: "Create", Footer: true},
+		)
+	case m.createFieldsLoading, m.createFieldsErr != nil:
+		return bindings
+	default:
+		return append(bindings,
+			keyBinding{Keys: []string{"tab"}, Label: "field", Description: "Move between Summary and Description.", Group: "Create", Footer: true},
+			keyBinding{Keys: []string{"ctrl+s"}, Label: "submit", Description: "Create the ticket.", Group: "Create", Footer: true},
+		)
+	}
+}
+
+func (m Model) renderFooterHelpWithBindings(context keyContext, bindings []keyBinding, layout browserLayout) string {
 	available := max(20, layout.contentWidth)
 	rendered := m.footerContextLabel(context, available)
 	currentGroup := ""
-	for _, binding := range footerBindings(context) {
+	for _, binding := range bindings {
 		next := m.theme.Key.Render(binding.keyText()) + " " + m.theme.Muted.Render(binding.Label)
 		if currentGroup != "" && binding.Group != currentGroup {
 			next = m.theme.Muted.Render("|") + m.theme.Muted.Render("  ") + next
@@ -942,6 +1919,85 @@ func (m Model) renderFooterHelp(context keyContext, layout browserLayout) string
 		currentGroup = binding.Group
 	}
 	return rendered
+}
+
+func (m Model) detailFooterBindings() []keyBinding {
+	base := footerBindings(keyContextDetail)
+	if target, ok := m.focusedDetailTarget(); ok && target.Kind == detailTargetField {
+		fieldBindings := []keyBinding{
+			{Keys: []string{"enter"}, Label: "edit", Group: "Field", Footer: true},
+		}
+		filtered := make([]keyBinding, 0, len(base)+len(fieldBindings))
+		for _, binding := range base {
+			if binding.keyText() == "enter" || binding.keyText() == "s" || binding.keyText() == "p" {
+				continue
+			}
+			filtered = append(filtered, binding)
+		}
+		if len(filtered) == 0 {
+			return fieldBindings
+		}
+		result := make([]keyBinding, 0, len(filtered)+len(fieldBindings))
+		result = append(result, filtered[0])
+		result = append(result, fieldBindings...)
+		result = append(result, filtered[1:]...)
+		return result
+	}
+	section, ok := m.focusedDetailSection()
+	if !ok {
+		return base
+	}
+	var sectionBindings []keyBinding
+	switch section.ID {
+	case "description":
+		if m.inlineDescriptionAIAvailable() {
+			sectionBindings = []keyBinding{
+				{Keys: []string{"a"}, Label: "AI", Group: "Section", Footer: true},
+			}
+		}
+	case "hierarchy":
+		if len(m.currentHierarchyChildren()) > 0 {
+			sectionBindings = []keyBinding{
+				{Keys: []string{"j", "k", "up", "down"}, FooterKey: "j/k", Label: "child", Group: "Section", Footer: true},
+				{Keys: []string{"enter"}, Label: "focus", Group: "Section", Footer: true},
+			}
+		}
+	case "links":
+		if len(m.currentDetailLinks()) > 0 {
+			sectionBindings = []keyBinding{
+				{Keys: []string{"j", "k", "up", "down"}, FooterKey: "j/k", Label: "link", Group: "Section", Footer: true},
+				{Keys: []string{"enter"}, Label: "focus", Group: "Section", Footer: true},
+				{Keys: []string{"y"}, Label: "copy", Group: "Section", Footer: true},
+			}
+		}
+	case "actions":
+		sectionBindings = []keyBinding{
+			{Keys: []string{"j", "k", "up", "down"}, FooterKey: "j/k", Label: "action", Group: "Section", Footer: true},
+			{Keys: []string{"enter"}, Label: "focus", Group: "Section", Footer: true},
+		}
+	case "status":
+		sectionBindings = []keyBinding{
+			{Keys: []string{"enter"}, Label: "transition", Group: "Section", Footer: true},
+		}
+	}
+	if len(sectionBindings) == 0 {
+		return base
+	}
+	filtered := make([]keyBinding, 0, len(base)+len(sectionBindings))
+	for _, binding := range base {
+		if binding.FooterKey == "j/k" || binding.keyText() == "enter" {
+			continue
+		}
+		filtered = append(filtered, binding)
+	}
+	result := make([]keyBinding, 0, len(filtered)+len(sectionBindings))
+	if len(filtered) == 0 {
+		return append(result, sectionBindings...)
+	}
+	result = append(result, filtered[0])
+	result = append(result, sectionBindings...)
+	result = append(result, filtered[1:]...)
+	return result
 }
 
 func (m Model) footerContextLabel(context keyContext, width int) string {
@@ -978,6 +2034,113 @@ func (m Model) renderHelp(layout browserLayout) string {
 	return m.theme.ActivePane.Width(layout.contentWidth).Render(strings.TrimRight(b.String(), "\n"))
 }
 
+func (m Model) renderDiagnostics(layout browserLayout) string {
+	rows := m.boundedPanelBodyRows(12)
+	events := m.recentDiagnosticEvents(rows)
+	var b strings.Builder
+	b.WriteString(m.detailSectionHeader("diagnostics", "Diagnostics", "Background Activity", max(32, layout.contentWidth-4)))
+	b.WriteString("\n\n")
+	if len(events) == 0 {
+		b.WriteString(m.theme.Muted.Render("No background activity recorded yet."))
+		return m.theme.ActivePane.Width(layout.contentWidth).Render(strings.TrimRight(b.String(), "\n"))
+	}
+	b.WriteString(m.renderDiagnosticsSummary(events, max(20, layout.contentWidth-6)))
+	b.WriteString("\n\n")
+	b.WriteString(m.theme.Muted.Render(fmt.Sprintf("%-8s  %-8s  %-8s  %s", "TIME", "KIND", "STATUS", "DETAIL")))
+	for _, event := range events {
+		line := fmt.Sprintf("%-8s  %-8s  %-8s  %s", event.At.Format("15:04:05"), event.Kind, event.Status, diagnosticEventDetail(event))
+		b.WriteString("\n")
+		b.WriteString(truncate(line, max(20, layout.contentWidth-6)))
+	}
+	return m.theme.ActivePane.Width(layout.contentWidth).Render(strings.TrimRight(b.String(), "\n"))
+}
+
+func (m Model) renderDiagnosticsSummary(events []diagnosticEvent, width int) string {
+	stats := diagnosticStatsFor(events)
+	last := "none"
+	if len(events) > 0 {
+		event := events[len(events)-1]
+		last = strings.TrimSpace(event.Label + " " + event.Status)
+	}
+	summary := fmt.Sprintf("Workers %d   Cache %d   Errors %d   Active %d   Last %s", stats.Workers, stats.Cache, stats.Errors, stats.Active, last)
+	bars := fmt.Sprintf("Activity  worker %s  cache  %s", diagnosticActivityBar(stats.Workers, len(events), 12), diagnosticActivityBar(stats.Cache, len(events), 12))
+	return truncate(summary, width) + "\n" + truncate(bars, width)
+}
+
+type diagnosticStats struct {
+	Workers int
+	Cache   int
+	Errors  int
+	Active  int
+}
+
+func diagnosticStatsFor(events []diagnosticEvent) diagnosticStats {
+	var stats diagnosticStats
+	activeRequests := make(map[string]struct{})
+	for _, event := range events {
+		switch event.Kind {
+		case diagnosticKindWorker:
+			stats.Workers++
+			switch event.Status {
+			case "submit":
+				if requestID := diagnosticEventRequestID(event); requestID != "" {
+					activeRequests[requestID] = struct{}{}
+				} else {
+					stats.Active++
+				}
+			case "ok", "error":
+				if requestID := diagnosticEventRequestID(event); requestID != "" {
+					delete(activeRequests, requestID)
+				} else {
+					stats.Active = max(0, stats.Active-1)
+				}
+			}
+		case diagnosticKindCache:
+			stats.Cache++
+		}
+		if event.Status == "error" {
+			stats.Errors++
+		}
+	}
+	stats.Active += len(activeRequests)
+	return stats
+}
+
+func diagnosticActivityBar(count int, total int, width int) string {
+	if width <= 0 {
+		return "[]"
+	}
+	filled := 0
+	if total > 0 && count > 0 {
+		filled = max(1, min(width, count*width/total))
+	}
+	return "[" + strings.Repeat("#", filled) + strings.Repeat("-", max(0, width-filled)) + "]"
+}
+
+func diagnosticEventDetail(event diagnosticEvent) string {
+	detail := strings.TrimSpace(event.Detail)
+	label := strings.TrimSpace(event.Label)
+	switch {
+	case label == "":
+		return detail
+	case detail == "":
+		return label
+	case strings.HasPrefix(detail, label+" "):
+		return detail
+	default:
+		return label + " " + detail
+	}
+}
+
+func diagnosticEventRequestID(event diagnosticEvent) string {
+	for _, field := range strings.Fields(event.Detail) {
+		if strings.HasPrefix(field, "#") {
+			return field
+		}
+	}
+	return ""
+}
+
 func (m Model) helpLines(context keyContext) []string {
 	bindings := append(helpBindings(), keyBindings(context)...)
 	var lines []string
@@ -1006,6 +2169,140 @@ func (m Model) boundedPanelBodyRows(reservedInsidePanel int) int {
 		return 18
 	}
 	return max(1, m.height-appChromeRows-panelFrameRows-reservedInsidePanel)
+}
+
+func (m *Model) recordDiagnosticEvent(kind diagnosticKind, label string, status string, detail string) {
+	if label == "" && detail == "" {
+		return
+	}
+	m.diagnosticsEvents = append(m.diagnosticsEvents, diagnosticEvent{
+		At:     time.Now(),
+		Kind:   kind,
+		Label:  label,
+		Status: status,
+		Detail: detail,
+	})
+	if len(m.diagnosticsEvents) > maxDiagnosticsEvents {
+		start := len(m.diagnosticsEvents) - maxDiagnosticsEvents
+		m.diagnosticsEvents = append([]diagnosticEvent(nil), m.diagnosticsEvents[start:]...)
+	}
+}
+
+func (m Model) recentDiagnosticEvents(limit int) []diagnosticEvent {
+	if limit <= 0 || len(m.diagnosticsEvents) == 0 {
+		return nil
+	}
+	start := max(0, len(m.diagnosticsEvents)-limit)
+	events := append([]diagnosticEvent(nil), m.diagnosticsEvents[start:]...)
+	return events
+}
+
+func resultDiagnosticEvent(result worker.Result) diagnosticEvent {
+	status := "ok"
+	if result.Err != nil {
+		status = "error"
+	}
+	detailParts := []string{workerDiagnosticDetail(result.ID, resultDiagnosticKey(result), result.Err)}
+	if metrics := resultDiagnosticMetrics(result); metrics != "" {
+		detailParts = append(detailParts, metrics)
+	}
+	return diagnosticEvent{
+		Kind:   diagnosticKindWorker,
+		Label:  string(result.Kind),
+		Status: status,
+		Detail: strings.Join(detailParts, " "),
+	}
+}
+
+func (m *Model) recordWorkerResult(event diagnosticEvent) {
+	m.recordDiagnosticEvent(event.Kind, event.Label, event.Status, event.Detail)
+}
+
+func workerDiagnosticDetail(id int, key string, err error) string {
+	var parts []string
+	if id > 0 {
+		parts = append(parts, fmt.Sprintf("#%d", id))
+	}
+	if key != "" {
+		parts = append(parts, key)
+	}
+	if err != nil {
+		parts = append(parts, truncate(err.Error(), 80))
+	}
+	return strings.Join(parts, " ")
+}
+
+func resultDiagnosticKey(result worker.Result) string {
+	switch {
+	case result.GetIssue != nil:
+		return result.GetIssue.Key
+	case result.GetComments != nil:
+		return result.GetComments.Key
+	case result.AddComment != nil:
+		return result.AddComment.Key
+	case result.SearchUsers != nil:
+		return result.SearchUsers.Query
+	case result.ExpandIssues != nil:
+		return result.ExpandIssues.ParentKey
+	case result.GetTransitions != nil:
+		return result.GetTransitions.Key
+	case result.TransitionIssue != nil:
+		return result.TransitionIssue.Key
+	case result.GetEditMetadata != nil:
+		return result.GetEditMetadata.Key
+	case result.GetCreateIssueTypes != nil:
+		return result.GetCreateIssueTypes.ProjectKey
+	case result.GetCreateFields != nil:
+		return strings.TrimSpace(result.GetCreateFields.ProjectKey + " " + result.GetCreateFields.IssueTypeID)
+	case result.CreateIssue != nil:
+		return result.CreateIssue.Issue.Key
+	case result.UpdateSummary != nil:
+		return result.UpdateSummary.Key
+	case result.UpdateDescription != nil:
+		return result.UpdateDescription.Key
+	case result.UpdatePriority != nil:
+		return result.UpdatePriority.Key
+	case result.UpdateAssignee != nil:
+		return result.UpdateAssignee.Key
+	default:
+		return ""
+	}
+}
+
+func resultDiagnosticMetrics(result worker.Result) string {
+	switch {
+	case result.GetCreateIssueTypes != nil:
+		return fmt.Sprintf("types=%d", len(result.GetCreateIssueTypes.IssueTypes))
+	case result.GetCreateFields != nil:
+		fields := result.GetCreateFields.Fields
+		return fmt.Sprintf(
+			"fields=%d supported=%d required_unsupported=%d sample=%s",
+			len(fields),
+			len(supportedCreateFields(fields)),
+			len(unsupportedRequiredCreateFields(fields)),
+			createFieldDiagnosticSample(fields, 6),
+		)
+	default:
+		return ""
+	}
+}
+
+func createFieldDiagnosticSample(fields []jira.CreateField, limit int) string {
+	if limit <= 0 || len(fields) == 0 {
+		return "-"
+	}
+	var parts []string
+	for index, field := range fields {
+		if index >= limit {
+			parts = append(parts, "...")
+			break
+		}
+		id := displayValue(field.ID, field.Key)
+		name := displayValue(field.Name, id)
+		schema := displayValue(field.SchemaSystem, displayValue(field.SchemaType, "unknown"))
+		parts = append(parts, strings.ReplaceAll(fmt.Sprintf("%s/%s/%s", id, name, schema), " ", "_"))
+	}
+	return strings.Join(parts, ",")
 }
 
 func (m Model) commentEditorRows() int {
@@ -1535,6 +2832,16 @@ func priorityBadge(priority string) string {
 	}
 }
 
+func indexFieldOptionByName(options []jira.FieldOption, name string) int {
+	name = strings.TrimSpace(name)
+	for index, option := range options {
+		if strings.EqualFold(strings.TrimSpace(option.Name), name) {
+			return index
+		}
+	}
+	return 0
+}
+
 func displayValue(value, fallback string) string {
 	if strings.TrimSpace(value) == "" {
 		return fallback
@@ -1563,7 +2870,733 @@ func (m Model) renderFullDetail(layout browserLayout) string {
 		m.renderDetailHeaderMeta(headerWidth) + "\n" +
 		m.renderDetailHeaderDivider(headerWidth) + "\n" +
 		m.renderDetailTabs(headerWidth)
-	return m.theme.ActivePane.Width(layout.contentWidth).Render(header + "\n\n" + body)
+	if overlay := m.renderDetailOverlay(layout); overlay != "" {
+		body = placeDetailOverlay(body, overlay, m.fullDetailRows())
+	}
+	content := header + "\n\n" + body
+	return m.theme.ActivePane.Width(layout.contentWidth).Render(content)
+}
+
+func placeDetailOverlay(body string, overlay string, rows int) string {
+	if strings.TrimSpace(overlay) == "" {
+		return body
+	}
+	rows = max(1, rows)
+	overlayLines := strings.Split(strings.TrimRight(overlay, "\n"), "\n")
+	rows = max(rows, len(overlayLines))
+	bodyLines := strings.Split(strings.TrimRight(body, "\n"), "\n")
+	for len(bodyLines) < rows {
+		bodyLines = append(bodyLines, "")
+	}
+	if len(bodyLines) > rows {
+		bodyLines = bodyLines[:rows]
+	}
+	if len(overlayLines) == 0 {
+		return strings.Join(bodyLines, "\n")
+	}
+	start := max(0, (rows-len(overlayLines))/2)
+	for index, line := range overlayLines {
+		target := start + index
+		if target >= rows {
+			break
+		}
+		bodyLines[target] = line
+	}
+	return strings.Join(bodyLines, "\n")
+}
+
+func (m Model) renderDetailOverlay(layout browserLayout) string {
+	width := max(32, layout.contentWidth-12)
+	if m.summaryMetadataLoading {
+		return m.renderSummaryLoadingDialog(width)
+	}
+	if m.summaryEditing || m.summarySubmitting {
+		return m.renderSummaryDialog(width)
+	}
+	if m.priorityMetadataLoading {
+		return m.renderPriorityLoadingDialog(width)
+	}
+	if m.priorityFocus || m.prioritySubmitting {
+		return m.renderPriorityDialog(width)
+	}
+	if m.assigneeFocus || m.assigneeSubmitting {
+		return m.renderAssigneeDialog(width)
+	}
+	if m.transitionFocus || m.transitionSubmitting {
+		return m.renderStatusTransitionDialog(width)
+	}
+	if m.inlineAIOpen {
+		return m.renderInlineAIDialog(width)
+	}
+	if m.claudeAssistLoading || m.claudeAssistOpen {
+		return m.renderClaudeAssistDialog(width)
+	}
+	if m.claudePlanLoading || m.claudePlanOpen {
+		return m.renderClaudePlanDialog(width)
+	}
+	return ""
+}
+
+func (m Model) renderSummaryLoadingDialog(width int) string {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return ""
+	}
+	bodyWidth := min(max(24, width-12), 60)
+	body := m.detailStatusBlock("Loading summary metadata...", bodyWidth, false)
+	return m.renderDetailDialog(width, "Edit Summary", selected.Key, body, "esc cancel")
+}
+
+func (m Model) renderPriorityLoadingDialog(width int) string {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return ""
+	}
+	bodyWidth := min(max(24, width-12), 60)
+	body := m.detailStatusBlock("Loading priority metadata...", bodyWidth, false)
+	return m.renderDetailDialog(width, "Change Priority", selected.Key, body, "esc cancel")
+}
+
+func (m Model) renderDetailDialog(width int, title, subtitle, body, footer string) string {
+	return m.renderDetailDialogWithLimit(width, title, subtitle, body, footer, 72)
+}
+
+func (m Model) renderDetailDialogWithLimit(width int, title, subtitle, body, footer string, maxDialogWidth int) string {
+	dialogWidth := min(max(44, width), maxDialogWidth)
+	contentWidth := max(24, dialogWidth-4)
+	var lines []string
+	lines = append(lines, m.theme.PaneTitle.Render(truncate(title, contentWidth)))
+	if strings.TrimSpace(subtitle) != "" {
+		lines = append(lines, m.theme.Muted.Render(truncate(subtitle, contentWidth)))
+	}
+	if strings.TrimSpace(body) != "" {
+		lines = append(lines, "")
+		lines = append(lines, body)
+	}
+	if strings.TrimSpace(footer) != "" {
+		lines = append(lines, "")
+		lines = append(lines, m.theme.Muted.Render(truncate(footer, contentWidth)))
+	}
+	dialog := lipgloss.NewStyle().
+		Width(contentWidth).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(m.theme.Muted.GetForeground()).
+		Padding(1, 2).
+		Render(strings.Join(lines, "\n"))
+	return lipgloss.PlaceHorizontal(width, lipgloss.Center, dialog)
+}
+
+func (m Model) renderCreateIssue(layout browserLayout) string {
+	width := layout.contentWidth
+	bodyWidth := min(max(24, width-12), 64)
+	var lines []string
+	subtitle := displayValue(m.createProjectKey, "Project unknown")
+	footer := "esc cancel"
+	switch {
+	case m.createIssueTypesLoading:
+		lines = append(lines, m.detailStatusBlock("Loading issue types...", bodyWidth, false))
+	case m.createIssueTypesErr != nil:
+		lines = append(lines, m.renderDetailNotice("Issue type metadata failed: "+m.createIssueTypesErr.Error(), bodyWidth))
+	case len(m.createIssueTypes) == 0 && m.createIssueType.ID == "":
+		lines = append(lines, m.detailEmptyState("Jira returned 0 creatable issue types for "+displayValue(m.createProjectKey, "this project")+". Press ctrl+d for request diagnostics.", bodyWidth))
+	case m.createIssueType.ID == "":
+		rows := make([][]string, 0, len(m.createIssueTypes))
+		cursor := clamp(m.selectedCreateIssueType, 0, len(m.createIssueTypes)-1)
+		for index, issueType := range m.createIssueTypes {
+			marker := " "
+			labelStyle := m.theme.Text
+			if index == cursor {
+				marker = ">"
+				labelStyle = m.theme.Selected
+			}
+			rows = append(rows, []string{
+				labelStyle.Render(marker),
+				labelStyle.Render(displayValue(issueType.Name, issueType.ID)),
+			})
+		}
+		lines = append(lines, m.detailTable(0, []string{"", "ISSUE TYPE"}, rows, nil))
+		footer = "j/k select  enter continue  esc cancel"
+	case m.createFieldsLoading:
+		lines = append(lines, m.detailStatusBlock("Loading create fields...", bodyWidth, false))
+	case m.createFieldsErr != nil:
+		lines = append(lines, m.renderDetailNotice("Create fields failed: "+m.createFieldsErr.Error(), bodyWidth))
+	default:
+		lines = append(lines, m.theme.Muted.Render("Type: ")+m.theme.Text.Render(displayValue(m.createIssueType.Name, m.createIssueType.ID)))
+		lines = append(lines, "")
+		lines = append(lines, m.createFieldLabel("Summary", 0))
+		lines = append(lines, m.renderCreateSummaryValue(bodyWidth))
+		lines = append(lines, "")
+		lines = append(lines, m.createFieldLabel("Description", 1))
+		lines = append(lines, m.renderCreateDescriptionValue(bodyWidth))
+		for index, field := range supportedCreateFields(m.createFields) {
+			focusIndex := index + 2
+			lines = append(lines, "")
+			lines = append(lines, m.createFieldLabel(displayValue(field.Name, field.ID), focusIndex))
+			lines = append(lines, m.renderCreateDynamicField(field, bodyWidth))
+		}
+		if unsupported := unsupportedRequiredCreateFields(m.createFields); len(unsupported) > 0 {
+			lines = append(lines, "", m.renderDetailNotice("Jira may require more fields: "+strings.Join(unsupported, ", "), bodyWidth))
+		}
+		if m.createSubmitting {
+			lines = append(lines, "", m.detailStatusBlock("Creating ticket...", bodyWidth, false))
+		}
+		if m.detailNotice != "" {
+			lines = append(lines, "", m.renderDetailNotice(m.detailNotice, bodyWidth))
+		}
+		footer = "tab field  ctrl+s create  esc cancel"
+	}
+	return m.renderDetailDialog(width, "Create Ticket", subtitle, strings.Join(lines, "\n"), footer)
+}
+
+func (m Model) createFieldLabel(label string, index int) string {
+	style := m.theme.Muted
+	if m.createFieldFocus == index {
+		style = m.theme.PaneTitle
+	}
+	return style.Render(label)
+}
+
+func (m Model) renderCreateSummaryValue(width int) string {
+	if m.createFieldFocus == 0 {
+		return m.configuredCreateSummaryEditor(width, 1).View()
+	}
+	value := strings.TrimSpace(m.createSummaryDraft)
+	if value == "" {
+		value = "Edit summary..."
+	}
+	return m.theme.Muted.Render(truncate(value, width))
+}
+
+func (m Model) renderCreateDescriptionValue(width int) string {
+	if m.createFieldFocus == 1 {
+		return m.configuredCreateDescriptionEditor(width, 3).View()
+	}
+	value := strings.TrimSpace(m.createDescriptionDraft)
+	if value == "" {
+		value = "Write a Jira comment..."
+	}
+	return m.theme.Muted.Render(truncate(value, width))
+}
+
+func (m Model) renderCreateDynamicField(field jira.CreateField, width int) string {
+	if createFieldUsesPicker(field) {
+		if len(field.AllowedValues) == 0 {
+			return m.detailEmptyState("No Jira options available.", width)
+		}
+		selected := clamp(m.createDynamicSelections[createFieldValueKey(field)], 0, len(field.AllowedValues)-1)
+		start, end := boundedSelectionWindow(len(field.AllowedValues), selected, createPickerMaxRows)
+		var lines []string
+		for index := start; index < end; index++ {
+			option := field.AllowedValues[index]
+			marker := " "
+			style := m.theme.Text
+			if index == selected {
+				marker = ">"
+				style = m.theme.Selected
+			}
+			lines = append(lines, style.Render(marker+" "+displayValue(option.Name, option.ID)))
+		}
+		if len(field.AllowedValues) > end-start {
+			lines = append(lines, m.theme.Muted.Render(fmt.Sprintf("Options %d-%d of %d", start+1, end, len(field.AllowedValues))))
+		}
+		return strings.Join(lines, "\n")
+	}
+	value := m.createDynamicValues[createFieldValueKey(field)]
+	if strings.TrimSpace(value) == "" {
+		value = " "
+	}
+	return m.theme.Text.Render(truncate(value, width))
+}
+
+func (m Model) renderSummaryDialog(width int) string {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return ""
+	}
+	bodyWidth := min(max(24, width-12), 60)
+	lines := []string{
+		m.theme.Muted.Render("Summary"),
+		m.configuredSummaryEditor(bodyWidth, 3).View(),
+	}
+	if m.summarySubmitting && m.summarySubmitKey == selected.Key {
+		lines = append(lines, "", m.detailStatusBlock("Updating summary...", bodyWidth, false))
+	}
+	if m.detailNotice != "" {
+		lines = append(lines, "", m.renderDetailNotice(m.detailNotice, bodyWidth))
+	}
+	return m.renderDetailDialog(width, "Edit Summary", selected.Key, strings.Join(lines, "\n"), "enter save  esc cancel")
+}
+
+func (m Model) renderPriorityDialog(width int) string {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return ""
+	}
+	bodyWidth := min(max(24, width-12), 60)
+	current := m.theme.Muted.Render("Current: ") + priorityStyle(m.theme, selected.Priority).Render(displayValue(selected.Priority, "Unknown"))
+	lines := []string{current}
+	if m.prioritySubmitting && m.prioritySubmitKey == selected.Key {
+		lines = append(lines, "", m.detailStatusBlock("Updating priority...", bodyWidth, false))
+	} else {
+		options := m.priorityOptions(selected.Key)
+		if len(options) == 0 {
+			lines = append(lines, "", m.detailEmptyState("No Jira priority values are available.", bodyWidth))
+		} else {
+			cursor := clamp(m.selectedPriority, 0, len(options)-1)
+			rows := make([][]string, 0, len(options))
+			for index, option := range options {
+				marker := " "
+				labelStyle := m.theme.Text
+				if index == cursor {
+					marker = ">"
+					labelStyle = m.theme.Selected
+				}
+				rows = append(rows, []string{
+					labelStyle.Render(marker),
+					labelStyle.Render(displayValue(option.Name, option.ID)),
+				})
+			}
+			lines = append(lines, "", m.detailTable(0, []string{"", "PRIORITY"}, rows, nil))
+		}
+	}
+	if m.detailNotice != "" {
+		lines = append(lines, "", m.renderDetailNotice(m.detailNotice, bodyWidth))
+	}
+	return m.renderDetailDialog(width, "Change Priority", selected.Key, strings.Join(lines, "\n"), "j/k select  enter apply  esc cancel")
+}
+
+func (m Model) renderAssigneeDialog(width int) string {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return ""
+	}
+	bodyWidth := min(max(24, width-12), 60)
+	current := m.theme.Muted.Render("Current: ") + m.theme.Text.Render(displayValue(selected.Assignee, "Unassigned"))
+	lines := []string{
+		current,
+		m.theme.Muted.Render("Filter: ") + m.theme.Text.Render(displayValue(m.assigneeQuery, "type to search")),
+	}
+	if m.assigneeSubmitting && m.assigneeSubmitKey == selected.Key {
+		lines = append(lines, "", m.detailStatusBlock("Updating assignee...", bodyWidth, false))
+	} else if m.assigneeSearchLoading {
+		lines = append(lines, "", m.detailStatusBlock("Searching Jira users...", bodyWidth, false))
+	} else if m.assigneeSearchErr != nil {
+		lines = append(lines, "", m.renderDetailNotice("Assignee search failed: "+m.assigneeSearchErr.Error(), bodyWidth))
+	} else if len(m.assigneeUsers) == 0 {
+		lines = append(lines, "", m.detailEmptyState("Type a name to search Jira users.", bodyWidth))
+	} else {
+		cursor := clamp(m.selectedAssignee, 0, len(m.assigneeUsers)-1)
+		rows := make([][]string, 0, len(m.assigneeUsers))
+		for index, user := range m.assigneeUsers {
+			marker := " "
+			labelStyle := m.theme.Text
+			if index == cursor {
+				marker = ">"
+				labelStyle = m.theme.Selected
+			}
+			rows = append(rows, []string{
+				labelStyle.Render(marker),
+				labelStyle.Render(displayValue(user.DisplayName, user.Email)),
+			})
+		}
+		lines = append(lines, "", m.detailTable(0, []string{"", "USER"}, rows, nil))
+	}
+	if m.detailNotice != "" {
+		lines = append(lines, "", m.renderDetailNotice(m.detailNotice, bodyWidth))
+	}
+	return m.renderDetailDialog(width, "Change Assignee", selected.Key, strings.Join(lines, "\n"), "type filter  up/down select  enter apply  esc cancel")
+}
+
+func (m Model) renderInlineAIDialog(width int) string {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return ""
+	}
+	bodyWidth := min(max(24, width-12), 72)
+	if m.inlineAIInstructionOpen {
+		lines := []string{
+			m.theme.Muted.Render("Question or instruction"),
+			m.configuredInlineAIInstructionEditor(bodyWidth, 4).View(),
+			"",
+			m.theme.Muted.Render("Claude will receive the current ticket context and Description."),
+		}
+		return m.renderDetailDialog(width, "AI for Description", selected.Key, strings.Join(lines, "\n"), "ctrl+s send  esc cancel")
+	}
+	actions := inlineDescriptionAIActions()
+	cursor := clamp(m.selectedInlineAIAction, 0, len(actions)-1)
+	rows := make([][]string, 0, len(actions))
+	for index, action := range actions {
+		marker := " "
+		labelStyle := m.theme.Text
+		descStyle := m.theme.Muted
+		if index == cursor {
+			marker = ">"
+			labelStyle = m.theme.Selected
+		}
+		rows = append(rows, []string{
+			labelStyle.Render(marker),
+			labelStyle.Render(action.Label),
+			descStyle.Render(action.Description),
+		})
+	}
+	body := m.detailTable(0, []string{"", "ACTION", "DETAIL"}, rows, nil)
+	return m.renderDetailDialog(width, "AI for Description", selected.Key, body, "j/k select  enter run  esc cancel")
+}
+
+func (m Model) renderClaudePlanDialog(width int) string {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return ""
+	}
+	dialogWidth := claudePlanDialogWidth(width)
+	bodyWidth := max(24, dialogWidth-4)
+	var lines []string
+	footer := "esc close"
+	switch {
+	case m.claudePlanLoading:
+		footer = "esc cancel"
+		lines = append(lines, m.detailStatusBlock("Asking Claude for a ticket plan...", bodyWidth, false))
+		lines = append(lines, "")
+		lines = append(lines, m.renderClaudePlanLoading(bodyWidth, m.claudeNow()))
+	case m.claudePlanErr != nil:
+		lines = append(lines, m.renderClaudePlanError(bodyWidth, m.claudeNow()))
+	case strings.TrimSpace(m.claudePlanText) != "":
+		lines = append(lines, m.renderClaudePlanResult(bodyWidth))
+		if m.claudePlanResultScrollable(bodyWidth) {
+			footer = "j/k scroll  pgup/pgdn page  g/G jump  esc close"
+		}
+	default:
+		lines = append(lines, m.detailEmptyState("No Claude plan yet.", bodyWidth))
+	}
+	return m.renderDetailDialogWithLimit(width, "Claude Ticket Plan", selected.Key, strings.Join(lines, "\n"), footer, dialogWidth)
+}
+
+func (m Model) renderClaudeAssistDialog(width int) string {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return ""
+	}
+	dialogWidth := claudePlanDialogWidth(width)
+	bodyWidth := max(24, dialogWidth-4)
+	footer := "esc close"
+	var lines []string
+	switch {
+	case m.claudeAssistLoading:
+		footer = "esc cancel"
+		lines = append(lines, m.detailStatusBlock("Asking Claude to evaluate this ticket...", bodyWidth, false))
+		lines = append(lines, "")
+		lines = append(lines, m.renderClaudeAssistLoading(bodyWidth, m.claudeNow()))
+	case m.claudeAssistApplying:
+		footer = "esc close"
+		lines = append(lines, m.detailStatusBlock("Applying Ticket Assist draft to Jira...", bodyWidth, false))
+		lines = append(lines, "")
+		lines = append(lines, m.theme.Muted.Render("Summary: ")+m.theme.Text.Render(applyStatusLabel(m.claudeAssistSummaryApplied)))
+		lines = append(lines, m.theme.Muted.Render("Description: ")+m.theme.Text.Render(applyStatusLabel(m.claudeAssistDescriptionApplied)))
+	case m.claudeAssistPostingComment:
+		footer = "esc close"
+		lines = append(lines, m.detailStatusBlock("Posting Ticket Assist draft as a Jira comment...", bodyWidth, false))
+	case m.claudeAssistConfirmComment:
+		footer = "ctrl+s post  esc cancel"
+		lines = append(lines, m.renderClaudeAssistCommentConfirmation(bodyWidth))
+	case m.claudeAssistConfirmApply:
+		footer = "ctrl+s apply  esc cancel"
+		lines = append(lines, m.renderClaudeAssistApplyConfirmation(bodyWidth))
+	case m.claudeAssistRefining:
+		footer = "ctrl+s send  esc cancel"
+		lines = append(lines, m.renderClaudeAssistRefinementEditor(bodyWidth))
+	case m.claudeAssistErr != nil:
+		lines = append(lines, m.renderClaudeAssistError(bodyWidth, m.claudeNow()))
+	default:
+		if m.claudeConfig.AllowJiraWrites {
+			footer = "ctrl+s apply  c comment  r refine  ctrl+y copy  pgup/pgdn page  esc close"
+		} else {
+			footer = "c comment  r refine  ctrl+y copy  pgup/pgdn page  esc close"
+		}
+		lines = append(lines, m.renderClaudeAssistEditor(bodyWidth))
+	}
+	return m.renderDetailDialogWithLimit(width, "Claude Ticket Assist", selected.Key, strings.Join(lines, "\n"), footer, dialogWidth)
+}
+
+func applyStatusLabel(done bool) string {
+	if done {
+		return "done"
+	}
+	return "saving"
+}
+
+func claudePlanDialogWidth(width int) int {
+	if width <= 0 {
+		width = 72
+	}
+	return clamp((width*88)/100, 72, max(72, width))
+}
+
+func (m Model) renderClaudePlanResult(width int) string {
+	lines := m.claudePlanResultLines(width)
+	if len(lines) == 0 {
+		return ""
+	}
+	rows := m.claudePlanResultRows()
+	if len(lines) <= rows {
+		return strings.Join(lines, "\n")
+	}
+	offset := clamp(m.claudePlanOffset, 0, max(0, len(lines)-rows))
+	end := min(len(lines), offset+rows)
+	visible := append([]string(nil), lines[offset:end]...)
+	visible = append(visible, m.theme.Muted.Render(fmt.Sprintf("Claude Lines %d-%d of %d", offset+1, end, len(lines))))
+	return strings.Join(visible, "\n")
+}
+
+func (m Model) claudePlanResultRows() int {
+	return max(1, m.fullDetailRows()-9)
+}
+
+func (m Model) claudePlanResultScrollable(width int) bool {
+	return len(m.claudePlanResultLines(width)) > m.claudePlanResultRows()
+}
+
+func (m *Model) scrollClaudePlanResult(delta int) {
+	lines := m.claudePlanResultLines(m.currentClaudePlanBodyWidth())
+	rows := m.claudePlanResultRows()
+	m.claudePlanOffset = clamp(m.claudePlanOffset+delta, 0, max(0, len(lines)-rows))
+}
+
+func (m Model) claudePlanResultLines(width int) []string {
+	rendered := m.renderRichDescriptionBody(wrapRichText(markdownTablesToRichMarkers(m.claudePlanText), width), width)
+	return strings.Split(strings.TrimRight(rendered, "\n"), "\n")
+}
+
+func (m Model) renderClaudeAssistLoading(width int, now time.Time) string {
+	elapsed := formatClaudeDuration(now.Sub(m.claudeAssistStartedAt))
+	if m.claudeConfig.Timeout > 0 {
+		elapsed += " of " + m.claudeConfig.Timeout.String()
+	}
+	lines := []string{
+		m.theme.Muted.Render("Activity: ") + m.theme.Text.Render(claudeActivityFrame(now.Sub(m.claudeAssistStartedAt))+" Claude subprocess running"),
+		m.theme.Muted.Render("Elapsed: ") + m.theme.Text.Render(elapsed),
+	}
+	lines = append(lines, m.renderClaudeProgressStatus(m.claudeAssistProgress)...)
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) renderClaudeAssistProgressLines(width int) []string {
+	return m.renderClaudeEventProgressLines(m.claudeAssistProgress, width)
+}
+
+func (m Model) renderClaudeAssistEditor(width int) string {
+	var lines []string
+	if review := strings.TrimSpace(m.claudeAssistReviewText()); review != "" && m.claudeAssistReviewRows() > 0 {
+		lines = append(lines, m.theme.FieldLabel.Render("Claude Review"))
+		lines = append(lines, m.renderClaudeAssistReview(review, width)...)
+		if m.height > 32 {
+			lines = append(lines, "")
+		}
+	}
+	lines = append(lines, m.theme.FieldLabel.Render("Local Draft")+" "+m.theme.Muted.Render("Not Applied"))
+	lines = append(lines, m.renderClaudeAssistDraftEditor(width))
+	if m.height == 0 || m.height > 32 {
+		lines = append(lines, "")
+		lines = append(lines, m.renderClaudeAssistActionHint(width))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) renderClaudeAssistActionHint(width int) string {
+	var action string
+	if m.claudeConfig.AllowJiraWrites {
+		action = "ctrl+s apply  |  c comment  |  r refine  |  ctrl+y copy"
+	} else {
+		action = "Jira writes disabled  |  c comment  |  r refine  |  ctrl+y copy"
+	}
+	return m.theme.FieldLabel.Render("Available Actions") + "\n" + m.theme.Muted.Render(truncate(action, width))
+}
+
+func (m Model) claudeAssistEditorRows() int {
+	reviewRows := m.claudeAssistReviewRows()
+	available := max(1, m.fullDetailRows()-reviewRows-13)
+	if m.height > 0 && m.height <= 32 {
+		return max(2, min(4, available/2))
+	}
+	return max(6, min(18, available/2))
+}
+
+func (m Model) claudeAssistReviewRows() int {
+	if m.height > 0 && m.height <= 32 {
+		return 0
+	}
+	return max(1, min(3, m.fullDetailRows()/8))
+}
+
+func (m Model) renderClaudeAssistReview(review string, width int) []string {
+	rendered := m.renderRichDescriptionBody(wrapRichText(markdownTablesToRichMarkers(review), width), width)
+	reviewLines := strings.Split(strings.TrimRight(rendered, "\n"), "\n")
+	if len(reviewLines) == 1 && strings.TrimSpace(reviewLines[0]) == "" {
+		return nil
+	}
+	if len(reviewLines) > 0 && strings.EqualFold(strings.Trim(strings.TrimSpace(reviewLines[0]), "#: "), "Review") {
+		reviewLines = reviewLines[1:]
+	}
+	rows := min(len(reviewLines), m.claudeAssistReviewRows())
+	lines := append([]string(nil), reviewLines[:rows]...)
+	if len(reviewLines) > rows {
+		end := max(1, rows)
+		lines = append(lines, m.theme.Muted.Render(fmt.Sprintf("Review Lines 1-%d of %d", end, len(reviewLines))))
+	}
+	return lines
+}
+
+func (m Model) renderClaudeAssistDraftEditor(width int) string {
+	rows := m.claudeAssistEditorRows()
+	editorWidth := max(20, width-3)
+	editor := m.configuredClaudeAssistEditor(editorWidth, rows)
+	lineCount := editor.LineCount()
+	body := editor.View()
+	if lineCount > rows {
+		start := editor.ScrollYOffset() + 1
+		end := min(lineCount, editor.ScrollYOffset()+editor.Height())
+		indicator := fmt.Sprintf("Draft Lines %d-%d of %d  PgUp/PgDn page", start, end, lineCount)
+		body += "\n" + m.theme.Muted.Render(truncate(indicator, editorWidth))
+	}
+	return lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(m.theme.Muted.GetForeground()).
+		Padding(0, 1).
+		Width(max(24, width)).
+		Render(body)
+}
+
+func (m Model) renderClaudeAssistApplyConfirmation(width int) string {
+	var lines []string
+	if m.claudeAssistTarget == claudeAssistTargetDescription {
+		lines = append(lines, m.theme.FieldLabel.Render("Apply Description Draft"))
+		lines = append(lines, m.theme.Muted.Render("Issue: ")+m.theme.Text.Render(displayValue(m.claudeAssistKey, "selected ticket")))
+		lines = append(lines, "")
+		lines = append(lines, m.theme.Muted.Render("Description"))
+		descriptionLines := strings.Split(strings.TrimSpace(m.claudeAssistApplyDescription), "\n")
+		for i, line := range descriptionLines {
+			if i >= 4 {
+				lines = append(lines, m.theme.Muted.Render(fmt.Sprintf("Description Lines 1-4 of %d", len(descriptionLines))))
+				break
+			}
+			lines = append(lines, m.theme.Text.Render(truncate(line, width)))
+		}
+		return strings.Join(lines, "\n")
+	}
+	lines = append(lines, m.theme.FieldLabel.Render("Apply Ticket Assist Draft"))
+	lines = append(lines, m.theme.Muted.Render("Issue: ")+m.theme.Text.Render(displayValue(m.claudeAssistKey, "selected ticket")))
+	lines = append(lines, "")
+	lines = append(lines, m.theme.Muted.Render("Summary"))
+	lines = append(lines, m.theme.Text.Render(truncate(displayValue(m.claudeAssistApplySummary, "unchanged"), width)))
+	lines = append(lines, "")
+	lines = append(lines, m.theme.Muted.Render("Description"))
+	descriptionLines := strings.Split(strings.TrimSpace(m.claudeAssistApplyDescription), "\n")
+	for i, line := range descriptionLines {
+		if i >= 4 {
+			lines = append(lines, m.theme.Muted.Render(fmt.Sprintf("Description Lines 1-4 of %d", len(descriptionLines))))
+			break
+		}
+		lines = append(lines, m.theme.Text.Render(truncate(line, width)))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) renderClaudeAssistCommentConfirmation(width int) string {
+	var lines []string
+	lines = append(lines, m.theme.FieldLabel.Render("Post Draft As Comment"))
+	lines = append(lines, m.theme.Muted.Render("Issue: ")+m.theme.Text.Render(displayValue(m.claudeAssistKey, "selected ticket")))
+	lines = append(lines, "")
+	lines = append(lines, m.theme.Muted.Render("This will add the local Ticket Assist draft as a Jira comment without editing Summary or Description."))
+	lines = append(lines, "")
+	lines = append(lines, m.theme.Muted.Render("Comment Preview"))
+	draftLines := strings.Split(strings.TrimSpace(m.claudeAssistDraftValue()), "\n")
+	for i, line := range draftLines {
+		if i >= 4 {
+			lines = append(lines, m.theme.Muted.Render(fmt.Sprintf("Comment Lines 1-4 of %d", len(draftLines))))
+			break
+		}
+		lines = append(lines, m.theme.Text.Render(truncate(line, width)))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) renderClaudeAssistRefinementEditor(width int) string {
+	var lines []string
+	lines = append(lines, m.theme.FieldLabel.Render("Refine Draft"))
+	lines = append(lines, m.theme.Muted.Render("Instruction"))
+	editor := m.configuredClaudeAssistRefineEditor(max(24, width-3), 4)
+	body := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(m.theme.Muted.GetForeground()).
+		Padding(0, 1).
+		Width(max(24, width)).
+		Render(editor.View())
+	lines = append(lines, body)
+	lines = append(lines, "")
+	lines = append(lines, m.theme.Muted.Render("Claude will receive the current edited draft and this instruction."))
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) renderClaudeAssistError(width int, now time.Time) string {
+	if errors.Is(m.claudeAssistErr, context.DeadlineExceeded) {
+		lines := []string{
+			m.renderDetailNotice("Claude ticket assist timed out after "+displayValue(m.claudeConfig.Timeout.String(), "the configured timeout"), width),
+			"",
+			m.theme.Muted.Render("Started: ") + m.theme.Text.Render(formatClockTime(m.claudeAssistStartedAt)),
+		}
+		if m.claudeConfig.Timeout > 0 {
+			lines = append(lines, m.theme.Muted.Render("Deadline: ")+m.theme.Text.Render(formatClockTime(m.claudeAssistStartedAt.Add(m.claudeConfig.Timeout))))
+		}
+		lines = append(lines, m.theme.Muted.Render("Elapsed: ")+m.theme.Text.Render(formatClaudeDuration(now.Sub(m.claudeAssistStartedAt))))
+		lines = append(lines, m.theme.Muted.Render("Command: ")+m.theme.Text.Render(m.claudeCommandLabel()))
+		return strings.Join(lines, "\n")
+	}
+	return m.renderDetailNotice("Claude ticket assist failed: "+m.claudeAssistErr.Error(), width)
+}
+
+func (m Model) currentClaudePlanBodyWidth() int {
+	layout := m.browserLayout(m.width)
+	dialogWidth := max(32, layout.contentWidth-12)
+	return min(max(24, dialogWidth-12), 64)
+}
+
+func (m Model) renderStatusTransitionDialog(width int) string {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return ""
+	}
+	bodyWidth := min(max(24, width-12), 60)
+	current := m.theme.Muted.Render("Current: ") + statusStyle(m.theme, selected.Status).Render(displayValue(selected.Status, "Unknown"))
+	lines := []string{current}
+	if m.transitionSubmitting && m.transitionSubmitKey == selected.Key {
+		lines = append(lines, "", m.detailStatusBlock("Applying transition...", bodyWidth, false))
+	} else {
+		transitions := m.transitions[selected.Key]
+		if len(transitions) == 0 {
+			lines = append(lines, "", m.detailEmptyState("No available Jira transitions.", bodyWidth))
+		} else {
+			cursor := clamp(m.selectedTransition, 0, len(transitions)-1)
+			rows := make([][]string, 0, len(transitions))
+			for index, transition := range transitions {
+				marker := " "
+				labelStyle := m.theme.Text
+				if index == cursor {
+					marker = ">"
+					labelStyle = m.theme.Selected
+				}
+				toStatus := displayValue(transition.ToStatus, "Unknown")
+				rows = append(rows, []string{
+					labelStyle.Render(marker),
+					labelStyle.Render(transition.Name),
+					statusStyle(m.theme, toStatus).Render(toStatus),
+				})
+			}
+			lines = append(lines, "", m.detailTable(0, []string{"", "TRANSITION", "TO"}, rows, nil))
+		}
+	}
+	if m.detailNotice != "" {
+		lines = append(lines, "", m.renderDetailNotice(m.detailNotice, bodyWidth))
+	}
+	return m.renderDetailDialog(width, "Change Status", selected.Key, strings.Join(lines, "\n"), "j/k select  enter apply  esc cancel")
 }
 
 func (m Model) renderCommentComposer(layout browserLayout) string {
@@ -1801,9 +3834,12 @@ func (m Model) fullDetailContent(bodyWidth int) string {
 	if len(sections) == 0 {
 		return m.detailEmptyState("No detail sections available.", bodyWidth)
 	}
-	focus := clamp(m.detailFocus, 0, len(sections)-1)
+	section := sections[0]
+	if focused, ok := m.focusedDetailSection(); ok {
+		section = focused
+	}
 	var b strings.Builder
-	b.WriteString(m.renderDetailSection(sections[focus], ctx, bodyWidth))
+	b.WriteString(m.renderDetailSection(section, ctx, bodyWidth))
 	b.WriteString("\n\n")
 	if m.detailNotice != "" {
 		b.WriteString(m.renderDetailNotice(m.detailNotice, bodyWidth))
@@ -1858,6 +3894,10 @@ func (m Model) renderDetailSection(section detailSection, ctx detailRenderContex
 		return m.renderComments(ctx.display.Key, width)
 	case "actions":
 		return m.renderActionsSection(width)
+	case "status":
+		return m.renderStatusSection(ctx.display, width)
+	case "claude":
+		return m.renderClaudeSection(ctx, width)
 	default:
 		return m.detailSectionHeader(section.ID, section.Label, "", width) + "\n" + m.detailEmptyState("Section not available.", width)
 	}
@@ -1887,7 +3927,23 @@ func (m Model) renderDetailSummaryLine(width int) string {
 	}
 	detail, hasDetail := m.details[selected.Key]
 	display := m.displayIssueForDetail(selected, detail, hasDetail)
-	return m.theme.Text.Render(truncate(displayValue(display.Summary, "No summary"), max(12, width)))
+	label := "Summary: "
+	value := displayValue(display.Summary, "No summary")
+	if strings.TrimSpace(value) == "" {
+		value = " "
+	}
+	style := m.theme.Text
+	if m.summaryFocus || m.focusedDetailTargetID() == "summary" {
+		style = m.theme.Selected
+	}
+	if m.summaryMetadataLoading && m.summaryMetadataRequestKey == display.Key {
+		value = "Loading edit metadata..."
+	}
+	if m.summarySubmitting && m.summarySubmitKey == display.Key {
+		value = "Updating summary..."
+	}
+	available := max(12, width-lipgloss.Width(label))
+	return m.theme.Muted.Render(label) + style.Render(truncate(value, available))
 }
 
 func (m Model) renderDetailHeaderMeta(width int) string {
@@ -1902,8 +3958,8 @@ func (m Model) renderDetailHeaderMeta(width int) string {
 		updated = formatTime(detail.Updated)
 	}
 	parts := []string{
-		m.detailMetaPart("Assignee", shortName(displayValue(display.Assignee, "Unassigned"))),
-		m.detailMetaPart("Priority", displayValue(display.Priority, "Unknown")),
+		m.detailMetaPartWithStyle("Assignee", shortName(displayValue(display.Assignee, "Unassigned")), m.focusedDetailTargetID() == "assignee"),
+		m.detailMetaPartWithStyle("Priority", displayValue(display.Priority, "Unknown"), m.focusedDetailTargetID() == "priority"),
 		m.detailMetaPart("Updated", updated),
 	}
 	if hasDetail && strings.TrimSpace(detail.Reporter) != "" && detail.Reporter != "Unknown" {
@@ -1931,6 +3987,14 @@ func (m Model) detailMetaPart(label string, value string) string {
 	return m.theme.Muted.Render(label+": ") + m.theme.Text.Render(value)
 }
 
+func (m Model) detailMetaPartWithStyle(label string, value string, selected bool) string {
+	style := m.theme.Text
+	if selected {
+		style = m.theme.Selected
+	}
+	return m.theme.Muted.Render(label+": ") + style.Render(value)
+}
+
 func (m Model) displayIssueForDetail(selected jira.Issue, detail jira.IssueDetail, hasDetail bool) jira.Issue {
 	if !hasDetail {
 		return selected
@@ -1951,6 +4015,10 @@ func (m Model) detailSections() []detailSection {
 		{ID: "hierarchy", Label: "Hierarchy", Short: "Tree"},
 		{ID: "comments", Label: "Comments", Short: "Com"},
 		{ID: "actions", Label: "Actions", Short: "Act"},
+		{ID: "status", Label: "Status", Short: "Stat"},
+	}
+	if m.claudeAvailable() {
+		sections = append(sections, detailSection{ID: "claude", Label: "Claude", Short: "AI"})
 	}
 	if selected, ok := m.selectedIssue(); ok {
 		display := selected
@@ -1978,6 +4046,24 @@ func (m Model) detailSections() []detailSection {
 		}
 	}
 	return sections
+}
+
+func (m Model) detailTargets() []detailTarget {
+	sections := m.detailSections()
+	targets := []detailTarget{
+		{ID: "summary", Label: "Summary", Kind: detailTargetField},
+		{ID: "assignee", Label: "Assignee", Kind: detailTargetField},
+		{ID: "priority", Label: "Priority", Kind: detailTargetField},
+	}
+	for _, section := range sections {
+		targets = append(targets, detailTarget{
+			ID:      section.ID,
+			Label:   section.Label,
+			Kind:    detailTargetSection,
+			Section: section,
+		})
+	}
+	return targets
 }
 
 func (m Model) detailTabs() []string {
@@ -2055,8 +4141,11 @@ func (m Model) renderDetailTabs(width int) string {
 
 func (m Model) detailTabsLine(sections []detailSection, width int, compact bool) string {
 	parts := make([]string, 0, len(sections))
-	focus := clamp(m.detailFocus, 0, max(0, len(sections)-1))
-	for index, section := range sections {
+	focusedSectionID := ""
+	if section, ok := m.focusedDetailSection(); ok {
+		focusedSectionID = section.ID
+	}
+	for _, section := range sections {
 		label := section.Label
 		if compact {
 			label = section.Short
@@ -2064,7 +4153,7 @@ func (m Model) detailTabsLine(sections []detailSection, width int, compact bool)
 		if section.Badge != "" {
 			label += " " + section.Badge
 		}
-		if index == focus {
+		if section.ID == focusedSectionID {
 			parts = append(parts, m.theme.TabActive.Render(label))
 		} else {
 			parts = append(parts, m.theme.TabInactive.Render(label))
@@ -2080,14 +4169,17 @@ func (m Model) detailTabsWrapped(sections []detailSection, width int) string {
 	separator := m.theme.Muted.Render(" ")
 	var rows []string
 	var current string
-	focus := clamp(m.detailFocus, 0, max(0, len(sections)-1))
-	for index, section := range sections {
+	focusedSectionID := ""
+	if section, ok := m.focusedDetailSection(); ok {
+		focusedSectionID = section.ID
+	}
+	for _, section := range sections {
 		label := section.Short
 		if section.Badge != "" {
 			label += " " + section.Badge
 		}
 		part := m.theme.TabInactive.Render(label)
-		if index == focus {
+		if section.ID == focusedSectionID {
 			part = m.theme.TabActive.Render(label)
 		}
 		candidate := part
@@ -2108,28 +4200,72 @@ func (m Model) detailTabsWrapped(sections []detailSection, width int) string {
 }
 
 func (m *Model) moveDetailFocus(delta int) {
-	sections := m.detailSections()
-	if len(sections) == 0 {
+	targets := m.detailTargets()
+	if len(targets) == 0 {
 		m.detailFocus = 0
 		return
 	}
 	m.saveDetailSectionOffset()
-	m.detailFocus = (m.detailFocus + delta + len(sections)) % len(sections)
+	m.detailFocus = (m.detailFocus + delta + len(targets)) % len(targets)
 	m.linkFocus = false
 	m.hierarchyFocus = false
 	m.actionFocus = false
+	m.transitionFocus = false
+	m.priorityFocus = false
+	m.assigneeFocus = false
+	m.summaryFocus = false
 	m.restoreDetailSectionOffset()
 }
 
-func (m *Model) activateDetailFocus() {
-	sections := m.detailSections()
-	if len(sections) == 0 {
+func (m *Model) moveDetailSectionFocus(delta int) {
+	targets := m.detailTargets()
+	if len(targets) == 0 {
+		m.detailFocus = 0
 		return
 	}
-	section := sections[clamp(m.detailFocus, 0, len(sections)-1)]
+	m.saveDetailSectionOffset()
+	start := clamp(m.detailFocus, 0, len(targets)-1)
+	for step := 1; step <= len(targets); step++ {
+		index := (start + delta*step + len(targets)*step) % len(targets)
+		if targets[index].Kind == detailTargetSection {
+			m.detailFocus = index
+			break
+		}
+	}
+	m.linkFocus = false
+	m.hierarchyFocus = false
+	m.actionFocus = false
+	m.transitionFocus = false
+	m.priorityFocus = false
+	m.assigneeFocus = false
+	m.summaryFocus = false
+	m.restoreDetailSectionOffset()
+}
+
+func (m Model) activateFocusedDetailTarget() (Model, tea.Cmd) {
+	target, ok := m.focusedDetailTarget()
+	if !ok {
+		return m, nil
+	}
+	if target.Kind == detailTargetField {
+		switch target.ID {
+		case "summary":
+			return m.startSummaryEditor()
+		case "assignee":
+			return m.startAssigneePicker()
+		case "priority":
+			return m.startPriorityEditor()
+		}
+		return m, nil
+	}
+	section := target.Section
 	switch section.ID {
 	case "actions":
 		m.focusActions()
+	case "status":
+		return m.startStatusTransitionPicker()
+	case "claude":
+		return m.runSelectedClaudeAction()
 	case "hierarchy":
 		m.focusHierarchy()
 	case "links":
@@ -2138,8 +4274,17 @@ func (m *Model) activateDetailFocus() {
 		m.linkFocus = false
 		m.hierarchyFocus = false
 		m.actionFocus = false
+		m.transitionFocus = false
+		m.priorityFocus = false
+		m.assigneeFocus = false
 		m.jumpDetailSection(section.Label)
 	}
+	return m, nil
+}
+
+func (m *Model) activateDetailFocus() {
+	updated, _ := m.activateFocusedDetailTarget()
+	*m = updated
 }
 
 func (m Model) renderIssueTitle(issue jira.Issue, width int) string {
@@ -2153,22 +4298,19 @@ func (m Model) renderIssueTitle(issue jira.Issue, width int) string {
 
 func (m Model) renderDescription(description string, width int) string {
 	width = max(24, width)
-	return m.detailSectionHeader("description", "Description", "", width) + "\n" + m.renderRichDescriptionBody(wrapRichText(description, width), width)
+	return m.detailSectionHeader("description", "Description", "", width) + "\n\n" + m.renderRichDescriptionBody(wrapRichText(description, width), width)
 }
 
 func (m Model) renderDescriptionState(message string, width int, isError bool) string {
-	state := m.detailEmptyState(message, width)
-	if isError {
-		state = m.theme.Error.Render(wrapText(message, max(12, width)))
-	}
-	return m.detailSectionHeader("description", "Description", "", width) + "\n" + state
+	return m.detailSectionHeader("description", "Description", "", width) + "\n\n" + m.detailStatusBlock(message, width, isError)
 }
 
 func (m Model) renderComments(key string, width int) string {
 	lines := []string{m.detailSectionHeader("comments", "Comments", "", width)}
 	if comments, ok := m.comments[key]; ok {
 		if len(comments) == 0 {
-			lines = append(lines, m.detailEmptyState("No comments yet.", width))
+			lines = append(lines, "")
+			lines = append(lines, m.detailStatusBlock("No comments yet.", width, false))
 			return strings.Join(lines, "\n")
 		}
 		for index, comment := range comments {
@@ -2188,29 +4330,41 @@ func (m Model) renderComments(key string, width int) string {
 		return strings.Join(lines, "\n")
 	}
 	if m.commentsLoading && m.commentsRequestKey == key {
-		lines = append(lines, m.detailEmptyState("Loading comments...", width))
+		lines = append(lines, "")
+		lines = append(lines, m.detailStatusBlock("Loading comments...", width, false))
 		return strings.Join(lines, "\n")
 	}
 	if m.commentsErr != nil && m.commentsRequestKey == key {
-		lines = append(lines, m.theme.Error.Render(wrapText("Comments failed: "+m.commentsErr.Error(), width)))
+		lines = append(lines, "")
+		lines = append(lines, m.detailStatusBlock("Comments failed: "+m.commentsErr.Error(), width, true))
 		return strings.Join(lines, "\n")
 	}
-	lines = append(lines, m.detailEmptyState("Comments not loaded.", width))
+	lines = append(lines, "")
+	lines = append(lines, m.detailStatusBlock("Comments not loaded.", width, false))
 	return strings.Join(lines, "\n")
 }
 
 func (m Model) renderCommentBlock(index int, total int, author string, created string, body string, width int) string {
 	contentWidth := max(20, width-4)
-	header := m.theme.Key.Render(fmt.Sprintf("Comment %d/%d", index, max(1, total))) +
-		m.theme.Muted.Render("  "+displayValue(author, "Unknown")+"  "+created)
+	header := m.theme.Key.Render(displayValue(author, "Unknown")) +
+		m.theme.Muted.Render("  "+created+"  "+fmt.Sprintf("Comment %d/%d", index, max(1, total)))
 	bodyWidth := max(12, contentWidth-2)
 	renderedBody := m.renderRichDescriptionBody(wrapRichText(body, bodyWidth), bodyWidth)
 	renderedBody = indentLines(renderedBody, "  ")
-	return m.theme.CommentBlock.Width(contentWidth + 2).Render(header + "\n" + renderedBody)
+	return m.theme.CommentBlock.Width(contentWidth + 2).Render(header + "\n\n" + renderedBody)
 }
 
 func (m Model) detailEmptyState(message string, width int) string {
 	return m.theme.Muted.Render("  " + truncate(message, max(12, width-2)))
+}
+
+func (m Model) detailStatusBlock(message string, width int, isError bool) string {
+	header := m.detailSectionHeader("detail-status", "Status", "", width)
+	body := m.theme.Text.Render(wrapText(message, max(12, width)))
+	if isError {
+		body = m.theme.Error.Render(wrapText(message, max(12, width)))
+	}
+	return header + "\n" + body
 }
 
 func (m Model) detailTable(width int, headers []string, rows [][]string, style func(row, col int) lipgloss.Style) string {
@@ -2364,6 +4518,809 @@ func (m Model) renderActionsSection(width int) string {
 	return strings.Join(lines, "\n")
 }
 
+func (m Model) renderStatusSection(issue jira.Issue, width int) string {
+	help := "enter load transitions"
+	if m.transitionFocus {
+		help = "dialog open"
+	} else if m.transitionLoading && m.transitionRequestKey == issue.Key {
+		help = "loading"
+	} else if m.transitionSubmitting && m.transitionSubmitKey == issue.Key {
+		help = "applying"
+	}
+	lines := []string{m.detailSectionHeader("status", "Status", help, width)}
+	current := statusStyle(m.theme, issue.Status).Render(displayValue(issue.Status, "Unknown"))
+	lines = append(lines, "")
+	lines = append(lines, m.theme.Muted.Render("Current: ")+current)
+	if m.transitionLoading && m.transitionRequestKey == issue.Key {
+		lines = append(lines, "")
+		lines = append(lines, m.detailStatusBlock("Loading available transitions...", width, false))
+		return strings.Join(lines, "\n")
+	}
+	if m.transitionErr != nil && m.transitionRequestKey == issue.Key {
+		lines = append(lines, "")
+		lines = append(lines, m.detailStatusBlock("Transitions failed: "+m.transitionErr.Error(), width, true))
+	}
+	if m.transitionFocus || (m.transitionSubmitting && m.transitionSubmitKey == issue.Key) {
+		lines = append(lines, "")
+		lines = append(lines, m.detailEmptyState("Status change dialog open.", width))
+		return strings.Join(lines, "\n")
+	}
+	transitions := m.transitions[issue.Key]
+	if len(transitions) == 0 {
+		lines = append(lines, "")
+		lines = append(lines, m.detailEmptyState("Press enter to load available Jira transitions.", width))
+		return strings.Join(lines, "\n")
+	}
+	cursor := clamp(m.selectedTransition, 0, len(transitions)-1)
+	rows := make([][]string, 0, len(transitions))
+	for index, transition := range transitions {
+		marker := " "
+		labelStyle := m.theme.Text
+		if m.transitionFocus && index == cursor {
+			marker = ">"
+			labelStyle = m.theme.Selected
+		}
+		toStatus := displayValue(transition.ToStatus, "Unknown")
+		rows = append(rows, []string{
+			labelStyle.Render(marker),
+			labelStyle.Render(transition.Name),
+			statusStyle(m.theme, toStatus).Render(toStatus),
+		})
+	}
+	lines = append(lines, "")
+	lines = append(lines, m.detailTable(0, []string{"", "TRANSITION", "TO"}, rows, nil))
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) claudeTicketPlanAvailable() bool {
+	return m.claudeConfig.Enabled &&
+		m.claudeConfig.TicketPlan &&
+		m.claudeStatus.Enabled &&
+		m.claudeStatus.Available
+}
+
+func (m Model) claudeTicketAssistAvailable() bool {
+	return m.claudeConfig.Enabled &&
+		m.claudeConfig.TicketAssist &&
+		m.claudeStatus.Enabled &&
+		m.claudeStatus.Available
+}
+
+func (m Model) claudeAvailable() bool {
+	return m.claudeTicketPlanAvailable() || m.claudeTicketAssistAvailable()
+}
+
+func (m Model) inlineDescriptionAIAvailable() bool {
+	if !m.claudeTicketAssistAvailable() {
+		return false
+	}
+	section, ok := m.focusedDetailSection()
+	return ok && section.ID == "description"
+}
+
+func (m Model) openInlineDescriptionAI() (Model, tea.Cmd) {
+	if !m.inlineDescriptionAIAvailable() {
+		m.detailNotice = "Claude ticket assistance is not enabled or available."
+		return m, nil
+	}
+	m.inlineAIOpen = true
+	m.selectedInlineAIAction = clamp(m.selectedInlineAIAction, 0, len(inlineDescriptionAIActions())-1)
+	m.detailNotice = ""
+	return m, nil
+}
+
+type claudeAction struct {
+	ID          string
+	Label       string
+	Description string
+	Enabled     bool
+}
+
+type inlineAIAction struct {
+	ID          string
+	Label       string
+	Description string
+}
+
+type claudeAssistTarget int
+
+const (
+	claudeAssistTargetTicket claudeAssistTarget = iota
+	claudeAssistTargetDescription
+)
+
+func inlineDescriptionAIActions() []inlineAIAction {
+	return []inlineAIAction{
+		{ID: "improve_clarity", Label: "Improve clarity", Description: "Rewrite the Description for clearer scope and verification."},
+		{ID: "extract_acceptance", Label: "Extract acceptance criteria", Description: "Draft explicit acceptance criteria and open questions."},
+		{ID: "ask_question", Label: "Ask Claude a question", Description: "Ask about this ticket and draft a local answer."},
+		{ID: "draft_comment", Label: "Draft clarifying comment", Description: "Draft a Jira comment without editing fields."},
+	}
+}
+
+func (m Model) claudeActions() []claudeAction {
+	actions := []claudeAction{
+		{ID: "ticket_plan", Label: "Ticket Plan", Description: "Create a read-only implementation and verification plan.", Enabled: m.claudeTicketPlanAvailable()},
+		{ID: "ticket_assist", Label: "Ticket Assist", Description: "Evaluate and rewrite this ticket with editable acceptance criteria.", Enabled: m.claudeTicketAssistAvailable()},
+	}
+	filtered := make([]claudeAction, 0, len(actions))
+	for _, action := range actions {
+		if action.Enabled {
+			filtered = append(filtered, action)
+		}
+	}
+	return filtered
+}
+
+func (m Model) renderClaudeSection(ctx detailRenderContext, width int) string {
+	help := "j/k select  enter run"
+	if (m.claudePlanLoading && m.claudePlanKey == ctx.display.Key) || (m.claudeAssistLoading && m.claudeAssistKey == ctx.display.Key) {
+		help = "running"
+	}
+	lines := []string{m.detailSectionHeader("claude", "Claude", help, width), ""}
+	actions := m.claudeActions()
+	if len(actions) == 0 {
+		lines = append(lines, m.detailEmptyState("Claude ticket assistance is not enabled or available.", width))
+		return strings.Join(lines, "\n")
+	}
+	if m.claudePlanLoading && m.claudePlanKey == ctx.display.Key {
+		lines = append(lines, m.detailStatusBlock("Asking Claude for a read-only ticket plan...", width, false))
+		return strings.Join(lines, "\n")
+	}
+	if m.claudeAssistLoading && m.claudeAssistKey == ctx.display.Key {
+		lines = append(lines, m.detailStatusBlock("Asking Claude to evaluate this ticket...", width, false))
+		return strings.Join(lines, "\n")
+	}
+	cursor := clamp(m.selectedClaudeAction, 0, len(actions)-1)
+	rows := make([][]string, 0, len(actions))
+	for index, action := range actions {
+		marker := " "
+		labelStyle := m.theme.Text
+		descStyle := m.theme.Muted
+		if index == cursor {
+			marker = ">"
+			labelStyle = m.theme.Selected
+		}
+		rows = append(rows, []string{
+			labelStyle.Render(marker),
+			labelStyle.Render(action.Label),
+			descStyle.Render(action.Description),
+		})
+	}
+	lines = append(lines, m.detailTable(0, []string{"", "ACTION", "DETAIL"}, rows, nil))
+	if strings.TrimSpace(m.claudePlanText) != "" && m.claudePlanKey == ctx.display.Key {
+		lines = append(lines, "", m.theme.Muted.Render("Latest ticket plan is ready. Select Ticket Plan to refresh it."))
+	}
+	if strings.TrimSpace(m.claudeAssistDraftValue()) != "" && m.claudeAssistKey == ctx.display.Key {
+		lines = append(lines, "", m.theme.Muted.Render("Latest ticket assist draft is ready. Select Ticket Assist to refresh it."))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) startClaudeTicketPlan() (Model, tea.Cmd) {
+	ctx, ok := m.detailRenderContext()
+	if !ok {
+		return m, nil
+	}
+	if !m.claudeTicketPlanAvailable() {
+		m.detailNotice = "Claude ticket planning is not enabled or available."
+		return m, nil
+	}
+	key := ctx.display.Key
+	if key == "" {
+		key = ctx.selected.Key
+	}
+	m.nextRequestID++
+	reqID := m.nextRequestID
+	m.activeClaudePlanReqID = reqID
+	m.claudePlanKey = key
+	m.claudePlanText = ""
+	m.claudePlanErr = nil
+	m.claudePlanOffset = 0
+	m.claudePlanLoading = true
+	m.claudePlanOpen = true
+	m.claudePlanStartedAt = m.claudeNow()
+	m.claudePlanProgress = nil
+	m.claudePlanEvents = make(chan claude.Event, 16)
+	runCtx, cancel := context.WithCancel(context.Background())
+	m.claudePlanCancel = cancel
+	m.detailNotice = ""
+	m.recordDiagnosticEvent(diagnosticKindClaude, "ticket_plan", "submit", workerDiagnosticDetail(reqID, key, nil))
+	return m, tea.Batch(
+		m.submitClaudeTicketPlan(runCtx, reqID, key, m.buildClaudeTicketPlanPrompt(ctx), m.claudePlanEvents),
+		m.waitForClaudePlanProgress(reqID, key),
+		m.scheduleClaudePlanTick(reqID),
+	)
+}
+
+func (m Model) startClaudeTicketAssist() (Model, tea.Cmd) {
+	ctx, ok := m.detailRenderContext()
+	if !ok {
+		return m, nil
+	}
+	if !m.claudeTicketAssistAvailable() {
+		m.detailNotice = "Claude ticket assistance is not enabled or available."
+		return m, nil
+	}
+	key := ctx.display.Key
+	if key == "" {
+		key = ctx.selected.Key
+	}
+	m.nextRequestID++
+	reqID := m.nextRequestID
+	m.activeClaudeAssistReqID = reqID
+	m.claudeAssistKey = key
+	m.claudeAssistText = ""
+	m.claudeAssistErr = nil
+	m.claudeAssistLoading = true
+	m.claudeAssistOpen = true
+	m.claudeAssistStartedAt = m.claudeNow()
+	m.claudeAssistProgress = nil
+	m.claudeAssistDraft = ""
+	m.claudeAssistEditor = newClaudeAssistEditor("")
+	m.claudeAssistEditorReady = true
+	m.claudeAssistTarget = claudeAssistTargetTicket
+	m.claudeAssistEvents = make(chan claude.Event, 16)
+	runCtx, cancel := context.WithCancel(context.Background())
+	m.claudeAssistCancel = cancel
+	m.detailNotice = ""
+	m.recordDiagnosticEvent(diagnosticKindClaude, "ticket_assist", "submit", workerDiagnosticDetail(reqID, key, nil))
+	return m, tea.Batch(
+		m.submitClaudeTicketAssist(runCtx, reqID, key, m.buildClaudeTicketAssistPrompt(ctx), m.claudeAssistEvents),
+		m.waitForClaudeAssistProgress(reqID, key),
+		m.scheduleClaudeAssistTick(reqID),
+	)
+}
+
+func (m Model) submitClaudeTicketPlan(ctx context.Context, reqID int, key string, prompt string, events chan<- claude.Event) tea.Cmd {
+	return m.submitClaudeRequest(ctx, reqID, key, prompt, events, func(id int, key string, text string, err error) tea.Msg {
+		return claudePlanResultMsg{id: id, key: key, text: text, err: err}
+	})
+}
+
+func (m Model) submitClaudeTicketAssist(ctx context.Context, reqID int, key string, prompt string, events chan<- claude.Event) tea.Cmd {
+	return m.submitClaudeRequest(ctx, reqID, key, prompt, events, func(id int, key string, text string, err error) tea.Msg {
+		return claudeAssistResultMsg{id: id, key: key, text: text, err: err}
+	})
+}
+
+func (m Model) submitClaudeRequest(ctx context.Context, reqID int, key string, prompt string, events chan<- claude.Event, resultMsg func(int, string, string, error) tea.Msg) tea.Cmd {
+	runner := m.claudeRunner
+	if runner == nil {
+		runner = claude.LocalRunner{}
+	}
+	config := claude.Config{
+		Enabled: m.claudeConfig.Enabled,
+		Command: m.claudeConfig.Command,
+		Timeout: m.claudeConfig.Timeout,
+	}
+	return func() tea.Msg {
+		defer closeClaudeEvents(events)
+		result, err := runner.Run(ctx, claude.Request{
+			Config: config,
+			Prompt: prompt,
+			Progress: func(event claude.Event) {
+				if strings.TrimSpace(event.Text) == "" {
+					return
+				}
+				select {
+				case events <- event:
+				case <-ctx.Done():
+				}
+			},
+		})
+		if err != nil {
+			return resultMsg(reqID, key, "", err)
+		}
+		return resultMsg(reqID, key, result.Text, nil)
+	}
+}
+
+func closeClaudeEvents(events chan<- claude.Event) {
+	if events != nil {
+		close(events)
+	}
+}
+
+func (m Model) waitForClaudePlanProgress(reqID int, key string) tea.Cmd {
+	events := m.claudePlanEvents
+	return waitForClaudeProgress(events, reqID, key, func(id int, key string, event claude.Event) tea.Msg {
+		return claudePlanProgressMsg{id: id, key: key, event: event}
+	})
+}
+
+func (m Model) waitForClaudeAssistProgress(reqID int, key string) tea.Cmd {
+	events := m.claudeAssistEvents
+	return waitForClaudeProgress(events, reqID, key, func(id int, key string, event claude.Event) tea.Msg {
+		return claudeAssistProgressMsg{id: id, key: key, event: event}
+	})
+}
+
+func waitForClaudeProgress(events <-chan claude.Event, reqID int, key string, progressMsg func(int, string, claude.Event) tea.Msg) tea.Cmd {
+	if events == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		event, ok := <-events
+		if !ok {
+			return noDetailRequestMsg{}
+		}
+		return progressMsg(reqID, key, event)
+	}
+}
+
+func (m Model) scheduleClaudePlanTick(reqID int) tea.Cmd {
+	return tea.Tick(time.Second, func(time.Time) tea.Msg {
+		return claudePlanTickMsg{id: reqID}
+	})
+}
+
+func (m Model) scheduleClaudeAssistTick(reqID int) tea.Cmd {
+	return tea.Tick(time.Second, func(time.Time) tea.Msg {
+		return claudeAssistTickMsg{id: reqID}
+	})
+}
+
+func (m Model) cancelClaudeTicketPlan() Model {
+	if m.claudePlanCancel != nil {
+		m.claudePlanCancel()
+	}
+	reqID := m.activeClaudePlanReqID
+	key := m.claudePlanKey
+	m.claudePlanCancel = nil
+	m.claudePlanEvents = nil
+	m.activeClaudePlanReqID = 0
+	m.claudePlanLoading = false
+	m.claudePlanErr = errors.New("Claude ticket plan cancelled")
+	m.claudePlanText = ""
+	m.recordDiagnosticEvent(diagnosticKindClaude, "ticket_plan", "cancel", workerDiagnosticDetail(reqID, key, m.claudePlanErr))
+	return m
+}
+
+func (m Model) cancelClaudeTicketAssist() Model {
+	if m.claudeAssistCancel != nil {
+		m.claudeAssistCancel()
+	}
+	reqID := m.activeClaudeAssistReqID
+	key := m.claudeAssistKey
+	m.claudeAssistCancel = nil
+	m.claudeAssistEvents = nil
+	m.activeClaudeAssistReqID = 0
+	m.claudeAssistLoading = false
+	m.claudeAssistErr = errors.New("Claude ticket assist cancelled")
+	m.claudeAssistText = ""
+	m.recordDiagnosticEvent(diagnosticKindClaude, "ticket_assist", "cancel", workerDiagnosticDetail(reqID, key, m.claudeAssistErr))
+	return m
+}
+
+func (m Model) handleClaudePlanProgress(msg claudePlanProgressMsg) Model {
+	if msg.id != m.activeClaudePlanReqID || msg.key != m.claudePlanKey {
+		return m
+	}
+	if strings.TrimSpace(msg.event.Text) == "" {
+		return m
+	}
+	m.claudePlanProgress = append(m.claudePlanProgress, msg.event)
+	if len(m.claudePlanProgress) > 6 {
+		m.claudePlanProgress = append([]claude.Event(nil), m.claudePlanProgress[len(m.claudePlanProgress)-6:]...)
+	}
+	m.recordDiagnosticEvent(diagnosticKindClaude, "ticket_plan", "progress", truncate(msg.event.Kind+" "+msg.event.Text, 100))
+	return m
+}
+
+func (m Model) handleClaudeAssistProgress(msg claudeAssistProgressMsg) Model {
+	if msg.id != m.activeClaudeAssistReqID || msg.key != m.claudeAssistKey {
+		return m
+	}
+	if strings.TrimSpace(msg.event.Text) == "" {
+		return m
+	}
+	m.claudeAssistProgress = append(m.claudeAssistProgress, msg.event)
+	if len(m.claudeAssistProgress) > 6 {
+		m.claudeAssistProgress = append([]claude.Event(nil), m.claudeAssistProgress[len(m.claudeAssistProgress)-6:]...)
+	}
+	m.recordDiagnosticEvent(diagnosticKindClaude, "ticket_assist", "progress", truncate(msg.event.Kind+" "+msg.event.Text, 100))
+	return m
+}
+
+func (m Model) handleClaudePlanResult(msg claudePlanResultMsg) Model {
+	status := "ok"
+	if msg.err != nil {
+		status = "error"
+		if errors.Is(msg.err, context.Canceled) {
+			status = "cancel"
+		} else if errors.Is(msg.err, context.DeadlineExceeded) {
+			status = "timeout"
+		}
+	}
+	m.recordDiagnosticEvent(diagnosticKindClaude, "ticket_plan", status, workerDiagnosticDetail(msg.id, msg.key, msg.err))
+	if msg.id != m.activeClaudePlanReqID || msg.key != m.claudePlanKey {
+		return m
+	}
+	m.claudePlanLoading = false
+	m.claudePlanCancel = nil
+	m.claudePlanEvents = nil
+	m.claudePlanOpen = true
+	m.claudePlanErr = msg.err
+	if msg.err == nil {
+		m.claudePlanText = strings.TrimSpace(msg.text)
+		m.claudePlanOffset = 0
+	}
+	return m
+}
+
+func (m Model) handleClaudeAssistResult(msg claudeAssistResultMsg) Model {
+	status := "ok"
+	if msg.err != nil {
+		status = "error"
+		if errors.Is(msg.err, context.Canceled) {
+			status = "cancel"
+		} else if errors.Is(msg.err, context.DeadlineExceeded) {
+			status = "timeout"
+		}
+	}
+	m.recordDiagnosticEvent(diagnosticKindClaude, "ticket_assist", status, workerDiagnosticDetail(msg.id, msg.key, msg.err))
+	if msg.id != m.activeClaudeAssistReqID || msg.key != m.claudeAssistKey {
+		return m
+	}
+	m.claudeAssistLoading = false
+	m.claudeAssistCancel = nil
+	m.claudeAssistEvents = nil
+	m.claudeAssistOpen = true
+	m.claudeAssistErr = msg.err
+	if msg.err == nil {
+		m.claudeAssistText = strings.TrimSpace(msg.text)
+		m.claudeAssistDraft = claudeAssistDraftFromText(m.claudeAssistText)
+		m.claudeAssistEditor = newClaudeAssistEditor(m.claudeAssistDraft)
+		m.claudeAssistEditorReady = true
+	}
+	return m
+}
+
+func (m Model) renderClaudePlanLoading(width int, now time.Time) string {
+	elapsed := formatClaudeDuration(now.Sub(m.claudePlanStartedAt))
+	if m.claudeConfig.Timeout > 0 {
+		elapsed += " of " + m.claudeConfig.Timeout.String()
+	}
+	lines := []string{
+		m.theme.Muted.Render("Activity: ") + m.theme.Text.Render(claudeActivityFrame(now.Sub(m.claudePlanStartedAt))+" Claude subprocess running"),
+		m.theme.Muted.Render("Elapsed: ") + m.theme.Text.Render(elapsed),
+	}
+	lines = append(lines, m.renderClaudeProgressStatus(m.claudePlanProgress)...)
+	return strings.Join(lines, "\n")
+}
+
+func claudeActivityFrame(elapsed time.Duration) string {
+	frames := []string{"|", "/", "-", "\\"}
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	return frames[int(elapsed/time.Second)%len(frames)]
+}
+
+func (m Model) renderClaudeProgressLines(width int) []string {
+	return m.renderClaudeEventProgressLines(m.claudePlanProgress, width)
+}
+
+func (m Model) renderClaudeProgressStatus(events []claude.Event) []string {
+	status := "waiting for first response"
+	if len(events) > 0 {
+		status = "receiving response"
+		if claudeAssistantPreview(events) == "" {
+			status = "receiving CLI messages"
+		}
+	}
+	return []string{m.theme.Muted.Render("Output: ") + m.theme.Text.Render(status)}
+}
+
+func (m Model) renderClaudeEventProgressLines(events []claude.Event, width int) []string {
+	preview := claudeAssistantPreview(events)
+	if preview == "" {
+		if len(events) > 0 {
+			return []string{m.theme.Muted.Render("Output: ") + m.theme.Text.Render("waiting for assistant text")}
+		}
+		return []string{m.theme.Muted.Render("Output: ") + m.theme.Text.Render("waiting for first response")}
+	}
+	prefix := "Assistant: "
+	return []string{
+		m.theme.Muted.Render("Output: ") + m.theme.Text.Render("assistant text"),
+		m.theme.Muted.Render(prefix) + m.theme.Text.Render(truncate(preview, max(16, width-lipgloss.Width(prefix)))),
+	}
+}
+
+func claudeAssistantPreview(events []claude.Event) string {
+	var preview string
+	for _, event := range events {
+		if event.Kind != "output" && event.Kind != "result" && event.Kind != "stderr" {
+			continue
+		}
+		text := strings.Join(strings.Fields(strings.TrimSpace(event.Text)), " ")
+		if text == "" || looksLikeJSONEvent(text) {
+			continue
+		}
+		if preview == "" {
+			preview = text
+			continue
+		}
+		switch {
+		case text == preview:
+			continue
+		case strings.HasPrefix(text, preview):
+			preview = text
+		case strings.HasPrefix(preview, text):
+			continue
+		case strings.Contains(preview, text):
+			continue
+		default:
+			joiner := " "
+			if strings.HasSuffix(preview, " ") || strings.HasPrefix(text, " ") {
+				joiner = ""
+			}
+			preview += joiner + text
+		}
+	}
+	return preview
+}
+
+func looksLikeJSONEvent(text string) bool {
+	return strings.HasPrefix(text, "{") && strings.Contains(text, `"type"`)
+}
+
+func (m Model) renderClaudePlanError(width int, now time.Time) string {
+	if errors.Is(m.claudePlanErr, context.DeadlineExceeded) {
+		lines := []string{
+			m.renderDetailNotice("Claude plan timed out after "+displayValue(m.claudeConfig.Timeout.String(), "the configured timeout"), width),
+			"",
+			m.theme.Muted.Render("Started: ") + m.theme.Text.Render(formatClockTime(m.claudePlanStartedAt)),
+		}
+		if m.claudeConfig.Timeout > 0 {
+			lines = append(lines, m.theme.Muted.Render("Deadline: ")+m.theme.Text.Render(formatClockTime(m.claudePlanStartedAt.Add(m.claudeConfig.Timeout))))
+		}
+		lines = append(lines, m.theme.Muted.Render("Elapsed: ")+m.theme.Text.Render(formatClaudeDuration(now.Sub(m.claudePlanStartedAt))))
+		lines = append(lines, m.theme.Muted.Render("Command: ")+m.theme.Text.Render(m.claudeCommandLabel()))
+		return strings.Join(lines, "\n")
+	}
+	return m.renderDetailNotice("Claude plan failed: "+m.claudePlanErr.Error(), width)
+}
+
+func (m Model) claudeCommandLabel() string {
+	command := strings.TrimSpace(m.claudeConfig.Command)
+	if command == "" {
+		command = strings.TrimSpace(m.claudeStatus.Command)
+	}
+	if command == "" {
+		command = "claude"
+	}
+	return command + " -p <prompt>"
+}
+
+func (m Model) claudeNow() time.Time {
+	if m.now != nil {
+		return m.now()
+	}
+	return time.Now()
+}
+
+func (m Model) buildClaudeTicketPlanPrompt(ctx detailRenderContext) string {
+	issue := ctx.display
+	if issue.Key == "" {
+		issue.Key = ctx.selected.Key
+	}
+	var b strings.Builder
+	b.WriteString("Create a read-only implementation and verification plan for this Jira ticket.\n")
+	b.WriteString("Do not edit files, create branches, run git commands, call Jira, or make external changes.\n")
+	b.WriteString("Focus on likely code areas, risks, test strategy, and questions to clarify before implementation.\n\n")
+	b.WriteString("Ticket:\n")
+	writePromptField(&b, "Key", issue.Key)
+	writePromptField(&b, "Summary", issue.Summary)
+	writePromptField(&b, "Status", issue.Status)
+	writePromptField(&b, "Issue Type", issue.IssueType)
+	writePromptField(&b, "Priority", issue.Priority)
+	writePromptField(&b, "Assignee", issue.Assignee)
+	writePromptField(&b, "Reporter", ctx.detail.Reporter)
+	if len(ctx.detail.Labels) > 0 {
+		writePromptField(&b, "Labels", strings.Join(ctx.detail.Labels, ", "))
+	}
+	if len(ctx.detail.Components) > 0 {
+		writePromptField(&b, "Components", strings.Join(ctx.detail.Components, ", "))
+	}
+	description := strings.TrimSpace(ctx.description)
+	if description == "" {
+		description = strings.TrimSpace(ctx.detail.Description)
+	}
+	if description != "" {
+		b.WriteString("\nDescription:\n")
+		b.WriteString(description)
+		b.WriteString("\n")
+	}
+	comments := m.comments[issue.Key]
+	if len(comments) > 0 {
+		b.WriteString("\nLoaded comments:\n")
+		for index, comment := range comments {
+			author := displayValue(comment.Author, "Unknown")
+			body := strings.TrimSpace(comment.Body)
+			if body == "" {
+				continue
+			}
+			fmt.Fprintf(&b, "%d. %s: %s\n", index+1, author, body)
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func (m Model) buildClaudeTicketAssistPrompt(ctx detailRenderContext) string {
+	var b strings.Builder
+	b.WriteString("Evaluate and sanitize this existing Jira ticket.\n")
+	b.WriteString("Do not update Jira, create tickets, edit files, create branches, run git commands, call GitHub, or make external changes.\n")
+	b.WriteString("Return practical ticket-writing help only. Do not invent product decisions; list unknowns as Open Questions.\n")
+	b.WriteString("Acceptance Criteria must be a first-class section in the draft, not buried inside prose.\n")
+	b.WriteString("Use this exact high-level structure:\n")
+	b.WriteString("Review\n")
+	b.WriteString("- Clarity issues\n")
+	b.WriteString("- Missing acceptance criteria\n")
+	b.WriteString("- Conflicting or stale context\n")
+	b.WriteString("- Implementation or test gaps\n")
+	b.WriteString("- Open questions\n\n")
+	b.WriteString("Draft\n")
+	b.WriteString("Summary: <one concise summary>\n\n")
+	b.WriteString("Problem / Goal\n<clear user/business goal>\n\n")
+	b.WriteString("Acceptance Criteria\n- [ ] <testable criterion>\n\n")
+	b.WriteString("Test / Verification\n- <verification step>\n\n")
+	b.WriteString("Implementation Notes\n- <notes or constraints>\n\n")
+	b.WriteString("Open Questions\n- <question or None>\n\n")
+	b.WriteString("Ticket:\n")
+	m.writeClaudeTicketContext(&b, ctx)
+	return strings.TrimSpace(b.String())
+}
+
+func (m Model) buildClaudeTicketAssistRefinementPrompt(ctx detailRenderContext, currentDraft string, instruction string) string {
+	var b strings.Builder
+	b.WriteString("Refine this Jira ticket draft using the user's instruction.\n")
+	b.WriteString("Do not update Jira, create tickets, edit files, create branches, run git commands, call GitHub, or make external changes.\n")
+	b.WriteString("Do not reinvent the draft from scratch. Preserve useful user edits from the current draft unless the instruction asks otherwise.\n")
+	b.WriteString("Acceptance Criteria must remain a first-class section in the draft, not buried inside prose.\n")
+	b.WriteString("Return the same high-level structure as Ticket Assist:\n")
+	b.WriteString("Review\n")
+	b.WriteString("- What changed and why\n")
+	b.WriteString("- Remaining risks or open questions\n\n")
+	b.WriteString("Draft\n")
+	b.WriteString("Summary: <one concise summary>\n\n")
+	b.WriteString("Problem / Goal\n<clear user/business goal>\n\n")
+	b.WriteString("Acceptance Criteria\n- [ ] <testable criterion>\n\n")
+	b.WriteString("Test / Verification\n- <verification step>\n\n")
+	b.WriteString("Implementation Notes\n- <notes or constraints>\n\n")
+	b.WriteString("Open Questions\n- <question or None>\n\n")
+	b.WriteString("User instruction:\n")
+	b.WriteString(strings.TrimSpace(instruction))
+	b.WriteString("\n\nCurrent user-edited draft:\n")
+	b.WriteString(strings.TrimSpace(currentDraft))
+	b.WriteString("\n\nOriginal ticket context:\n")
+	m.writeClaudeTicketContext(&b, ctx)
+	return strings.TrimSpace(b.String())
+}
+
+func (m Model) buildInlineDescriptionAIPrompt(ctx detailRenderContext, action inlineAIAction, instruction string) string {
+	var b strings.Builder
+	b.WriteString("Provide Description-scoped Jira ticket assistance.\n")
+	b.WriteString("Do not update Jira, create tickets, edit files, create branches, run git commands, call GitHub, edit code, or make external changes.\n")
+	b.WriteString("Return practical writing help only. The draft must be local TUI text for user review.\n")
+	b.WriteString("Selected inline action: ")
+	b.WriteString(action.Label)
+	b.WriteString("\n")
+	if strings.TrimSpace(instruction) != "" {
+		b.WriteString("User question/instruction:\n")
+		b.WriteString(strings.TrimSpace(instruction))
+		b.WriteString("\n")
+	}
+	b.WriteString("Use this exact high-level structure:\n")
+	b.WriteString("Review\n")
+	b.WriteString("- What changed or what you noticed\n")
+	b.WriteString("- Risks or open questions\n\n")
+	b.WriteString("Draft\n")
+	if action.ID == "draft_comment" {
+		b.WriteString("<Jira comment draft>\n\n")
+	} else {
+		b.WriteString("<replacement Description draft>\n\n")
+	}
+	b.WriteString("Ticket:\n")
+	m.writeClaudeTicketContext(&b, ctx)
+	return strings.TrimSpace(b.String())
+}
+
+func (m Model) writeClaudeTicketContext(b *strings.Builder, ctx detailRenderContext) {
+	issue := ctx.display
+	if issue.Key == "" {
+		issue.Key = ctx.selected.Key
+	}
+	writePromptField(b, "Key", issue.Key)
+	writePromptField(b, "Summary", issue.Summary)
+	writePromptField(b, "Status", issue.Status)
+	writePromptField(b, "Issue Type", issue.IssueType)
+	writePromptField(b, "Priority", issue.Priority)
+	writePromptField(b, "Assignee", issue.Assignee)
+	writePromptField(b, "Reporter", ctx.detail.Reporter)
+	if len(ctx.detail.Labels) > 0 {
+		writePromptField(b, "Labels", strings.Join(ctx.detail.Labels, ", "))
+	}
+	if len(ctx.detail.Components) > 0 {
+		writePromptField(b, "Components", strings.Join(ctx.detail.Components, ", "))
+	}
+	description := strings.TrimSpace(ctx.description)
+	if description == "" {
+		description = strings.TrimSpace(ctx.detail.Description)
+	}
+	if description != "" {
+		b.WriteString("\nDescription:\n")
+		b.WriteString(description)
+		b.WriteString("\n")
+	}
+	comments := m.comments[issue.Key]
+	if len(comments) > 0 {
+		b.WriteString("\nLoaded comments:\n")
+		for index, comment := range comments {
+			author := displayValue(comment.Author, "Unknown")
+			body := strings.TrimSpace(comment.Body)
+			if body == "" {
+				continue
+			}
+			fmt.Fprintf(b, "%d. %s: %s\n", index+1, author, body)
+		}
+	}
+}
+
+func (m Model) claudeAssistReviewText() string {
+	review, _ := splitClaudeAssistText(m.claudeAssistText)
+	return review
+}
+
+func claudeAssistDraftFromText(text string) string {
+	_, draft := splitClaudeAssistText(text)
+	if strings.TrimSpace(draft) == "" {
+		return strings.TrimSpace(text)
+	}
+	return strings.TrimSpace(draft)
+}
+
+func splitClaudeAssistText(text string) (string, string) {
+	lines := strings.Split(strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n"), "\n")
+	draftIndex := -1
+	for index, line := range lines {
+		normalized := strings.Trim(strings.TrimSpace(line), "#: ")
+		if strings.EqualFold(normalized, "Draft") {
+			draftIndex = index
+			break
+		}
+	}
+	if draftIndex < 0 {
+		return "", strings.TrimSpace(text)
+	}
+	review := strings.TrimSpace(strings.Join(lines[:draftIndex], "\n"))
+	draft := strings.TrimSpace(strings.Join(lines[draftIndex+1:], "\n"))
+	return review, draft
+}
+
+func writePromptField(b *strings.Builder, label string, value string) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return
+	}
+	fmt.Fprintf(b, "- %s: %s\n", label, value)
+}
+
+func formatClaudeDuration(duration time.Duration) string {
+	if duration < 0 {
+		duration = 0
+	}
+	return duration.Round(time.Second).String()
+}
+
+func formatClockTime(t time.Time) string {
+	if t.IsZero() {
+		return "-"
+	}
+	return t.Format("15:04:05")
+}
+
 func (m Model) detailActions() []detailAction {
 	return []detailAction{
 		{ID: "comment", Label: "Add Comment", Description: "Write a Jira comment.", Enabled: true},
@@ -2420,6 +5377,697 @@ func (m Model) runSelectedDetailAction() (Model, tea.Cmd) {
 	}
 }
 
+func (m Model) canUseClaudeSelection() bool {
+	if m.mode != modeDetail {
+		return false
+	}
+	section, ok := m.focusedDetailSection()
+	return ok && section.ID == "claude"
+}
+
+func (m *Model) moveSelectedClaudeAction(delta int) {
+	actions := m.claudeActions()
+	if len(actions) == 0 {
+		m.selectedClaudeAction = 0
+		return
+	}
+	m.selectedClaudeAction = clamp(m.selectedClaudeAction+delta, 0, len(actions)-1)
+}
+
+func (m Model) runSelectedClaudeAction() (Model, tea.Cmd) {
+	actions := m.claudeActions()
+	if len(actions) == 0 {
+		m.detailNotice = "Claude ticket assistance is not enabled or available."
+		return m, nil
+	}
+	action := actions[clamp(m.selectedClaudeAction, 0, len(actions)-1)]
+	switch action.ID {
+	case "ticket_plan":
+		return m.startClaudeTicketPlan()
+	case "ticket_assist":
+		return m.startClaudeTicketAssist()
+	default:
+		return m, nil
+	}
+}
+
+func (m *Model) focusStatusTransitions() {
+	m.linkFocus = false
+	m.hierarchyFocus = false
+	m.actionFocus = false
+	m.transitionFocus = true
+	m.jumpDetailSection("Status")
+}
+
+func (m Model) startStatusTransitionPicker() (Model, tea.Cmd) {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return m, nil
+	}
+	m.linkFocus = false
+	m.hierarchyFocus = false
+	m.actionFocus = false
+	m.jumpDetailSection("Status")
+	if transitions := m.transitions[selected.Key]; len(transitions) > 0 {
+		m.transitionFocus = true
+		m.selectedTransition = clamp(m.selectedTransition, 0, len(transitions)-1)
+		m.detailNotice = ""
+		return m, nil
+	}
+	if m.transitionLoading && m.transitionRequestKey == selected.Key {
+		return m, nil
+	}
+	m.nextRequestID++
+	m.activeTransitionsReqID = m.nextRequestID
+	m.transitionRequestKey = selected.Key
+	m.transitionLoading = true
+	m.transitionErr = nil
+	m.transitionFocus = false
+	m.detailNotice = "Loading status transitions for " + selected.Key + "."
+	return m, m.submitIssueTransitions(m.activeTransitionsReqID, selected.Key)
+}
+
+func (m *Model) moveSelectedTransition(delta int) {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		m.selectedTransition = 0
+		return
+	}
+	transitions := m.transitions[selected.Key]
+	if len(transitions) == 0 {
+		m.selectedTransition = 0
+		return
+	}
+	m.selectedTransition = clamp(m.selectedTransition+delta, 0, len(transitions)-1)
+}
+
+func (m Model) submitSelectedTransition() (Model, tea.Cmd) {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return m, nil
+	}
+	transitions := m.transitions[selected.Key]
+	if len(transitions) == 0 {
+		return m.startStatusTransitionPicker()
+	}
+	transition := transitions[clamp(m.selectedTransition, 0, len(transitions)-1)]
+	if transition.ID == "" {
+		m.detailNotice = "Status update failed: missing transition ID."
+		return m, nil
+	}
+	m.nextRequestID++
+	m.activeTransitionReqID = m.nextRequestID
+	m.transitionSubmitting = true
+	m.transitionSubmitKey = selected.Key
+	m.transitionSubmitToStatus = transition.ToStatus
+	m.detailNotice = "Updating status to " + displayValue(transition.ToStatus, transition.Name) + "."
+	return m, m.submitIssueTransition(m.activeTransitionReqID, selected.Key, transition)
+}
+
+func (m Model) startPriorityEditor() (Model, tea.Cmd) {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return m, nil
+	}
+	m.linkFocus = false
+	m.hierarchyFocus = false
+	m.actionFocus = false
+	m.transitionFocus = false
+	m.summaryFocus = false
+	m.priorityFocus = true
+	if metadata, ok := m.editMetadata[selected.Key]; ok {
+		return m.beginPriorityEditing(metadata), nil
+	}
+	if m.priorityMetadataLoading && m.priorityMetadataRequestKey == selected.Key {
+		return m, nil
+	}
+	m.nextRequestID++
+	m.activePriorityMetadataReqID = m.nextRequestID
+	m.priorityMetadataRequestKey = selected.Key
+	m.priorityMetadataLoading = true
+	m.priorityMetadataErr = nil
+	m.detailNotice = ""
+	return m, m.submitEditMetadata(m.activePriorityMetadataReqID, selected.Key)
+}
+
+func (m Model) beginPriorityEditing(metadata jira.EditMetadata) Model {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return m
+	}
+	if !metadata.Priority.Editable {
+		m.priorityFocus = false
+		m.detailNotice = "Priority is not editable for " + selected.Key + "."
+		return m
+	}
+	if len(metadata.Priority.AllowedValues) == 0 {
+		m.priorityFocus = false
+		m.detailNotice = "Priority metadata returned no allowed values for " + selected.Key + "."
+		return m
+	}
+	m.priorityFocus = true
+	m.selectedPriority = indexFieldOptionByName(metadata.Priority.AllowedValues, selected.Priority)
+	m.detailNotice = ""
+	return m
+}
+
+func (m Model) priorityOptions(key string) []jira.FieldOption {
+	if metadata, ok := m.editMetadata[key]; ok {
+		return metadata.Priority.AllowedValues
+	}
+	return nil
+}
+
+func (m *Model) moveSelectedPriority(delta int) {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		m.selectedPriority = 0
+		return
+	}
+	options := m.priorityOptions(selected.Key)
+	if len(options) == 0 {
+		m.selectedPriority = 0
+		return
+	}
+	m.selectedPriority = clamp(m.selectedPriority+delta, 0, len(options)-1)
+}
+
+func (m Model) submitSelectedPriority() (Model, tea.Cmd) {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return m, nil
+	}
+	options := m.priorityOptions(selected.Key)
+	if len(options) == 0 {
+		return m.startPriorityEditor()
+	}
+	priority := options[clamp(m.selectedPriority, 0, len(options)-1)]
+	priorityName := displayValue(priority.Name, priority.ID)
+	if strings.TrimSpace(priorityName) == "" {
+		m.detailNotice = "Priority update failed: missing priority value."
+		return m, nil
+	}
+	if priorityName == strings.TrimSpace(selected.Priority) {
+		m.detailNotice = "Priority unchanged."
+		return m, nil
+	}
+	m.nextRequestID++
+	m.activePriorityReqID = m.nextRequestID
+	m.prioritySubmitting = true
+	m.prioritySubmitKey = selected.Key
+	m.prioritySubmitValue = priority
+	m.detailNotice = "Updating priority to " + priorityName + "."
+	return m, m.submitUpdatePriority(m.activePriorityReqID, selected.Key, priority)
+}
+
+func (m Model) startAssigneePicker() (Model, tea.Cmd) {
+	m.linkFocus = false
+	m.hierarchyFocus = false
+	m.actionFocus = false
+	m.transitionFocus = false
+	m.priorityFocus = false
+	m.summaryFocus = false
+	m.assigneeFocus = true
+	m.assigneeQuery = ""
+	m.assigneeUsers = nil
+	m.selectedAssignee = 0
+	m.assigneeSearchLoading = false
+	m.assigneeSearchErr = nil
+	m.detailNotice = ""
+	return m, nil
+}
+
+func (m Model) updateAssigneePicker(msg tea.KeyMsg) (Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.assigneeFocus = false
+		m.assigneeQuery = ""
+		m.assigneeUsers = nil
+		m.selectedAssignee = 0
+		m.assigneeSearchLoading = false
+		m.assigneeSearchErr = nil
+		m.detailNotice = ""
+		return m, nil
+	case "enter":
+		return m.submitSelectedAssignee()
+	case "up":
+		m.moveSelectedAssignee(-1)
+		return m, nil
+	case "down":
+		m.moveSelectedAssignee(1)
+		return m, nil
+	}
+	query, changed := nextMentionQuery(m.assigneeQuery, msg)
+	if !changed {
+		return m, nil
+	}
+	m.assigneeQuery = query
+	m.selectedAssignee = 0
+	m.assigneeSearchErr = nil
+	if strings.TrimSpace(query) == "" {
+		m.assigneeUsers = nil
+		m.assigneeSearchLoading = false
+		return m, nil
+	}
+	if users, ok := m.cachedUserSearch(query); ok {
+		m.assigneeUsers = users
+		m.assigneeSearchLoading = false
+		m.selectedAssignee = clamp(m.selectedAssignee, 0, max(0, len(users)-1))
+		return m, nil
+	}
+	m.nextRequestID++
+	m.assigneeSearchReqID = m.nextRequestID
+	m.assigneeSearchLoading = true
+	return m, m.submitUserSearch(m.assigneeSearchReqID, query)
+}
+
+func (m *Model) moveSelectedAssignee(delta int) {
+	if len(m.assigneeUsers) == 0 {
+		m.selectedAssignee = 0
+		return
+	}
+	m.selectedAssignee = clamp(m.selectedAssignee+delta, 0, len(m.assigneeUsers)-1)
+}
+
+func (m Model) submitSelectedAssignee() (Model, tea.Cmd) {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return m, nil
+	}
+	if len(m.assigneeUsers) == 0 {
+		m.detailNotice = "Search for a Jira user before assigning."
+		return m, nil
+	}
+	assignee := m.assigneeUsers[clamp(m.selectedAssignee, 0, len(m.assigneeUsers)-1)]
+	if strings.TrimSpace(assignee.AccountID) == "" {
+		m.detailNotice = "Assignee update failed: missing account ID."
+		return m, nil
+	}
+	assigneeName := displayValue(assignee.DisplayName, assignee.Email)
+	if assigneeName == strings.TrimSpace(selected.Assignee) {
+		m.detailNotice = "Assignee unchanged."
+		return m, nil
+	}
+	m.nextRequestID++
+	m.activeAssigneeReqID = m.nextRequestID
+	m.assigneeSubmitting = true
+	m.assigneeSubmitKey = selected.Key
+	m.assigneeSubmitValue = assignee
+	m.detailNotice = "Updating assignee to " + displayValue(assigneeName, "Unknown") + "."
+	return m, m.submitUpdateAssignee(m.activeAssigneeReqID, selected.Key, assignee)
+}
+
+func (m Model) startCreateIssue() (Model, tea.Cmd) {
+	projectKey := projectKeyFromJQL(m.jql)
+	if projectKey == "" {
+		projectKey = projectKeyFromJQL(m.filterSummary())
+	}
+	if projectKey == "" {
+		m.detailNotice = "Create ticket needs a project key in the active view JQL."
+		return m, nil
+	}
+	m.resetCreateIssueState()
+	m.createOpen = true
+	m.createProjectKey = projectKey
+	m.createIssueTypesLoading = true
+	m.nextRequestID++
+	m.activeCreateIssueTypesReqID = m.nextRequestID
+	return m, m.submitCreateIssueTypes(m.activeCreateIssueTypesReqID, projectKey)
+}
+
+func (m Model) updateCreatePaste(msg tea.PasteMsg) (Model, tea.Cmd) {
+	if !m.createFormReady() || m.createSubmitting {
+		return m, nil
+	}
+	if m.createFieldFocus == 0 {
+		m.ensureCreateSummaryEditor()
+		m.createSummaryEditor.InsertString(msg.String())
+		m.createSummaryDraft = m.createSummaryEditor.Value()
+	} else if m.createFieldFocus == 1 {
+		m.ensureCreateDescriptionEditor()
+		m.createDescriptionEditor.InsertString(msg.String())
+		m.createDescriptionDraft = m.createDescriptionEditor.Value()
+	} else if field, ok := m.focusedCreateDynamicField(); ok && !createFieldUsesPicker(field) {
+		m.setCreateDynamicValue(field, m.createDynamicValues[createFieldValueKey(field)]+msg.String())
+	}
+	m.detailNotice = ""
+	return m, nil
+}
+
+func (m Model) updateCreateIssue(msg tea.KeyMsg) (Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.resetCreateIssueState()
+		return m, nil
+	}
+	if m.createIssueType.ID == "" {
+		switch msg.String() {
+		case "up", "k":
+			m.moveSelectedCreateIssueType(-1)
+			return m, nil
+		case "down", "j":
+			m.moveSelectedCreateIssueType(1)
+			return m, nil
+		case "enter":
+			return m.selectCreateIssueType()
+		default:
+			return m, nil
+		}
+	}
+	if !m.createFormReady() || m.createSubmitting {
+		return m, nil
+	}
+	if field, ok := m.focusedCreateDynamicField(); ok && createFieldUsesPicker(field) {
+		switch msg.String() {
+		case "up", "k":
+			m.moveCreateDynamicSelection(field, -1)
+			return m, nil
+		case "down", "j":
+			m.moveCreateDynamicSelection(field, 1)
+			return m, nil
+		}
+	}
+	switch msg.String() {
+	case "tab":
+		m.moveCreateFieldFocus(1)
+		return m, nil
+	case "shift+tab", "backtab":
+		m.moveCreateFieldFocus(-1)
+		return m, nil
+	case "ctrl+s":
+		return m.submitCreateIssueDraft()
+	}
+	if m.createFieldFocus == 0 {
+		m.ensureCreateSummaryEditor()
+		m.configureCreateSummaryEditor()
+		editor, cmd := m.createSummaryEditor.Update(msg)
+		m.createSummaryEditor = editor
+		m.createSummaryDraft = m.createSummaryEditor.Value()
+		m.detailNotice = ""
+		return m, cmd
+	}
+	if field, ok := m.focusedCreateDynamicField(); ok {
+		if createFieldUsesPicker(field) {
+			return m, nil
+		}
+		switch msg.String() {
+		case "backspace", "ctrl+h":
+			value := []rune(m.createDynamicValues[createFieldValueKey(field)])
+			if len(value) > 0 {
+				m.setCreateDynamicValue(field, string(value[:len(value)-1]))
+			}
+			return m, nil
+		}
+		if len(msg.String()) == 1 {
+			m.setCreateDynamicValue(field, m.createDynamicValues[createFieldValueKey(field)]+msg.String())
+			return m, nil
+		}
+		return m, nil
+	}
+	m.ensureCreateDescriptionEditor()
+	m.configureCreateDescriptionEditor()
+	editor, cmd := m.createDescriptionEditor.Update(msg)
+	m.createDescriptionEditor = editor
+	m.createDescriptionDraft = m.createDescriptionEditor.Value()
+	m.detailNotice = ""
+	return m, cmd
+}
+
+func (m *Model) moveSelectedCreateIssueType(delta int) {
+	if len(m.createIssueTypes) == 0 {
+		m.selectedCreateIssueType = 0
+		return
+	}
+	m.selectedCreateIssueType = clamp(m.selectedCreateIssueType+delta, 0, len(m.createIssueTypes)-1)
+}
+
+func (m Model) selectCreateIssueType() (Model, tea.Cmd) {
+	if len(m.createIssueTypes) == 0 {
+		m.detailNotice = "No Jira issue types are available."
+		return m, nil
+	}
+	m.createIssueType = m.createIssueTypes[clamp(m.selectedCreateIssueType, 0, len(m.createIssueTypes)-1)]
+	if strings.TrimSpace(m.createIssueType.ID) == "" {
+		m.detailNotice = "Create ticket failed: missing issue type ID."
+		return m, nil
+	}
+	m.createFieldsLoading = true
+	m.createFieldsErr = nil
+	m.nextRequestID++
+	m.activeCreateFieldsReqID = m.nextRequestID
+	return m, m.submitCreateFields(m.activeCreateFieldsReqID, m.createProjectKey, m.createIssueType.ID)
+}
+
+func (m *Model) beginCreateForm() {
+	m.createFieldFocus = 0
+	m.createSummaryEditor = newSummaryEditor(m.createSummaryDraft)
+	m.createSummaryEditorReady = true
+	m.createDescriptionEditor = newCommentEditor(m.createDescriptionDraft)
+	m.createDescriptionEditorReady = true
+	m.createDynamicValues = map[string]string{}
+	m.createDynamicSelections = map[string]int{}
+	for _, field := range supportedCreateFields(m.createFields) {
+		key := createFieldValueKey(field)
+		m.createDynamicValues[key] = ""
+		m.createDynamicSelections[key] = 0
+	}
+	m.detailNotice = ""
+}
+
+func (m *Model) moveCreateFieldFocus(delta int) {
+	total := 2 + len(supportedCreateFields(m.createFields))
+	if total <= 0 {
+		m.createFieldFocus = 0
+		return
+	}
+	m.createFieldFocus = (m.createFieldFocus + delta + total) % total
+}
+
+func (m Model) focusedCreateDynamicField() (jira.CreateField, bool) {
+	index := m.createFieldFocus - 2
+	fields := supportedCreateFields(m.createFields)
+	if index < 0 || index >= len(fields) {
+		return jira.CreateField{}, false
+	}
+	return fields[index], true
+}
+
+func (m *Model) moveCreateDynamicSelection(field jira.CreateField, delta int) {
+	if len(field.AllowedValues) == 0 {
+		return
+	}
+	key := createFieldValueKey(field)
+	m.createDynamicSelections[key] = clamp(m.createDynamicSelections[key]+delta, 0, len(field.AllowedValues)-1)
+}
+
+func (m *Model) setCreateDynamicValue(field jira.CreateField, value string) {
+	if m.createDynamicValues == nil {
+		m.createDynamicValues = map[string]string{}
+	}
+	m.createDynamicValues[createFieldValueKey(field)] = value
+}
+
+func (m Model) createFormReady() bool {
+	return m.createIssueType.ID != "" && !m.createFieldsLoading && m.createFieldsErr == nil
+}
+
+func (m Model) createIssueFieldValues() ([]jira.CreateIssueFieldValue, error) {
+	if unsupported := unsupportedRequiredCreateFields(m.createFields); len(unsupported) > 0 {
+		return nil, fmt.Errorf("Jira requires unsupported fields: %s", strings.Join(unsupported, ", "))
+	}
+	var values []jira.CreateIssueFieldValue
+	for _, field := range supportedCreateFields(m.createFields) {
+		key := createFieldValueKey(field)
+		value := jira.CreateIssueFieldValue{
+			FieldID:      displayValue(field.ID, field.Key),
+			SchemaType:   field.SchemaType,
+			SchemaSystem: field.SchemaSystem,
+		}
+		if createFieldUsesPicker(field) {
+			if len(field.AllowedValues) == 0 {
+				if field.Required {
+					return nil, fmt.Errorf("%s has no Jira options.", displayValue(field.Name, value.FieldID))
+				}
+				continue
+			}
+			value.Option = field.AllowedValues[clamp(m.createDynamicSelections[key], 0, len(field.AllowedValues)-1)]
+		} else {
+			value.Text = strings.TrimSpace(m.createDynamicValues[key])
+			if field.Required && value.Text == "" {
+				return nil, fmt.Errorf("%s cannot be empty.", displayValue(field.Name, value.FieldID))
+			}
+			if value.Text == "" {
+				continue
+			}
+		}
+		values = append(values, value)
+	}
+	return values, nil
+}
+
+func (m Model) submitCreateIssueDraft() (Model, tea.Cmd) {
+	summary := strings.TrimSpace(m.createSummaryDraft)
+	if summary == "" {
+		m.detailNotice = "Summary cannot be empty."
+		return m, nil
+	}
+	if strings.TrimSpace(m.createProjectKey) == "" || strings.TrimSpace(m.createIssueType.ID) == "" {
+		m.detailNotice = "Create ticket failed: missing project or issue type."
+		return m, nil
+	}
+	m.nextRequestID++
+	m.activeCreateIssueReqID = m.nextRequestID
+	m.createSubmitting = true
+	m.createSubmitSummary = summary
+	m.createSubmitDescription = strings.TrimSpace(m.createDescriptionDraft)
+	fields, err := m.createIssueFieldValues()
+	if err != nil {
+		m.createSubmitting = false
+		m.detailNotice = err.Error()
+		return m, nil
+	}
+	m.createSubmitFields = fields
+	m.detailNotice = ""
+	return m, m.submitCreateIssue(m.activeCreateIssueReqID, worker.CreateIssueRequest{
+		ProjectKey:  m.createProjectKey,
+		IssueTypeID: m.createIssueType.ID,
+		Summary:     summary,
+		Description: m.createSubmitDescription,
+		Fields:      fields,
+	})
+}
+
+func (m *Model) resetCreateIssueState() {
+	m.createOpen = false
+	m.createProjectKey = ""
+	m.createIssueTypes = nil
+	m.selectedCreateIssueType = 0
+	m.createIssueTypesLoading = false
+	m.createIssueTypesErr = nil
+	m.createFields = nil
+	m.createFieldsLoading = false
+	m.createFieldsErr = nil
+	m.createIssueType = jira.CreateIssueType{}
+	m.createFieldFocus = 0
+	m.createSummaryDraft = ""
+	m.createDescriptionDraft = ""
+	m.createSummaryEditor = newSummaryEditor("")
+	m.createSummaryEditorReady = true
+	m.createDescriptionEditor = newCommentEditor("")
+	m.createDescriptionEditorReady = true
+	m.createSubmitting = false
+	m.createSubmitSummary = ""
+	m.createSubmitDescription = ""
+	m.createDynamicValues = nil
+	m.createDynamicSelections = nil
+	m.createSubmitFields = nil
+}
+
+func (m Model) startSummaryEditor() (Model, tea.Cmd) {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return m, nil
+	}
+	m.linkFocus = false
+	m.hierarchyFocus = false
+	m.actionFocus = false
+	m.transitionFocus = false
+	m.summaryFocus = true
+	if metadata, ok := m.editMetadata[selected.Key]; ok {
+		if !metadata.Summary.Editable {
+			m.detailNotice = "Summary is not editable for " + selected.Key + "."
+			return m, nil
+		}
+		m.beginSummaryEditing()
+		return m, nil
+	}
+	if m.summaryMetadataLoading && m.summaryMetadataRequestKey == selected.Key {
+		return m, nil
+	}
+	m.nextRequestID++
+	m.activeSummaryMetadataReqID = m.nextRequestID
+	m.summaryMetadataRequestKey = selected.Key
+	m.summaryMetadataLoading = true
+	m.summaryMetadataErr = nil
+	m.detailNotice = ""
+	return m, m.submitEditMetadata(m.activeSummaryMetadataReqID, selected.Key)
+}
+
+func (m *Model) beginSummaryEditing() {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return
+	}
+	m.summaryFocus = true
+	m.summaryEditing = true
+	m.summaryDraft = selected.Summary
+	m.summaryDirty = false
+	if detail, ok := m.details[selected.Key]; ok && strings.TrimSpace(detail.Summary) != "" {
+		m.summaryDraft = detail.Summary
+	}
+	m.summaryEditor = newSummaryEditor(m.summaryDraft)
+	m.summaryEditorReady = true
+	m.detailNotice = ""
+}
+
+func (m Model) updateSummaryEditor(msg tea.KeyMsg) (Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.summaryEditing = false
+		m.summaryDraft = ""
+		m.summaryDirty = false
+		m.summaryEditor = newSummaryEditor("")
+		m.summaryEditorReady = true
+		m.detailNotice = ""
+		return m, nil
+	case "enter":
+		m.summaryDraft = m.summaryEditorValue()
+		return m.submitSummaryDraft()
+	}
+	m.ensureSummaryEditor()
+	m.configureSummaryEditor()
+	before := m.summaryEditor.Value()
+	editor, cmd := m.summaryEditor.Update(msg)
+	m.summaryEditor = editor
+	m.summaryDraft = m.summaryEditor.Value()
+	if m.summaryDraft != before {
+		m.summaryDirty = true
+		m.detailNotice = ""
+	}
+	return m, cmd
+}
+
+func (m Model) submitSummaryDraft() (Model, tea.Cmd) {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return m, nil
+	}
+	summary := strings.TrimSpace(m.summaryDraft)
+	if summary == "" {
+		m.detailNotice = "Summary cannot be empty."
+		return m, nil
+	}
+	if !m.summaryDirty {
+		m.detailNotice = "Edit summary before saving."
+		return m, nil
+	}
+	current := strings.TrimSpace(selected.Summary)
+	if detail, ok := m.details[selected.Key]; ok && strings.TrimSpace(detail.Summary) != "" {
+		current = strings.TrimSpace(detail.Summary)
+	}
+	if summary == current {
+		m.detailNotice = "Summary unchanged."
+		return m, nil
+	}
+	m.nextRequestID++
+	m.activeSummaryReqID = m.nextRequestID
+	m.summarySubmitting = true
+	m.summarySubmitKey = selected.Key
+	m.summarySubmitValue = summary
+	m.detailNotice = "Updating summary for " + selected.Key + "."
+	return m, m.submitUpdateSummary(m.activeSummaryReqID, selected.Key, summary)
+}
+
 func (m *Model) focusHierarchy() {
 	children := m.currentHierarchyChildren()
 	m.linkFocus = false
@@ -2449,6 +6097,25 @@ func (m Model) canMoveHierarchySelection() bool {
 		return false
 	}
 	return len(m.currentHierarchyChildren()) > 0
+}
+
+func (m Model) canUseLinkSelection() bool {
+	if m.mode != modeDetail {
+		return false
+	}
+	section, ok := m.focusedDetailSection()
+	if !ok || section.ID != "links" {
+		return false
+	}
+	return len(m.currentDetailLinks()) > 0
+}
+
+func (m Model) canUseActionSelection() bool {
+	if m.mode != modeDetail {
+		return false
+	}
+	section, ok := m.focusedDetailSection()
+	return ok && section.ID == "actions"
 }
 
 func (m Model) currentHierarchyChildren() []jira.Issue {
@@ -2958,11 +6625,27 @@ func (m Model) detailScrollIndicator(start int, end int, total int, width int) s
 }
 
 func (m Model) focusedDetailSection() (detailSection, bool) {
-	sections := m.detailSections()
-	if len(sections) == 0 {
+	target, ok := m.focusedDetailTarget()
+	if !ok || target.Kind != detailTargetSection {
 		return detailSection{}, false
 	}
-	return sections[clamp(m.detailFocus, 0, len(sections)-1)], true
+	return target.Section, true
+}
+
+func (m Model) focusedDetailTarget() (detailTarget, bool) {
+	targets := m.detailTargets()
+	if len(targets) == 0 {
+		return detailTarget{}, false
+	}
+	return targets[clamp(m.detailFocus, 0, len(targets)-1)], true
+}
+
+func (m Model) focusedDetailTargetID() string {
+	target, ok := m.focusedDetailTarget()
+	if !ok {
+		return ""
+	}
+	return target.ID
 }
 
 func (m Model) newDetailViewport(content string, width int, rows int) viewport.Model {
@@ -3049,6 +6732,34 @@ func wrapRichText(value string, width int) string {
 		lines = append(lines, wrapRichLine(block, width)...)
 	}
 	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func markdownTablesToRichMarkers(value string) string {
+	normalized := strings.ReplaceAll(value, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+	lines := strings.Split(normalized, "\n")
+	result := make([]string, 0, len(lines))
+	for index := 0; index < len(lines); {
+		if index+1 < len(lines) && isMarkdownTableRow(lines[index]) && isTableSeparator(lines[index+1]) {
+			var tableLines []string
+			for index < len(lines) && isMarkdownTableRow(lines[index]) {
+				tableLines = append(tableLines, strings.TrimSpace(lines[index]))
+				index++
+			}
+			result = append(result, "[table]")
+			result = append(result, tableLines...)
+			result = append(result, "[/table]")
+			continue
+		}
+		result = append(result, lines[index])
+		index++
+	}
+	return strings.Join(result, "\n")
+}
+
+func isMarkdownTableRow(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return strings.HasPrefix(trimmed, "|") && strings.HasSuffix(trimmed, "|") && strings.Count(trimmed, "|") >= 2
 }
 
 func fitCodeLine(line string, width int) string {
@@ -3585,6 +7296,636 @@ func newCommentEditor(value string) textarea.Model {
 	return editor
 }
 
+func newSummaryEditor(value string) textarea.Model {
+	editor := textarea.New()
+	editor.Prompt = ""
+	editor.Placeholder = "Edit summary..."
+	editor.ShowLineNumbers = false
+	editor.EndOfBufferCharacter = ' '
+	editor.SetVirtualCursor(true)
+	editor.SetValue(value)
+	editor.Focus()
+	return editor
+}
+
+func newClaudeAssistEditor(value string) textarea.Model {
+	editor := textarea.New()
+	editor.Prompt = ""
+	editor.Placeholder = "Edit Claude ticket draft..."
+	editor.ShowLineNumbers = false
+	editor.EndOfBufferCharacter = ' '
+	editor.SetVirtualCursor(true)
+	editor.SetValue(value)
+	editor.Focus()
+	return editor
+}
+
+func newClaudeAssistRefineEditor(value string) textarea.Model {
+	editor := textarea.New()
+	editor.Prompt = ""
+	editor.Placeholder = "Tell Claude how to refine this draft..."
+	editor.ShowLineNumbers = false
+	editor.EndOfBufferCharacter = ' '
+	editor.SetVirtualCursor(true)
+	editor.SetValue(value)
+	editor.Focus()
+	return editor
+}
+
+func (m *Model) ensureSummaryEditor() {
+	if m.summaryEditorReady {
+		return
+	}
+	m.summaryEditor = newSummaryEditor(m.summaryDraft)
+	m.summaryEditorReady = true
+}
+
+func (m *Model) configureSummaryEditor() {
+	m.ensureSummaryEditor()
+	width := max(32, m.browserLayout(m.width).contentWidth-16)
+	m.summaryEditor.MaxHeight = 3
+	m.summaryEditor.MaxWidth = width
+	m.summaryEditor.SetWidth(width)
+	m.summaryEditor.SetHeight(3)
+}
+
+func (m *Model) ensureCreateSummaryEditor() {
+	if m.createSummaryEditorReady {
+		return
+	}
+	m.createSummaryEditor = newSummaryEditor(m.createSummaryDraft)
+	m.createSummaryEditorReady = true
+}
+
+func (m *Model) configureCreateSummaryEditor() {
+	m.ensureCreateSummaryEditor()
+	width := max(32, m.browserLayout(m.width).contentWidth-16)
+	m.createSummaryEditor.MaxHeight = 3
+	m.createSummaryEditor.MaxWidth = width
+	m.createSummaryEditor.SetWidth(width)
+	m.createSummaryEditor.SetHeight(3)
+}
+
+func (m Model) configuredCreateSummaryEditor(width int, rows int) textarea.Model {
+	editor := m.createSummaryEditor
+	if !m.createSummaryEditorReady {
+		editor = newSummaryEditor(m.createSummaryDraft)
+	}
+	editor.MaxHeight = max(rows, 1)
+	editor.MaxWidth = width
+	editor.SetWidth(width)
+	editor.SetHeight(rows)
+	if !m.createSubmitting && m.createFieldFocus == 0 {
+		editor.Focus()
+	} else {
+		editor.Blur()
+	}
+	return editor
+}
+
+func (m *Model) ensureCreateDescriptionEditor() {
+	if m.createDescriptionEditorReady {
+		return
+	}
+	m.createDescriptionEditor = newCommentEditor(m.createDescriptionDraft)
+	m.createDescriptionEditorReady = true
+}
+
+func (m *Model) configureCreateDescriptionEditor() {
+	m.ensureCreateDescriptionEditor()
+	width := max(32, m.browserLayout(m.width).contentWidth-16)
+	m.createDescriptionEditor.MaxHeight = 6
+	m.createDescriptionEditor.MaxWidth = width
+	m.createDescriptionEditor.SetWidth(width)
+	m.createDescriptionEditor.SetHeight(6)
+}
+
+func (m Model) configuredCreateDescriptionEditor(width int, rows int) textarea.Model {
+	editor := m.createDescriptionEditor
+	if !m.createDescriptionEditorReady {
+		editor = newCommentEditor(m.createDescriptionDraft)
+	}
+	editor.MaxHeight = max(rows, 1)
+	editor.MaxWidth = width
+	editor.SetWidth(width)
+	editor.SetHeight(rows)
+	if !m.createSubmitting && m.createFieldFocus == 1 {
+		editor.Focus()
+	} else {
+		editor.Blur()
+	}
+	return editor
+}
+
+func (m Model) configuredSummaryEditor(width int, rows int) textarea.Model {
+	editor := m.summaryEditor
+	if !m.summaryEditorReady {
+		editor = newSummaryEditor(m.summaryDraft)
+	}
+	editor.MaxHeight = max(rows, 1)
+	editor.MaxWidth = width
+	editor.SetWidth(width)
+	editor.SetHeight(rows)
+	if !m.summarySubmitting {
+		editor.Focus()
+	} else {
+		editor.Blur()
+	}
+	return editor
+}
+
+func (m *Model) ensureClaudeAssistEditor() {
+	if m.claudeAssistEditorReady {
+		return
+	}
+	m.claudeAssistEditor = newClaudeAssistEditor(m.claudeAssistDraft)
+	m.claudeAssistEditorReady = true
+}
+
+func (m *Model) configureClaudeAssistEditor(width int, rows int) {
+	m.ensureClaudeAssistEditor()
+	m.claudeAssistEditor.MaxHeight = max(rows, 1)
+	m.claudeAssistEditor.MaxWidth = width
+	m.claudeAssistEditor.SetWidth(width)
+	m.claudeAssistEditor.SetHeight(rows)
+	m.claudeAssistEditor.Focus()
+}
+
+func (m Model) configuredClaudeAssistEditor(width int, rows int) textarea.Model {
+	editor := m.claudeAssistEditor
+	if !m.claudeAssistEditorReady {
+		editor = newClaudeAssistEditor(m.claudeAssistDraft)
+	}
+	editor.MaxHeight = max(rows, 1)
+	editor.MaxWidth = width
+	editor.SetWidth(width)
+	editor.SetHeight(rows)
+	editor.Focus()
+	return editor
+}
+
+func (m *Model) ensureClaudeAssistRefineEditor() {
+	if m.claudeAssistRefineEditorReady {
+		return
+	}
+	m.claudeAssistRefineEditor = newClaudeAssistRefineEditor(m.claudeAssistRefineInstruction)
+	m.claudeAssistRefineEditorReady = true
+}
+
+func (m *Model) configureClaudeAssistRefineEditor(width int, rows int) {
+	m.ensureClaudeAssistRefineEditor()
+	m.claudeAssistRefineEditor.MaxHeight = max(rows, 1)
+	m.claudeAssistRefineEditor.MaxWidth = width
+	m.claudeAssistRefineEditor.SetWidth(width)
+	m.claudeAssistRefineEditor.SetHeight(rows)
+	m.claudeAssistRefineEditor.Focus()
+}
+
+func (m Model) configuredClaudeAssistRefineEditor(width int, rows int) textarea.Model {
+	editor := m.claudeAssistRefineEditor
+	if !m.claudeAssistRefineEditorReady {
+		editor = newClaudeAssistRefineEditor(m.claudeAssistRefineInstruction)
+	}
+	editor.MaxHeight = max(rows, 1)
+	editor.MaxWidth = width
+	editor.SetWidth(width)
+	editor.SetHeight(rows)
+	editor.Focus()
+	return editor
+}
+
+func (m *Model) ensureInlineAIInstructionEditor() {
+	if m.inlineAIInstructionReady {
+		return
+	}
+	m.inlineAIInstructionEditor = newClaudeAssistRefineEditor(m.inlineAIInstruction)
+	m.inlineAIInstructionReady = true
+}
+
+func (m *Model) configureInlineAIInstructionEditor(width int, rows int) {
+	m.ensureInlineAIInstructionEditor()
+	m.inlineAIInstructionEditor.MaxHeight = max(rows, 1)
+	m.inlineAIInstructionEditor.MaxWidth = width
+	m.inlineAIInstructionEditor.SetWidth(width)
+	m.inlineAIInstructionEditor.SetHeight(rows)
+	m.inlineAIInstructionEditor.Focus()
+}
+
+func (m Model) configuredInlineAIInstructionEditor(width int, rows int) textarea.Model {
+	editor := m.inlineAIInstructionEditor
+	if !m.inlineAIInstructionReady {
+		editor = newClaudeAssistRefineEditor(m.inlineAIInstruction)
+	}
+	editor.MaxHeight = max(rows, 1)
+	editor.MaxWidth = width
+	editor.SetWidth(width)
+	editor.SetHeight(rows)
+	editor.Focus()
+	return editor
+}
+
+func (m Model) claudeAssistDraftValue() string {
+	if !m.claudeAssistEditorReady {
+		return m.claudeAssistDraft
+	}
+	return m.claudeAssistEditor.Value()
+}
+
+func (m Model) claudeAssistRefineInstructionValue() string {
+	if !m.claudeAssistRefineEditorReady {
+		return m.claudeAssistRefineInstruction
+	}
+	return m.claudeAssistRefineEditor.Value()
+}
+
+func (m Model) inlineAIInstructionValue() string {
+	if !m.inlineAIInstructionReady {
+		return m.inlineAIInstruction
+	}
+	return m.inlineAIInstructionEditor.Value()
+}
+
+func (m Model) updateClaudeAssistEditor(msg tea.KeyMsg) (Model, tea.Cmd) {
+	if m.claudeAssistPostingComment {
+		if msg.String() == "esc" {
+			m.claudeAssistOpen = false
+		}
+		return m, nil
+	}
+	if m.claudeAssistApplying {
+		if msg.String() == "esc" {
+			m.claudeAssistOpen = false
+		}
+		return m, nil
+	}
+	if m.claudeAssistConfirmComment {
+		switch msg.String() {
+		case "esc":
+			m.claudeAssistConfirmComment = false
+			return m, nil
+		case "ctrl+s":
+			return m.submitClaudeAssistComment()
+		}
+		return m, nil
+	}
+	if m.claudeAssistRefining {
+		switch msg.String() {
+		case "esc":
+			m.claudeAssistRefineInstruction = m.claudeAssistRefineInstructionValue()
+			m.claudeAssistRefining = false
+			return m, nil
+		case "ctrl+s":
+			return m.submitClaudeAssistRefinement()
+		}
+		m.configureClaudeAssistRefineEditor(max(32, m.browserLayout(m.width).contentWidth-16), 4)
+		editor, cmd := m.claudeAssistRefineEditor.Update(msg)
+		m.claudeAssistRefineEditor = editor
+		m.claudeAssistRefineInstruction = m.claudeAssistRefineEditor.Value()
+		return m, cmd
+	}
+	if m.claudeAssistConfirmApply {
+		switch msg.String() {
+		case "esc":
+			m.claudeAssistConfirmApply = false
+			return m, nil
+		case "ctrl+s":
+			return m.submitClaudeAssistApply()
+		}
+		return m, nil
+	}
+	switch msg.String() {
+	case "esc":
+		m.claudeAssistDraft = m.claudeAssistDraftValue()
+		m.claudeAssistOpen = false
+		return m, nil
+	case "r":
+		m.claudeAssistDraft = m.claudeAssistDraftValue()
+		m.claudeAssistRefineInstruction = ""
+		m.claudeAssistRefineEditor = newClaudeAssistRefineEditor("")
+		m.claudeAssistRefineEditorReady = true
+		m.claudeAssistRefining = true
+		m.detailNotice = ""
+		return m, nil
+	case "c":
+		m.claudeAssistDraft = m.claudeAssistDraftValue()
+		if strings.TrimSpace(m.claudeAssistDraft) == "" {
+			m.detailNotice = "No Ticket Assist draft to post as a comment."
+			return m, nil
+		}
+		if selected, ok := m.selectedIssue(); ok {
+			m.claudeAssistKey = selected.Key
+		}
+		m.claudeAssistConfirmComment = true
+		m.detailNotice = ""
+		return m, nil
+	case "ctrl+s":
+		return m.beginClaudeAssistApply()
+	case "ctrl+y":
+		return m.copyClaudeAssistDraft()
+	}
+	m.configureClaudeAssistEditor(max(32, m.browserLayout(m.width).contentWidth-16), m.claudeAssistEditorRows())
+	editor, cmd := m.claudeAssistEditor.Update(msg)
+	m.claudeAssistEditor = editor
+	m.claudeAssistDraft = m.claudeAssistEditor.Value()
+	return m, cmd
+}
+
+func (m Model) updateInlineAIPicker(msg tea.KeyMsg) (Model, tea.Cmd) {
+	if m.inlineAIInstructionOpen {
+		switch msg.String() {
+		case "esc":
+			m.inlineAIInstruction = m.inlineAIInstructionValue()
+			m.inlineAIInstructionOpen = false
+			return m, nil
+		case "ctrl+s":
+			actions := inlineDescriptionAIActions()
+			action := actions[clamp(m.selectedInlineAIAction, 0, len(actions)-1)]
+			return m.submitInlineDescriptionAI(action, m.inlineAIInstructionValue())
+		}
+		m.configureInlineAIInstructionEditor(max(32, m.browserLayout(m.width).contentWidth-16), 4)
+		editor, cmd := m.inlineAIInstructionEditor.Update(msg)
+		m.inlineAIInstructionEditor = editor
+		m.inlineAIInstruction = m.inlineAIInstructionEditor.Value()
+		return m, cmd
+	}
+	actions := inlineDescriptionAIActions()
+	switch msg.String() {
+	case "esc":
+		m.inlineAIOpen = false
+		return m, nil
+	case "j", "down":
+		m.selectedInlineAIAction = clamp(m.selectedInlineAIAction+1, 0, len(actions)-1)
+		return m, nil
+	case "k", "up":
+		m.selectedInlineAIAction = clamp(m.selectedInlineAIAction-1, 0, len(actions)-1)
+		return m, nil
+	case "enter":
+		return m.runSelectedInlineAIAction()
+	default:
+		return m, nil
+	}
+}
+
+func (m Model) runSelectedInlineAIAction() (Model, tea.Cmd) {
+	actions := inlineDescriptionAIActions()
+	action := actions[clamp(m.selectedInlineAIAction, 0, len(actions)-1)]
+	if action.ID == "ask_question" {
+		m.inlineAIInstructionOpen = true
+		m.inlineAIInstruction = ""
+		m.inlineAIInstructionEditor = newClaudeAssistRefineEditor("")
+		m.inlineAIInstructionReady = true
+		return m, nil
+	}
+	return m.submitInlineDescriptionAI(action, "")
+}
+
+func (m Model) submitInlineDescriptionAI(action inlineAIAction, instruction string) (Model, tea.Cmd) {
+	ctx, ok := m.detailRenderContext()
+	if !ok {
+		m.detailNotice = "No selected ticket for inline AI."
+		return m, nil
+	}
+	if strings.TrimSpace(ctx.description) == "" && strings.TrimSpace(ctx.detail.Description) == "" {
+		m.detailNotice = "Description is not loaded yet."
+		return m, nil
+	}
+	key := ctx.display.Key
+	if key == "" {
+		key = ctx.selected.Key
+	}
+	m.nextRequestID++
+	reqID := m.nextRequestID
+	m.activeClaudeAssistReqID = reqID
+	m.claudeAssistKey = key
+	m.claudeAssistText = ""
+	m.claudeAssistErr = nil
+	m.claudeAssistLoading = true
+	m.claudeAssistOpen = true
+	m.claudeAssistStartedAt = m.claudeNow()
+	m.claudeAssistProgress = nil
+	m.claudeAssistDraft = ""
+	m.claudeAssistEditor = newClaudeAssistEditor("")
+	m.claudeAssistEditorReady = true
+	m.claudeAssistTarget = claudeAssistTargetDescription
+	m.inlineAIOpen = false
+	m.inlineAIInstructionOpen = false
+	m.claudeAssistEvents = make(chan claude.Event, 16)
+	runCtx, cancel := context.WithCancel(context.Background())
+	m.claudeAssistCancel = cancel
+	m.detailNotice = ""
+	m.recordDiagnosticEvent(diagnosticKindClaude, "inline_description_ai", "submit", workerDiagnosticDetail(reqID, key, nil))
+	return m, tea.Batch(
+		m.submitClaudeTicketAssist(runCtx, reqID, key, m.buildInlineDescriptionAIPrompt(ctx, action, instruction), m.claudeAssistEvents),
+		m.waitForClaudeAssistProgress(reqID, key),
+		m.scheduleClaudeAssistTick(reqID),
+	)
+}
+
+func (m Model) beginClaudeAssistApply() (Model, tea.Cmd) {
+	m.claudeAssistDraft = m.claudeAssistDraftValue()
+	if !m.claudeConfig.AllowJiraWrites {
+		m.detailNotice = "Jira writes are disabled for Claude Ticket Assist. Use ctrl+y to copy the draft."
+		return m, nil
+	}
+	selected, ok := m.selectedIssue()
+	if !ok {
+		m.detailNotice = "No selected ticket to update."
+		return m, nil
+	}
+	if m.claudeAssistTarget == claudeAssistTargetDescription {
+		description := strings.TrimSpace(m.claudeAssistDraft)
+		if description == "" {
+			m.detailNotice = "Claude description draft has no text to apply."
+			return m, nil
+		}
+		m.claudeAssistKey = selected.Key
+		m.claudeAssistApplySummary = ""
+		m.claudeAssistApplyDescription = description
+		m.claudeAssistConfirmApply = m.claudeConfig.RequireConfirmation
+		if m.claudeAssistConfirmApply {
+			return m, nil
+		}
+		return m.submitClaudeAssistApply()
+	}
+	draft := parseClaudeAssistApplyDraft(m.claudeAssistDraft, selected.Summary)
+	if strings.TrimSpace(draft.Description) == "" {
+		m.detailNotice = "Claude ticket draft has no description to apply."
+		return m, nil
+	}
+	m.claudeAssistKey = selected.Key
+	m.claudeAssistApplySummary = draft.Summary
+	m.claudeAssistApplyDescription = draft.Description
+	m.claudeAssistConfirmApply = m.claudeConfig.RequireConfirmation
+	if m.claudeAssistConfirmApply {
+		return m, nil
+	}
+	return m.submitClaudeAssistApply()
+}
+
+func (m Model) submitClaudeAssistApply() (Model, tea.Cmd) {
+	if !m.claudeConfig.AllowJiraWrites {
+		m.detailNotice = "Jira writes are disabled for Claude Ticket Assist. Use ctrl+y to copy the draft."
+		return m, nil
+	}
+	key := strings.TrimSpace(m.claudeAssistKey)
+	if key == "" {
+		if selected, ok := m.selectedIssue(); ok {
+			key = selected.Key
+		}
+	}
+	if key == "" {
+		m.detailNotice = "No selected ticket to update."
+		return m, nil
+	}
+	summary := strings.TrimSpace(m.claudeAssistApplySummary)
+	description := strings.TrimSpace(m.claudeAssistApplyDescription)
+	if m.claudeAssistTarget == claudeAssistTargetDescription {
+		if description == "" {
+			m.detailNotice = "Claude description draft needs text before applying."
+			return m, nil
+		}
+		m.nextRequestID++
+		m.activeClaudeAssistDescriptionReqID = m.nextRequestID
+		m.activeClaudeAssistSummaryReqID = 0
+		m.claudeAssistApplying = true
+		m.claudeAssistConfirmApply = false
+		m.claudeAssistSummaryApplied = true
+		m.claudeAssistDescriptionApplied = false
+		m.detailNotice = ""
+		return m, m.submitUpdateDescription(m.activeClaudeAssistDescriptionReqID, key, description)
+	}
+	if summary == "" || description == "" {
+		m.detailNotice = "Claude ticket draft needs both summary and description before applying."
+		return m, nil
+	}
+	m.nextRequestID++
+	m.activeClaudeAssistSummaryReqID = m.nextRequestID
+	m.nextRequestID++
+	m.activeClaudeAssistDescriptionReqID = m.nextRequestID
+	m.claudeAssistApplying = true
+	m.claudeAssistConfirmApply = false
+	m.claudeAssistSummaryApplied = false
+	m.claudeAssistDescriptionApplied = false
+	m.detailNotice = ""
+	return m, tea.Batch(
+		m.submitUpdateSummary(m.activeClaudeAssistSummaryReqID, key, summary),
+		m.submitUpdateDescription(m.activeClaudeAssistDescriptionReqID, key, description),
+	)
+}
+
+func (m Model) submitClaudeAssistRefinement() (Model, tea.Cmd) {
+	ctx, ok := m.detailRenderContext()
+	if !ok {
+		m.detailNotice = "No selected ticket to refine."
+		return m, nil
+	}
+	instruction := strings.TrimSpace(m.claudeAssistRefineInstructionValue())
+	if instruction == "" {
+		m.detailNotice = "Write a refinement instruction before sending."
+		return m, nil
+	}
+	currentDraft := strings.TrimSpace(m.claudeAssistDraftValue())
+	if currentDraft == "" {
+		m.detailNotice = "No Claude ticket draft to refine."
+		return m, nil
+	}
+	key := ctx.display.Key
+	if key == "" {
+		key = ctx.selected.Key
+	}
+	m.nextRequestID++
+	reqID := m.nextRequestID
+	m.activeClaudeAssistReqID = reqID
+	m.claudeAssistKey = key
+	m.claudeAssistErr = nil
+	m.claudeAssistLoading = true
+	m.claudeAssistRefining = false
+	m.claudeAssistOpen = true
+	m.claudeAssistStartedAt = m.claudeNow()
+	m.claudeAssistProgress = nil
+	m.claudeAssistDraft = currentDraft
+	m.claudeAssistEvents = make(chan claude.Event, 16)
+	runCtx, cancel := context.WithCancel(context.Background())
+	m.claudeAssistCancel = cancel
+	m.detailNotice = ""
+	m.recordDiagnosticEvent(diagnosticKindClaude, "ticket_assist_refine", "submit", workerDiagnosticDetail(reqID, key, nil))
+	return m, tea.Batch(
+		m.submitClaudeTicketAssist(runCtx, reqID, key, m.buildClaudeTicketAssistRefinementPrompt(ctx, currentDraft, instruction), m.claudeAssistEvents),
+		m.waitForClaudeAssistProgress(reqID, key),
+		m.scheduleClaudeAssistTick(reqID),
+	)
+}
+
+func (m Model) submitClaudeAssistComment() (Model, tea.Cmd) {
+	key := strings.TrimSpace(m.claudeAssistKey)
+	if key == "" {
+		if selected, ok := m.selectedIssue(); ok {
+			key = selected.Key
+		}
+	}
+	body := strings.TrimSpace(m.claudeAssistDraftValue())
+	if key == "" {
+		m.detailNotice = "No selected ticket for comment."
+		return m, nil
+	}
+	if body == "" {
+		m.detailNotice = "No Ticket Assist draft to post as a comment."
+		return m, nil
+	}
+	m.nextRequestID++
+	m.activeClaudeAssistCommentReqID = m.nextRequestID
+	m.claudeAssistConfirmComment = false
+	m.claudeAssistPostingComment = true
+	m.detailNotice = ""
+	return m, m.submitAddComment(m.activeClaudeAssistCommentReqID, key, body, nil)
+}
+
+type claudeAssistApplyDraft struct {
+	Summary     string
+	Description string
+}
+
+func parseClaudeAssistApplyDraft(draft string, fallbackSummary string) claudeAssistApplyDraft {
+	var descriptionLines []string
+	summary := strings.TrimSpace(fallbackSummary)
+	for _, line := range strings.Split(draft, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(strings.ToLower(trimmed), "summary:") {
+			if value := strings.TrimSpace(strings.TrimPrefix(trimmed, trimmed[:len("summary:")])); value != "" {
+				summary = value
+			}
+			continue
+		}
+		descriptionLines = append(descriptionLines, line)
+	}
+	return claudeAssistApplyDraft{
+		Summary:     summary,
+		Description: strings.TrimSpace(strings.Join(descriptionLines, "\n")),
+	}
+}
+
+func (m Model) copyClaudeAssistDraft() (Model, tea.Cmd) {
+	draft := strings.TrimSpace(m.claudeAssistDraftValue())
+	if draft == "" {
+		m.detailNotice = "No Claude ticket draft to copy."
+		return m, nil
+	}
+	return m, func() tea.Msg {
+		return linkActionMsg{
+			action: "copy-draft",
+			target: "Claude ticket draft",
+			err:    copyToClipboard(draft),
+		}
+	}
+}
+
+func (m Model) summaryEditorValue() string {
+	if !m.summaryEditorReady {
+		return m.summaryDraft
+	}
+	return m.summaryEditor.Value()
+}
+
 func (m *Model) ensureCommentEditor() {
 	if m.commentEditorReady {
 		return
@@ -3860,8 +8201,11 @@ func (m Model) currentDetailLinks() []detailLink {
 
 func (m *Model) jumpDetailSection(title string) {
 	m.saveDetailSectionOffset()
-	for index, section := range m.detailSections() {
-		if strings.EqualFold(section.Label, title) || strings.EqualFold(section.ID, title) {
+	for index, target := range m.detailTargets() {
+		if target.Kind != detailTargetSection {
+			continue
+		}
+		if strings.EqualFold(target.Label, title) || strings.EqualFold(target.ID, title) {
 			m.detailFocus = index
 			m.restoreDetailSectionOffset()
 			return
@@ -3914,6 +8258,8 @@ func linkActionNotice(msg linkActionMsg) string {
 	}
 	switch msg.action {
 	case "copy":
+		return "Copied " + msg.target
+	case "copy-draft":
 		return "Copied " + msg.target
 	case "open":
 		return "Opened " + msg.target
@@ -4006,7 +8352,7 @@ func (m Model) submitIssueSearch(requestID int) tea.Cmd {
 				},
 			}
 		}
-		return workSubmittedMsg{}
+		return workSubmittedMsg{kind: worker.KindSearchIssues, id: requestID}
 	}
 }
 
@@ -4034,7 +8380,7 @@ func (m Model) submitExpandIssues(requestID int, parentKey string, mode worker.E
 				},
 			}
 		}
-		return workSubmittedMsg{}
+		return workSubmittedMsg{kind: worker.KindExpandIssues, id: requestID, key: parentKey}
 	}
 }
 
@@ -4050,11 +8396,17 @@ func (m Model) startDetailRequestForSelected() (Model, tea.Cmd) {
 		return m, nil
 	}
 	var cmds []tea.Cmd
-	if _, ok := m.details[selected.Key]; ok {
+	if _, ok := m.details[selected.Key]; ok && m.isIssueDetailFresh(selected.Key) {
+		m.recordDiagnosticEvent(diagnosticKindCache, "issue_detail", "hit", selected.Key)
 		m.detailLoading = false
 		m.detailErr = nil
 		m.detailRequestKey = ""
 	} else if !(m.detailLoading && m.detailRequestKey == selected.Key) {
+		status := "miss"
+		if _, ok := m.details[selected.Key]; ok {
+			status = "stale"
+		}
+		m.recordDiagnosticEvent(diagnosticKindCache, "issue_detail", status, selected.Key)
 		m.nextRequestID++
 		m.activeDetailRequestID = m.nextRequestID
 		m.detailRequestKey = selected.Key
@@ -4101,7 +8453,7 @@ func (m Model) submitIssueDetail(requestID int, key string) tea.Cmd {
 				},
 			}
 		}
-		return workSubmittedMsg{}
+		return workSubmittedMsg{kind: worker.KindGetIssue, id: requestID, key: key}
 	}
 }
 
@@ -4128,7 +8480,272 @@ func (m Model) submitIssueComments(requestID int, key string) tea.Cmd {
 				},
 			}
 		}
-		return workSubmittedMsg{}
+		return workSubmittedMsg{kind: worker.KindGetComments, id: requestID, key: key}
+	}
+}
+
+func (m Model) submitIssueTransitions(requestID int, key string) tea.Cmd {
+	return func() tea.Msg {
+		if key == "" {
+			return noDetailRequestMsg{}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:      requestID,
+			Kind:    worker.KindGetTransitions,
+			Timeout: m.requestTimeout,
+			GetTransitions: &worker.GetTransitionsRequest{
+				Key: key,
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindGetTransitions,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindGetTransitions, id: requestID, key: key}
+	}
+}
+
+func (m Model) submitIssueTransition(requestID int, key string, transition jira.Transition) tea.Cmd {
+	return func() tea.Msg {
+		if key == "" || transition.ID == "" {
+			return noDetailRequestMsg{}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:      requestID,
+			Kind:    worker.KindTransitionIssue,
+			Timeout: m.requestTimeout,
+			TransitionIssue: &worker.TransitionIssueRequest{
+				Key:          key,
+				TransitionID: transition.ID,
+				ToStatus:     transition.ToStatus,
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindTransitionIssue,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindTransitionIssue, id: requestID, key: key}
+	}
+}
+
+func (m Model) submitEditMetadata(requestID int, key string) tea.Cmd {
+	return func() tea.Msg {
+		if key == "" {
+			return noDetailRequestMsg{}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:      requestID,
+			Kind:    worker.KindGetEditMetadata,
+			Timeout: m.requestTimeout,
+			GetEditMetadata: &worker.GetEditMetadataRequest{
+				Key: key,
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindGetEditMetadata,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindGetEditMetadata, id: requestID, key: key}
+	}
+}
+
+func (m Model) submitCreateIssueTypes(requestID int, projectKey string) tea.Cmd {
+	return func() tea.Msg {
+		if strings.TrimSpace(projectKey) == "" {
+			return noDetailRequestMsg{}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:      requestID,
+			Kind:    worker.KindGetCreateIssueTypes,
+			Timeout: m.requestTimeout,
+			GetCreateIssueTypes: &worker.GetCreateIssueTypesRequest{
+				ProjectKey: projectKey,
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindGetCreateIssueTypes,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindGetCreateIssueTypes, id: requestID, key: projectKey}
+	}
+}
+
+func (m Model) submitCreateFields(requestID int, projectKey string, issueTypeID string) tea.Cmd {
+	return func() tea.Msg {
+		if strings.TrimSpace(projectKey) == "" || strings.TrimSpace(issueTypeID) == "" {
+			return noDetailRequestMsg{}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:      requestID,
+			Kind:    worker.KindGetCreateFields,
+			Timeout: m.requestTimeout,
+			GetCreateFields: &worker.GetCreateFieldsRequest{
+				ProjectKey:  projectKey,
+				IssueTypeID: issueTypeID,
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindGetCreateFields,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindGetCreateFields, id: requestID, key: strings.TrimSpace(projectKey + " " + issueTypeID)}
+	}
+}
+
+func (m Model) submitCreateIssue(requestID int, request worker.CreateIssueRequest) tea.Cmd {
+	return func() tea.Msg {
+		if strings.TrimSpace(request.ProjectKey) == "" || strings.TrimSpace(request.IssueTypeID) == "" || strings.TrimSpace(request.Summary) == "" {
+			return noDetailRequestMsg{}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:          requestID,
+			Kind:        worker.KindCreateIssue,
+			Timeout:     m.requestTimeout,
+			CreateIssue: &request,
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindCreateIssue,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindCreateIssue, id: requestID, key: request.ProjectKey}
+	}
+}
+
+func (m Model) submitUpdateSummary(requestID int, key string, summary string) tea.Cmd {
+	return func() tea.Msg {
+		if key == "" || strings.TrimSpace(summary) == "" {
+			return noDetailRequestMsg{}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:      requestID,
+			Kind:    worker.KindUpdateSummary,
+			Timeout: m.requestTimeout,
+			UpdateSummary: &worker.UpdateSummaryRequest{
+				Key:     key,
+				Summary: summary,
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindUpdateSummary,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindUpdateSummary, id: requestID, key: key}
+	}
+}
+
+func (m Model) submitUpdateDescription(requestID int, key string, description string) tea.Cmd {
+	return func() tea.Msg {
+		if key == "" || strings.TrimSpace(description) == "" {
+			return noDetailRequestMsg{}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:      requestID,
+			Kind:    worker.KindUpdateDescription,
+			Timeout: m.requestTimeout,
+			UpdateDescription: &worker.UpdateDescriptionRequest{
+				Key:         key,
+				Description: description,
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindUpdateDescription,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindUpdateDescription, id: requestID, key: key}
+	}
+}
+
+func (m Model) submitUpdatePriority(requestID int, key string, priority jira.FieldOption) tea.Cmd {
+	return func() tea.Msg {
+		if key == "" || (strings.TrimSpace(priority.ID) == "" && strings.TrimSpace(priority.Name) == "") {
+			return noDetailRequestMsg{}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:      requestID,
+			Kind:    worker.KindUpdatePriority,
+			Timeout: m.requestTimeout,
+			UpdatePriority: &worker.UpdatePriorityRequest{
+				Key:      key,
+				Priority: priority,
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindUpdatePriority,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindUpdatePriority, id: requestID, key: key}
+	}
+}
+
+func (m Model) submitUpdateAssignee(requestID int, key string, assignee jira.User) tea.Cmd {
+	return func() tea.Msg {
+		if key == "" || strings.TrimSpace(assignee.AccountID) == "" {
+			return noDetailRequestMsg{}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:      requestID,
+			Kind:    worker.KindUpdateAssignee,
+			Timeout: m.requestTimeout,
+			UpdateAssignee: &worker.UpdateAssigneeRequest{
+				Key:      key,
+				Assignee: assignee,
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindUpdateAssignee,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindUpdateAssignee, id: requestID, key: key}
 	}
 }
 
@@ -4156,7 +8773,7 @@ func (m Model) submitAddComment(requestID int, key string, body string, mentions
 				},
 			}
 		}
-		return workSubmittedMsg{}
+		return workSubmittedMsg{kind: worker.KindAddComment, id: requestID, key: key}
 	}
 }
 
@@ -4183,7 +8800,7 @@ func (m Model) submitUserSearch(requestID int, query string) tea.Cmd {
 				},
 			}
 		}
-		return workSubmittedMsg{}
+		return workSubmittedMsg{kind: worker.KindSearchUsers, id: requestID, key: query}
 	}
 }
 
@@ -4237,6 +8854,84 @@ func (m *Model) replaceIssues(issues []jira.Issue) {
 	}
 	m.selected = clamp(m.selected, 0, len(m.issues)-1)
 	m.ensureSelectionVisible(m.currentLayoutRows())
+}
+
+func (m *Model) updateIssueStatus(key string, status string) {
+	if key == "" || status == "" {
+		return
+	}
+	for index := range m.issues {
+		if m.issues[index].Key == key {
+			m.issues[index].Status = status
+			break
+		}
+	}
+	if detail, ok := m.details[key]; ok {
+		detail.Status = status
+		detail.Issue.Status = status
+		m.details[key] = detail
+	}
+}
+
+func (m *Model) updateIssuePriority(key string, priority string) {
+	if key == "" || priority == "" {
+		return
+	}
+	for index := range m.issues {
+		if m.issues[index].Key == key {
+			m.issues[index].Priority = priority
+			break
+		}
+	}
+	if detail, ok := m.details[key]; ok {
+		detail.Priority = priority
+		detail.Issue.Priority = priority
+		m.details[key] = detail
+	}
+}
+
+func (m *Model) updateIssueAssignee(key string, assignee string) {
+	if key == "" || assignee == "" {
+		return
+	}
+	for index := range m.issues {
+		if m.issues[index].Key == key {
+			m.issues[index].Assignee = assignee
+			break
+		}
+	}
+	if detail, ok := m.details[key]; ok {
+		detail.Assignee = assignee
+		detail.Issue.Assignee = assignee
+		m.details[key] = detail
+	}
+}
+
+func (m *Model) updateIssueSummary(key string, summary string) {
+	if key == "" || summary == "" {
+		return
+	}
+	for index := range m.issues {
+		if m.issues[index].Key == key {
+			m.issues[index].Summary = summary
+			break
+		}
+	}
+	if detail, ok := m.details[key]; ok {
+		detail.Summary = summary
+		detail.Issue.Summary = summary
+		m.details[key] = detail
+	}
+}
+
+func (m *Model) updateIssueDescription(key string, description string) {
+	if key == "" {
+		return
+	}
+	if detail, ok := m.details[key]; ok {
+		detail.Description = description
+		m.details[key] = detail
+	}
 }
 
 func (m Model) tableRows() int {
@@ -4416,6 +9111,102 @@ func reverseRunes(value string) []rune {
 		runes[left], runes[right] = runes[right], runes[left]
 	}
 	return runes
+}
+
+func projectKeyFromJQL(jql string) string {
+	fields := strings.Fields(strings.ReplaceAll(jql, "\"", " "))
+	for index := 0; index+2 < len(fields); index++ {
+		if strings.EqualFold(fields[index], "project") && fields[index+1] == "=" {
+			return strings.Trim(fields[index+2], "'\"()")
+		}
+	}
+	return ""
+}
+
+func unsupportedRequiredCreateFields(fields []jira.CreateField) []string {
+	var names []string
+	for _, field := range fields {
+		if !field.Required {
+			continue
+		}
+		if isBuiltInCreateTextField(field) || supportedCreateField(field) {
+			continue
+		}
+		names = append(names, displayValue(field.Name, displayValue(field.Key, field.ID)))
+	}
+	return names
+}
+
+func supportedCreateFields(fields []jira.CreateField) []jira.CreateField {
+	var supported []jira.CreateField
+	for _, field := range fields {
+		if isBuiltInCreateTextField(field) || !supportedCreateField(field) {
+			continue
+		}
+		supported = append(supported, field)
+	}
+	return supported
+}
+
+func supportedCreateField(field jira.CreateField) bool {
+	id := strings.ToLower(strings.TrimSpace(displayValue(field.ID, field.Key)))
+	system := strings.ToLower(strings.TrimSpace(field.SchemaSystem))
+	schemaType := strings.ToLower(strings.TrimSpace(field.SchemaType))
+	if id == "priority" || system == "priority" || id == "labels" || system == "labels" || id == "components" || system == "components" {
+		return true
+	}
+	if len(field.AllowedValues) > 0 && (schemaType == "option" || schemaType == "priority" || schemaType == "") {
+		return true
+	}
+	switch schemaType {
+	case "string", "textarea", "text", "number":
+		return true
+	default:
+		return false
+	}
+}
+
+func isBuiltInCreateTextField(field jira.CreateField) bool {
+	id := strings.ToLower(strings.TrimSpace(displayValue(field.ID, field.Key)))
+	system := strings.ToLower(strings.TrimSpace(field.SchemaSystem))
+	return id == "summary" || system == "summary" || id == "description" || system == "description"
+}
+
+func createFieldUsesPicker(field jira.CreateField) bool {
+	id := strings.ToLower(strings.TrimSpace(displayValue(field.ID, field.Key)))
+	system := strings.ToLower(strings.TrimSpace(field.SchemaSystem))
+	return len(field.AllowedValues) > 0 || id == "priority" || system == "priority"
+}
+
+func createFieldValueKey(field jira.CreateField) string {
+	return displayValue(field.ID, displayValue(field.Key, field.Name))
+}
+
+func boundedSelectionWindow(total int, selected int, limit int) (int, int) {
+	if total <= 0 {
+		return 0, 0
+	}
+	if limit <= 0 || total <= limit {
+		return 0, total
+	}
+	selected = clamp(selected, 0, total-1)
+	start := selected - limit/2
+	start = clamp(start, 0, total-limit)
+	return start, start + limit
+}
+
+func prependIssue(issues []jira.Issue, issue jira.Issue) []jira.Issue {
+	if strings.TrimSpace(issue.Key) == "" {
+		return issues
+	}
+	result := []jira.Issue{issue}
+	for _, existing := range issues {
+		if existing.Key == issue.Key {
+			continue
+		}
+		result = append(result, existing)
+	}
+	return result
 }
 
 func clamp(value, low, high int) int {

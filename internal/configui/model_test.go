@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jon/jira-tui/internal/config"
 )
@@ -69,4 +70,118 @@ func TestHeaderUsesAvailableWidth(t *testing.T) {
 	if lipgloss.Width(header) != 70 {
 		t.Fatalf("header width = %d, want 70: %q", lipgloss.Width(header), header)
 	}
+}
+
+func TestRenderShowsClaudeSection(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Claude.Enabled = true
+	cfg.Claude.Command = "/opt/homebrew/bin/claude"
+	cfg.Claude.Features.TicketPlan = true
+	cfg.Claude.Features.TicketAssist = true
+	cfg.Claude.Gates.AllowGitWrites = true
+	model := NewModel("/tmp/jira.toml", cfg, nil)
+	model.width = 120
+	model.height = 30
+	model.section = sectionClaude
+
+	view := model.render()
+
+	for _, want := range []string{"Claude", "Enabled", "/opt/homebrew/bin/claude", "Ticket Plan", "Ticket Assist", "Allow Git Writes"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in %q", want, view)
+		}
+	}
+}
+
+func TestConfigFromFieldsIncludesClaudeSettings(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.BaseURL = "https://example.atlassian.net"
+	cfg.Email = "person@example.com"
+	cfg.APIToken = "secret"
+	cfg.DefaultProject = "ABC"
+	cfg.DefaultJQL = config.DefaultJQLForProject("ABC")
+	cfg.Views = config.DefaultViews("ABC")
+	cfg.ActiveView = cfg.Views[0].Name
+	model := NewModel("/tmp/jira.toml", cfg, nil)
+	setFieldForTest(&model, "Enabled", "true")
+	setFieldForTest(&model, "Command", "/usr/local/bin/claude")
+	setFieldForTest(&model, "Timeout", "45s")
+	setFieldForTest(&model, "Ticket Plan", "true")
+	setFieldForTest(&model, "Ticket Assist", "true")
+	setFieldForTest(&model, "Clarifying Questions", "true")
+	setFieldForTest(&model, "Allow Git Writes", "true")
+
+	cfg, err := model.Config()
+	if err != nil {
+		t.Fatalf("Config() error = %v", err)
+	}
+
+	if !cfg.Claude.Enabled || cfg.Claude.Command != "/usr/local/bin/claude" {
+		t.Fatalf("Claude = %#v", cfg.Claude)
+	}
+	if !cfg.Claude.Features.TicketPlan || !cfg.Claude.Features.TicketAssist || !cfg.Claude.Features.ClarifyingQuestions {
+		t.Fatalf("Claude.Features = %#v", cfg.Claude.Features)
+	}
+	if !cfg.Claude.Gates.RequireConfirmation || !cfg.Claude.Gates.AllowGitWrites {
+		t.Fatalf("Claude.Gates = %#v", cfg.Claude.Gates)
+	}
+}
+
+func TestBooleanFieldsToggleWithoutTextEditing(t *testing.T) {
+	model := NewModel("/tmp/jira.toml", config.Defaults(), nil)
+	model.section = sectionClaude
+	model.selected = fieldIndexForTest(model, sectionClaude, "Enabled")
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+
+	if next.editing {
+		t.Fatal("boolean field should toggle without entering text edit mode")
+	}
+	if value := fieldValueForTest(next, "Enabled"); value != "true" {
+		t.Fatalf("Enabled = %q", value)
+	}
+
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "left", Code: tea.KeyLeft}))
+	next = updated.(Model)
+	if value := fieldValueForTest(next, "Enabled"); value != "false" {
+		t.Fatalf("Enabled after left = %q", value)
+	}
+
+	view := next.render()
+	if !strings.Contains(view, "false") || !strings.Contains(view, "true") {
+		t.Fatalf("boolean field should render true/false options in %q", view)
+	}
+}
+
+func setFieldForTest(model *Model, label string, value string) {
+	for index, field := range model.fields {
+		if field.label == label {
+			model.fields[index].value = value
+			return
+		}
+	}
+}
+
+func fieldValueForTest(model Model, label string) string {
+	for _, field := range model.fields {
+		if field.label == label {
+			return field.value
+		}
+	}
+	return ""
+}
+
+func fieldIndexForTest(model Model, section int, label string) int {
+	index := 0
+	for _, field := range model.fields {
+		if field.section != section {
+			continue
+		}
+		if field.label == label {
+			return index
+		}
+		index++
+	}
+	return 0
 }

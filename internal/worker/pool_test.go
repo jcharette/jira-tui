@@ -358,6 +358,481 @@ func TestPoolAddCommentSuccess(t *testing.T) {
 	}
 }
 
+func TestPoolGetTransitionsSuccess(t *testing.T) {
+	pool := NewPool(&fakeIssueSearcher{
+		transitions: []jira.Transition{{ID: "21", Name: "Start Progress", ToStatus: "In Progress"}},
+	}, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:             14,
+		Kind:           KindGetTransitions,
+		GetTransitions: &GetTransitionsRequest{Key: "ABC-1"},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.ID != 14 {
+		t.Fatalf("ID = %d", result.ID)
+	}
+	if result.Kind != KindGetTransitions {
+		t.Fatalf("Kind = %s", result.Kind)
+	}
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if result.GetTransitions.Key != "ABC-1" {
+		t.Fatalf("Key = %q", result.GetTransitions.Key)
+	}
+	if len(result.GetTransitions.Transitions) != 1 || result.GetTransitions.Transitions[0].ID != "21" {
+		t.Fatalf("Transitions = %#v", result.GetTransitions.Transitions)
+	}
+}
+
+func TestPoolTransitionIssueSuccess(t *testing.T) {
+	searcher := &fakeIssueSearcher{}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:   15,
+		Kind: KindTransitionIssue,
+		TransitionIssue: &TransitionIssueRequest{
+			Key:          "ABC-1",
+			TransitionID: "21",
+			ToStatus:     "In Progress",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.ID != 15 {
+		t.Fatalf("ID = %d", result.ID)
+	}
+	if result.Kind != KindTransitionIssue {
+		t.Fatalf("Kind = %s", result.Kind)
+	}
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if searcher.transitionKey != "ABC-1" || searcher.transitionID != "21" {
+		t.Fatalf("transition = %s/%s", searcher.transitionKey, searcher.transitionID)
+	}
+	if result.TransitionIssue.Key != "ABC-1" || result.TransitionIssue.ToStatus != "In Progress" {
+		t.Fatalf("TransitionIssue = %#v", result.TransitionIssue)
+	}
+}
+
+func TestPoolTransitionIssueError(t *testing.T) {
+	transitionErr := errors.New("jira rejected transition")
+	pool := NewPool(&fakeIssueSearcher{transitionErr: transitionErr}, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:   16,
+		Kind: KindTransitionIssue,
+		TransitionIssue: &TransitionIssueRequest{
+			Key:          "ABC-1",
+			TransitionID: "21",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if !errors.Is(result.Err, transitionErr) {
+		t.Fatalf("Err = %v", result.Err)
+	}
+}
+
+func TestPoolGetEditMetadataSuccess(t *testing.T) {
+	pool := NewPool(&fakeIssueSearcher{
+		editMetadata: jira.EditMetadata{
+			Summary: jira.EditField{ID: "summary", Name: "Summary", Editable: true, Required: true},
+		},
+	}, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:              19,
+		Kind:            KindGetEditMetadata,
+		GetEditMetadata: &GetEditMetadataRequest{Key: "ABC-1"},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.ID != 19 {
+		t.Fatalf("ID = %d", result.ID)
+	}
+	if result.Kind != KindGetEditMetadata {
+		t.Fatalf("Kind = %s", result.Kind)
+	}
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if result.GetEditMetadata.Key != "ABC-1" {
+		t.Fatalf("Key = %q", result.GetEditMetadata.Key)
+	}
+	if !result.GetEditMetadata.Metadata.Summary.Editable {
+		t.Fatalf("Metadata = %#v", result.GetEditMetadata.Metadata)
+	}
+}
+
+func TestPoolGetCreateIssueTypesSuccess(t *testing.T) {
+	pool := NewPool(&fakeIssueSearcher{
+		createIssueTypes: []jira.CreateIssueType{
+			{ID: "10001", Name: "Task"},
+			{ID: "10002", Name: "Bug"},
+		},
+	}, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:   31,
+		Kind: KindGetCreateIssueTypes,
+		GetCreateIssueTypes: &GetCreateIssueTypesRequest{
+			ProjectKey: "ABC",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.ID != 31 {
+		t.Fatalf("ID = %d", result.ID)
+	}
+	if result.Kind != KindGetCreateIssueTypes {
+		t.Fatalf("Kind = %s", result.Kind)
+	}
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if result.GetCreateIssueTypes.ProjectKey != "ABC" {
+		t.Fatalf("ProjectKey = %q", result.GetCreateIssueTypes.ProjectKey)
+	}
+	if len(result.GetCreateIssueTypes.IssueTypes) != 2 || result.GetCreateIssueTypes.IssueTypes[0].Name != "Task" {
+		t.Fatalf("IssueTypes = %#v", result.GetCreateIssueTypes.IssueTypes)
+	}
+}
+
+func TestPoolGetCreateFieldsSuccess(t *testing.T) {
+	pool := NewPool(&fakeIssueSearcher{
+		createFields: []jira.CreateField{
+			{ID: "summary", Name: "Summary", Required: true},
+			{ID: "priority", Name: "Priority", AllowedValues: []jira.FieldOption{{ID: "3", Name: "Medium"}}},
+		},
+	}, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:   32,
+		Kind: KindGetCreateFields,
+		GetCreateFields: &GetCreateFieldsRequest{
+			ProjectKey:  "ABC",
+			IssueTypeID: "10001",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.ID != 32 {
+		t.Fatalf("ID = %d", result.ID)
+	}
+	if result.Kind != KindGetCreateFields {
+		t.Fatalf("Kind = %s", result.Kind)
+	}
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if result.GetCreateFields.ProjectKey != "ABC" || result.GetCreateFields.IssueTypeID != "10001" {
+		t.Fatalf("GetCreateFields = %#v", result.GetCreateFields)
+	}
+	if len(result.GetCreateFields.Fields) != 2 || !result.GetCreateFields.Fields[0].Required {
+		t.Fatalf("Fields = %#v", result.GetCreateFields.Fields)
+	}
+}
+
+func TestPoolCreateIssueSuccess(t *testing.T) {
+	searcher := &fakeIssueSearcher{
+		createdIssue: jira.Issue{Key: "ABC-123", Summary: "New platform task"},
+	}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:   34,
+		Kind: KindCreateIssue,
+		CreateIssue: &CreateIssueRequest{
+			ProjectKey:  "ABC",
+			IssueTypeID: "10001",
+			Summary:     "New platform task",
+			Description: "Description body",
+			Fields: []jira.CreateIssueFieldValue{
+				{FieldID: "priority", SchemaSystem: "priority", Option: jira.FieldOption{ID: "3", Name: "Medium"}},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.ID != 34 {
+		t.Fatalf("ID = %d", result.ID)
+	}
+	if result.Kind != KindCreateIssue {
+		t.Fatalf("Kind = %s", result.Kind)
+	}
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if searcher.createIssueRequest.ProjectKey != "ABC" || searcher.createIssueRequest.IssueTypeID != "10001" {
+		t.Fatalf("create request = %#v", searcher.createIssueRequest)
+	}
+	if len(searcher.createIssueRequest.Fields) != 1 || searcher.createIssueRequest.Fields[0].FieldID != "priority" {
+		t.Fatalf("create fields = %#v", searcher.createIssueRequest.Fields)
+	}
+	if result.CreateIssue.Issue.Key != "ABC-123" {
+		t.Fatalf("CreateIssue = %#v", result.CreateIssue)
+	}
+}
+
+func TestPoolUpdateSummarySuccess(t *testing.T) {
+	searcher := &fakeIssueSearcher{}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:   20,
+		Kind: KindUpdateSummary,
+		UpdateSummary: &UpdateSummaryRequest{
+			Key:     "ABC-1",
+			Summary: "Updated summary",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.ID != 20 {
+		t.Fatalf("ID = %d", result.ID)
+	}
+	if result.Kind != KindUpdateSummary {
+		t.Fatalf("Kind = %s", result.Kind)
+	}
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if searcher.updateSummaryKey != "ABC-1" || searcher.updateSummaryValue != "Updated summary" {
+		t.Fatalf("update summary = %s/%s", searcher.updateSummaryKey, searcher.updateSummaryValue)
+	}
+	if result.UpdateSummary.Key != "ABC-1" || result.UpdateSummary.Summary != "Updated summary" {
+		t.Fatalf("UpdateSummary = %#v", result.UpdateSummary)
+	}
+}
+
+func TestPoolUpdateSummaryError(t *testing.T) {
+	updateErr := errors.New("jira rejected summary")
+	pool := NewPool(&fakeIssueSearcher{updateSummaryErr: updateErr}, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:            21,
+		Kind:          KindUpdateSummary,
+		UpdateSummary: &UpdateSummaryRequest{Key: "ABC-1", Summary: "Updated summary"},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if !errors.Is(result.Err, updateErr) {
+		t.Fatalf("Err = %v", result.Err)
+	}
+}
+
+func TestPoolUpdateDescriptionSuccess(t *testing.T) {
+	searcher := &fakeIssueSearcher{}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:   22,
+		Kind: KindUpdateDescription,
+		UpdateDescription: &UpdateDescriptionRequest{
+			Key:         "ABC-1",
+			Description: "Updated description",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.ID != 22 {
+		t.Fatalf("ID = %d", result.ID)
+	}
+	if result.Kind != KindUpdateDescription {
+		t.Fatalf("Kind = %s", result.Kind)
+	}
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if searcher.updateDescriptionKey != "ABC-1" || searcher.updateDescriptionValue != "Updated description" {
+		t.Fatalf("update description = %s/%s", searcher.updateDescriptionKey, searcher.updateDescriptionValue)
+	}
+	if result.UpdateDescription.Key != "ABC-1" || result.UpdateDescription.Description != "Updated description" {
+		t.Fatalf("UpdateDescription = %#v", result.UpdateDescription)
+	}
+}
+
+func TestPoolUpdateDescriptionError(t *testing.T) {
+	updateErr := errors.New("jira rejected description")
+	pool := NewPool(&fakeIssueSearcher{updateDescriptionErr: updateErr}, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:                23,
+		Kind:              KindUpdateDescription,
+		UpdateDescription: &UpdateDescriptionRequest{Key: "ABC-1", Description: "Updated description"},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if !errors.Is(result.Err, updateErr) {
+		t.Fatalf("Err = %v", result.Err)
+	}
+}
+
+func TestPoolUpdatePrioritySuccess(t *testing.T) {
+	searcher := &fakeIssueSearcher{}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:   22,
+		Kind: KindUpdatePriority,
+		UpdatePriority: &UpdatePriorityRequest{
+			Key:      "ABC-1",
+			Priority: jira.FieldOption{ID: "3", Name: "Medium"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.ID != 22 {
+		t.Fatalf("ID = %d", result.ID)
+	}
+	if result.Kind != KindUpdatePriority {
+		t.Fatalf("Kind = %s", result.Kind)
+	}
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if searcher.updatePriorityKey != "ABC-1" || searcher.updatePriorityValue.ID != "3" {
+		t.Fatalf("update priority = %s/%#v", searcher.updatePriorityKey, searcher.updatePriorityValue)
+	}
+	if result.UpdatePriority.Key != "ABC-1" || result.UpdatePriority.Priority.Name != "Medium" {
+		t.Fatalf("UpdatePriority = %#v", result.UpdatePriority)
+	}
+}
+
+func TestPoolUpdatePriorityError(t *testing.T) {
+	updateErr := errors.New("jira rejected priority")
+	pool := NewPool(&fakeIssueSearcher{updatePriorityErr: updateErr}, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:   23,
+		Kind: KindUpdatePriority,
+		UpdatePriority: &UpdatePriorityRequest{
+			Key:      "ABC-1",
+			Priority: jira.FieldOption{ID: "3", Name: "Medium"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if !errors.Is(result.Err, updateErr) {
+		t.Fatalf("Err = %v", result.Err)
+	}
+}
+
+func TestPoolUpdateAssigneeSuccess(t *testing.T) {
+	searcher := &fakeIssueSearcher{}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:   24,
+		Kind: KindUpdateAssignee,
+		UpdateAssignee: &UpdateAssigneeRequest{
+			Key:      "ABC-1",
+			Assignee: jira.User{AccountID: "abc-123", DisplayName: "Jane Doe"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.ID != 24 {
+		t.Fatalf("ID = %d", result.ID)
+	}
+	if result.Kind != KindUpdateAssignee {
+		t.Fatalf("Kind = %s", result.Kind)
+	}
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if searcher.updateAssigneeKey != "ABC-1" || searcher.updateAssigneeValue.AccountID != "abc-123" {
+		t.Fatalf("update assignee = %s/%#v", searcher.updateAssigneeKey, searcher.updateAssigneeValue)
+	}
+	if result.UpdateAssignee.Key != "ABC-1" || result.UpdateAssignee.Assignee.DisplayName != "Jane Doe" {
+		t.Fatalf("UpdateAssignee = %#v", result.UpdateAssignee)
+	}
+}
+
+func TestPoolUpdateAssigneeError(t *testing.T) {
+	updateErr := errors.New("jira rejected assignee")
+	pool := NewPool(&fakeIssueSearcher{updateAssigneeErr: updateErr}, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:   25,
+		Kind: KindUpdateAssignee,
+		UpdateAssignee: &UpdateAssigneeRequest{
+			Key:      "ABC-1",
+			Assignee: jira.User{AccountID: "abc-123", DisplayName: "Jane Doe"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if !errors.Is(result.Err, updateErr) {
+		t.Fatalf("Err = %v", result.Err)
+	}
+}
+
 func TestPoolSearchUsersSuccess(t *testing.T) {
 	pool := NewPool(&fakeIssueSearcher{
 		users: []jira.User{{AccountID: "abc-123", DisplayName: "Jane Doe"}},
@@ -434,6 +909,64 @@ func TestPoolReturnsInvalidRequestResult(t *testing.T) {
 	}
 }
 
+func TestPoolReturnsInvalidTransitionRequestResults(t *testing.T) {
+	pool := NewPool(&fakeIssueSearcher{}, WithWorkerCount(1), WithQueueSize(2))
+	defer pool.Stop()
+
+	requests := []Request{
+		{ID: 17, Kind: KindGetTransitions},
+		{ID: 18, Kind: KindTransitionIssue, TransitionIssue: &TransitionIssueRequest{Key: "ABC-1"}},
+	}
+	for _, request := range requests {
+		if err := pool.Submit(request); err != nil {
+			t.Fatalf("Submit() error = %v", err)
+		}
+	}
+
+	for range requests {
+		result := readResult(t, pool)
+		if !errors.Is(result.Err, ErrInvalidRequest) {
+			t.Fatalf("Err = %v", result.Err)
+		}
+	}
+}
+
+func TestPoolReturnsInvalidSummaryEditRequestResults(t *testing.T) {
+	pool := NewPool(&fakeIssueSearcher{}, WithWorkerCount(1), WithQueueSize(16))
+	defer pool.Stop()
+
+	requests := []Request{
+		{ID: 24, Kind: KindGetEditMetadata},
+		{ID: 25, Kind: KindUpdateSummary, UpdateSummary: &UpdateSummaryRequest{Key: "ABC-1"}},
+		{ID: 26, Kind: KindUpdateSummary, UpdateSummary: &UpdateSummaryRequest{Summary: "Updated summary"}},
+		{ID: 27, Kind: KindUpdateDescription, UpdateDescription: &UpdateDescriptionRequest{Key: "ABC-1"}},
+		{ID: 28, Kind: KindUpdateDescription, UpdateDescription: &UpdateDescriptionRequest{Description: "Updated description"}},
+		{ID: 29, Kind: KindUpdatePriority, UpdatePriority: &UpdatePriorityRequest{Key: "ABC-1"}},
+		{ID: 30, Kind: KindUpdatePriority, UpdatePriority: &UpdatePriorityRequest{Priority: jira.FieldOption{ID: "3", Name: "Medium"}}},
+		{ID: 31, Kind: KindUpdateAssignee, UpdateAssignee: &UpdateAssigneeRequest{Key: "ABC-1"}},
+		{ID: 32, Kind: KindUpdateAssignee, UpdateAssignee: &UpdateAssigneeRequest{Assignee: jira.User{AccountID: "abc-123", DisplayName: "Jane Doe"}}},
+		{ID: 33, Kind: KindGetCreateIssueTypes},
+		{ID: 34, Kind: KindGetCreateFields, GetCreateFields: &GetCreateFieldsRequest{ProjectKey: "ABC"}},
+		{ID: 35, Kind: KindGetCreateFields, GetCreateFields: &GetCreateFieldsRequest{IssueTypeID: "10001"}},
+		{ID: 36, Kind: KindCreateIssue},
+		{ID: 37, Kind: KindCreateIssue, CreateIssue: &CreateIssueRequest{ProjectKey: "ABC", IssueTypeID: "10001"}},
+		{ID: 38, Kind: KindCreateIssue, CreateIssue: &CreateIssueRequest{ProjectKey: "ABC", Summary: "New issue"}},
+		{ID: 39, Kind: KindCreateIssue, CreateIssue: &CreateIssueRequest{IssueTypeID: "10001", Summary: "New issue"}},
+	}
+	for _, request := range requests {
+		if err := pool.Submit(request); err != nil {
+			t.Fatalf("Submit() error = %v", err)
+		}
+	}
+
+	for range requests {
+		result := readResult(t, pool)
+		if !errors.Is(result.Err, ErrInvalidRequest) {
+			t.Fatalf("Err = %v", result.Err)
+		}
+	}
+}
+
 func TestPoolRejectsSubmitAfterStop(t *testing.T) {
 	pool := NewPool(&fakeIssueSearcher{}, WithWorkerCount(1), WithQueueSize(1))
 	pool.Stop()
@@ -464,15 +997,36 @@ func searchRequest(id int) Request {
 }
 
 type fakeIssueSearcher struct {
-	issues        []jira.Issue
-	searchResults map[string][]jira.Issue
-	detail        jira.IssueDetail
-	details       map[string]jira.IssueDetail
-	comments      []jira.Comment
-	addedComment  jira.Comment
-	addMentions   []jira.Mention
-	users         []jira.User
-	err           error
+	issues                 []jira.Issue
+	searchResults          map[string][]jira.Issue
+	detail                 jira.IssueDetail
+	details                map[string]jira.IssueDetail
+	comments               []jira.Comment
+	addedComment           jira.Comment
+	addMentions            []jira.Mention
+	users                  []jira.User
+	transitions            []jira.Transition
+	transitionKey          string
+	transitionID           string
+	transitionErr          error
+	editMetadata           jira.EditMetadata
+	createIssueTypes       []jira.CreateIssueType
+	createFields           []jira.CreateField
+	createIssueRequest     jira.CreateIssueRequest
+	createdIssue           jira.Issue
+	updateSummaryKey       string
+	updateSummaryValue     string
+	updateSummaryErr       error
+	updateDescriptionKey   string
+	updateDescriptionValue string
+	updateDescriptionErr   error
+	updatePriorityKey      string
+	updatePriorityValue    jira.FieldOption
+	updatePriorityErr      error
+	updateAssigneeKey      string
+	updateAssigneeValue    jira.User
+	updateAssigneeErr      error
+	err                    error
 }
 
 func (f *fakeIssueSearcher) SearchIssues(_ context.Context, jql string, _ int) ([]jira.Issue, error) {
@@ -531,6 +1085,110 @@ func (f *fakeIssueSearcher) SearchUsers(_ context.Context, query string, _ int) 
 		return f.users, nil
 	}
 	return []jira.User{{AccountID: "abc-123", DisplayName: query}}, nil
+}
+
+func (f *fakeIssueSearcher) GetTransitions(_ context.Context, key string) ([]jira.Transition, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.transitionKey = key
+	return f.transitions, nil
+}
+
+func (f *fakeIssueSearcher) TransitionIssue(_ context.Context, key string, transitionID string) error {
+	if f.transitionErr != nil {
+		return f.transitionErr
+	}
+	if f.err != nil {
+		return f.err
+	}
+	f.transitionKey = key
+	f.transitionID = transitionID
+	return nil
+}
+
+func (f *fakeIssueSearcher) GetEditMetadata(_ context.Context, key string) (jira.EditMetadata, error) {
+	if f.err != nil {
+		return jira.EditMetadata{}, f.err
+	}
+	f.transitionKey = key
+	return f.editMetadata, nil
+}
+
+func (f *fakeIssueSearcher) GetCreateIssueTypes(_ context.Context, projectKey string) ([]jira.CreateIssueType, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.transitionKey = projectKey
+	return f.createIssueTypes, nil
+}
+
+func (f *fakeIssueSearcher) GetCreateFields(_ context.Context, projectKey string, issueTypeID string) ([]jira.CreateField, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.transitionKey = projectKey
+	f.transitionID = issueTypeID
+	return f.createFields, nil
+}
+
+func (f *fakeIssueSearcher) CreateIssue(_ context.Context, request jira.CreateIssueRequest) (jira.Issue, error) {
+	if f.err != nil {
+		return jira.Issue{}, f.err
+	}
+	f.createIssueRequest = request
+	if f.createdIssue.Key != "" {
+		return f.createdIssue, nil
+	}
+	return jira.Issue{Key: "ABC-123", Summary: request.Summary}, nil
+}
+
+func (f *fakeIssueSearcher) UpdateSummary(_ context.Context, key string, summary string) error {
+	if f.updateSummaryErr != nil {
+		return f.updateSummaryErr
+	}
+	if f.err != nil {
+		return f.err
+	}
+	f.updateSummaryKey = key
+	f.updateSummaryValue = summary
+	return nil
+}
+
+func (f *fakeIssueSearcher) UpdateDescription(_ context.Context, key string, description string) error {
+	if f.updateDescriptionErr != nil {
+		return f.updateDescriptionErr
+	}
+	if f.err != nil {
+		return f.err
+	}
+	f.updateDescriptionKey = key
+	f.updateDescriptionValue = description
+	return nil
+}
+
+func (f *fakeIssueSearcher) UpdatePriority(_ context.Context, key string, priority jira.FieldOption) error {
+	if f.updatePriorityErr != nil {
+		return f.updatePriorityErr
+	}
+	if f.err != nil {
+		return f.err
+	}
+	f.updatePriorityKey = key
+	f.updatePriorityValue = priority
+	return nil
+}
+
+func (f *fakeIssueSearcher) UpdateAssignee(_ context.Context, key string, assignee jira.User) error {
+	if f.updateAssigneeErr != nil {
+		return f.updateAssigneeErr
+	}
+	if f.err != nil {
+		return f.err
+	}
+	f.updateAssigneeKey = key
+	f.updateAssigneeValue = assignee
+	return nil
 }
 
 type blockingIssueSearcher struct {
@@ -600,5 +1258,135 @@ func (b *blockingIssueSearcher) SearchUsers(ctx context.Context, _ string, _ int
 		return nil, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	}
+}
+
+func (b *blockingIssueSearcher) GetTransitions(ctx context.Context, _ string) ([]jira.Transition, error) {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return nil, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (b *blockingIssueSearcher) TransitionIssue(ctx context.Context, _ string, _ string) error {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (b *blockingIssueSearcher) GetEditMetadata(ctx context.Context, _ string) (jira.EditMetadata, error) {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return jira.EditMetadata{}, nil
+	case <-ctx.Done():
+		return jira.EditMetadata{}, ctx.Err()
+	}
+}
+
+func (b *blockingIssueSearcher) GetCreateIssueTypes(ctx context.Context, _ string) ([]jira.CreateIssueType, error) {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return nil, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (b *blockingIssueSearcher) GetCreateFields(ctx context.Context, _ string, _ string) ([]jira.CreateField, error) {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return nil, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (b *blockingIssueSearcher) CreateIssue(ctx context.Context, _ jira.CreateIssueRequest) (jira.Issue, error) {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return jira.Issue{}, nil
+	case <-ctx.Done():
+		return jira.Issue{}, ctx.Err()
+	}
+}
+
+func (b *blockingIssueSearcher) UpdateSummary(ctx context.Context, _ string, _ string) error {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (b *blockingIssueSearcher) UpdateDescription(ctx context.Context, _ string, _ string) error {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (b *blockingIssueSearcher) UpdatePriority(ctx context.Context, _ string, _ jira.FieldOption) error {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (b *blockingIssueSearcher) UpdateAssignee(ctx context.Context, _ string, _ jira.User) error {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }

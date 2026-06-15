@@ -20,6 +20,9 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
 - Audit hand-rolled TUI rendering and input components for replacement with maintained Bubble Tea,
   Bubbles, Lip Gloss, or public libraries built on those packages before extending custom code.
 - Add tests around TUI navigation and rendering.
+- Audit key bindings across every active context so commands stay clear: keep conventional
+  navigation aliases, but remove redundant semantic paths where two unrelated keys do the same
+  workflow.
 - Continue focused ticket detail workspace work: real linked issue data in the Hierarchy/Links
   workspace, contextual footer commands, and metadata-backed implementations behind the Actions tab.
 - Keep detail tabs and focused sections pane-compatible: new sections should expose their own
@@ -29,6 +32,16 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
   compose mode for comments, edit-field mode for metadata-backed forms, transition mode for status
   changes, and an action menu/command palette for less common operations.
 - Add incremental loading strategy for sprint data and future expanded comment/detail workflows.
+- Add a generic in-memory TTL cache policy around Jira reads using maintained library support where
+  possible: cache typeahead/metadata/detail/view data with per-data TTLs, refresh important entries
+  asynchronously on expiry or view timers, use bounded background workers/threads where helpful,
+  and merge new ticket rows into active views without blocking the TUI.
+- Extend the Diagnostics overlay with queue depth, per-view refresh timestamps, cache expiry/refresh
+  events, and background sync summaries as cache and prefetch tooling grows.
+- Add an opt-in sanitized API debug log built on the Diagnostics model: record Jira operation,
+  endpoint family, request ID, project/issue keys, result class, status/error summary, timing, and
+  empty/paged result counts without storing tokens or raw response bodies. Use this later as the
+  source for creating GitHub issues for this app with attached sanitized debugging context.
 - Add saved issue views for assigned to me, reported/created by me, project open, watching, and
   epic-focused drill-down.
 - Improve epic/subtask table grouping beyond current-result grouping by explicitly loading related
@@ -51,12 +64,14 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
 
 ## Later: Creation And Editing
 
-- Add Jira metadata discovery adapters for create metadata, edit metadata, transition metadata,
-  assignable user search, field options, priorities, statuses, issue types, boards, and sprints.
+- Extend Jira metadata discovery adapters beyond the current create/edit metadata foundation:
+  transition field metadata, assignable user search by project/issue, field options, boards, and
+  sprints.
 - Add a ticket action menu/command palette for edit workflows so growing actions do not overload
   single-key detail bindings.
-- Create issue flow that asks Jira for project/issue-type metadata, required fields, allowed field
-  values, and custom field shapes instead of hard-coding forms.
+- Expand the first create issue flow beyond Summary/Description: render supported required fields
+  from Jira create metadata, validate allowed values, and add custom field shapes without hard-coded
+  presets.
 - Edit issue flow that uses Jira edit metadata, supports all editable fields cleanly, and validates
   against Jira-provided options before submitting updates.
 - Add issue link management using Jira metadata/API responses for link types and valid targets.

@@ -3,10 +3,13 @@ package jira
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
 	model "github.com/ctreminiom/go-atlassian/v2/pkg/infra/models"
+	"github.com/jon/jira-tui/internal/adf"
+	"github.com/tidwall/gjson"
 )
 
 func TestSearchIssues(t *testing.T) {
@@ -297,6 +300,860 @@ func TestGetIssuePrefersRealUserFieldsOverPrivacyAlias(t *testing.T) {
 	}
 }
 
+func TestGetTransitionsParsesAvailableStatusTransitions(t *testing.T) {
+	issue := &fakeIssueService{
+		transitions: &model.IssueTransitionsScheme{
+			Transitions: []*model.IssueTransitionScheme{
+				{
+					ID:          "21",
+					Name:        "Start Progress",
+					IsAvailable: true,
+					HasScreen:   true,
+					To:          &model.StatusScheme{Name: "In Progress"},
+				},
+				{
+					ID:          "31",
+					Name:        "Done",
+					IsAvailable: true,
+					To:          &model.StatusScheme{Name: "Done"},
+				},
+			},
+		},
+	}
+	client := &Client{
+		issue: issue,
+	}
+
+	transitions, err := client.GetTransitions(context.Background(), "ABC-123")
+	if err != nil {
+		t.Fatalf("GetTransitions() error = %v", err)
+	}
+
+	if issue.transitionKey != "ABC-123" {
+		t.Fatalf("transitionKey = %q", issue.transitionKey)
+	}
+	if len(transitions) != 2 {
+		t.Fatalf("transitions = %#v", transitions)
+	}
+	if transitions[0].ID != "21" || transitions[0].Name != "Start Progress" {
+		t.Fatalf("transitions[0] = %#v", transitions[0])
+	}
+	if transitions[0].ToStatus != "In Progress" {
+		t.Fatalf("ToStatus = %q", transitions[0].ToStatus)
+	}
+	if !transitions[0].HasScreen {
+		t.Fatal("expected HasScreen")
+	}
+	if !transitions[0].IsAvailable {
+		t.Fatal("expected IsAvailable")
+	}
+}
+
+func TestGetTransitionsWrapsTransitionError(t *testing.T) {
+	issue := &fakeIssueService{
+		transitionErr: errors.New("jira unavailable"),
+	}
+	client := &Client{
+		issue: issue,
+	}
+
+	_, err := client.GetTransitions(context.Background(), "ABC-123")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, issue.transitionErr) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestTransitionIssueSendsTransitionID(t *testing.T) {
+	issue := &fakeIssueService{}
+	client := &Client{
+		issue: issue,
+	}
+
+	err := client.TransitionIssue(context.Background(), "ABC-123", "21")
+	if err != nil {
+		t.Fatalf("TransitionIssue() error = %v", err)
+	}
+
+	if issue.moveKey != "ABC-123" {
+		t.Fatalf("moveKey = %q", issue.moveKey)
+	}
+	if issue.transitionID != "21" {
+		t.Fatalf("transitionID = %q", issue.transitionID)
+	}
+}
+
+func TestTransitionIssueWrapsTransitionError(t *testing.T) {
+	issue := &fakeIssueService{
+		moveErr: errors.New("transition failed"),
+	}
+	client := &Client{
+		issue: issue,
+	}
+
+	err := client.TransitionIssue(context.Background(), "ABC-123", "21")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, issue.moveErr) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestGetEditMetadataParsesSummaryField(t *testing.T) {
+	metadata := &fakeMetadataService{
+		response: `{
+			"fields": {
+				"summary": {
+					"required": true,
+					"name": "Summary",
+					"schema": {"type": "string"},
+					"operations": ["set"]
+				}
+			}
+		}`,
+	}
+	client := &Client{
+		metadata: metadata,
+	}
+
+	edit, err := client.GetEditMetadata(context.Background(), "ABC-123")
+	if err != nil {
+		t.Fatalf("GetEditMetadata() error = %v", err)
+	}
+
+	if metadata.key != "ABC-123" {
+		t.Fatalf("key = %q", metadata.key)
+	}
+	if !edit.Summary.Editable {
+		t.Fatal("expected summary editable")
+	}
+	if !edit.Summary.Required {
+		t.Fatal("expected summary required")
+	}
+	if edit.Summary.Name != "Summary" {
+		t.Fatalf("Name = %q", edit.Summary.Name)
+	}
+}
+
+func TestGetEditMetadataParsesPriorityAllowedValues(t *testing.T) {
+	metadata := &fakeMetadataService{
+		response: `{
+			"fields": {
+				"priority": {
+					"required": false,
+					"name": "Priority",
+					"schema": {"type": "priority"},
+					"operations": ["set"],
+					"allowedValues": [
+						{"id": "2", "name": "High"},
+						{"id": "3", "name": "Medium"},
+						{"id": "4", "name": "Low"}
+					]
+				}
+			}
+		}`,
+	}
+	client := &Client{
+		metadata: metadata,
+	}
+
+	edit, err := client.GetEditMetadata(context.Background(), "ABC-123")
+	if err != nil {
+		t.Fatalf("GetEditMetadata() error = %v", err)
+	}
+
+	if !edit.Priority.Editable {
+		t.Fatal("expected priority editable")
+	}
+	if edit.Priority.Name != "Priority" {
+		t.Fatalf("Name = %q", edit.Priority.Name)
+	}
+	want := []FieldOption{
+		{ID: "2", Name: "High"},
+		{ID: "3", Name: "Medium"},
+		{ID: "4", Name: "Low"},
+	}
+	if !reflect.DeepEqual(edit.Priority.AllowedValues, want) {
+		t.Fatalf("AllowedValues = %#v, want %#v", edit.Priority.AllowedValues, want)
+	}
+}
+
+func TestGetEditMetadataWrapsMetadataError(t *testing.T) {
+	metadata := &fakeMetadataService{
+		err: errors.New("metadata unavailable"),
+	}
+	client := &Client{
+		metadata: metadata,
+	}
+
+	_, err := client.GetEditMetadata(context.Background(), "ABC-123")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, metadata.err) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestGetCreateIssueTypesParsesProjectIssueTypes(t *testing.T) {
+	metadata := &fakeMetadataService{
+		issueTypesResponse: `{
+			"values": [
+				{
+					"id": "10001",
+					"name": "Task",
+					"description": "Work item",
+					"subtask": false,
+					"hierarchyLevel": 0
+				},
+				{
+					"id": "10002",
+					"name": "Sub-task",
+					"description": "Smaller work item",
+					"subtask": true,
+					"hierarchyLevel": -1
+				}
+			]
+		}`,
+	}
+	client := &Client{metadata: metadata}
+
+	issueTypes, err := client.GetCreateIssueTypes(context.Background(), "ABC")
+	if err != nil {
+		t.Fatalf("GetCreateIssueTypes() error = %v", err)
+	}
+
+	if metadata.projectKey != "ABC" {
+		t.Fatalf("projectKey = %q", metadata.projectKey)
+	}
+	want := []CreateIssueType{
+		{ID: "10001", Name: "Task", Description: "Work item", HierarchyLevel: 0},
+		{ID: "10002", Name: "Sub-task", Description: "Smaller work item", Subtask: true, HierarchyLevel: -1},
+	}
+	if !reflect.DeepEqual(issueTypes, want) {
+		t.Fatalf("issueTypes = %#v, want %#v", issueTypes, want)
+	}
+}
+
+func TestGetCreateIssueTypesFallsBackToExpandedCreateMetadata(t *testing.T) {
+	metadata := &fakeMetadataService{
+		issueTypesResponse: `{"values": []}`,
+		createResponse: `{
+			"projects": [
+				{
+					"key": "DEVOPS",
+					"issuetypes": [
+						{
+							"id": "10001",
+							"name": "Task",
+							"description": "Work item",
+							"subtask": false,
+							"hierarchyLevel": 0
+						},
+						{
+							"id": "10002",
+							"name": "Epic",
+							"description": "Large work item",
+							"subtask": false,
+							"hierarchyLevel": 1
+						}
+					]
+				}
+			]
+		}`,
+	}
+	client := &Client{metadata: metadata}
+
+	issueTypes, err := client.GetCreateIssueTypes(context.Background(), "DEVOPS")
+	if err != nil {
+		t.Fatalf("GetCreateIssueTypes() error = %v", err)
+	}
+
+	if !metadata.createCalled {
+		t.Fatal("expected expanded create metadata fallback")
+	}
+	if !reflect.DeepEqual(metadata.createOpts.ProjectKeys, []string{"DEVOPS"}) {
+		t.Fatalf("ProjectKeys = %#v", metadata.createOpts.ProjectKeys)
+	}
+	if metadata.createOpts.Expand != "projects.issuetypes" {
+		t.Fatalf("Expand = %q", metadata.createOpts.Expand)
+	}
+	want := []CreateIssueType{
+		{ID: "10001", Name: "Task", Description: "Work item", HierarchyLevel: 0},
+		{ID: "10002", Name: "Epic", Description: "Large work item", HierarchyLevel: 1},
+	}
+	if !reflect.DeepEqual(issueTypes, want) {
+		t.Fatalf("issueTypes = %#v, want %#v", issueTypes, want)
+	}
+}
+
+func TestGetCreateFieldsParsesRequiredAllowedAndSchemaData(t *testing.T) {
+	metadata := &fakeMetadataService{
+		fieldsResponse: `{
+			"values": [
+				{
+					"fieldId": "summary",
+					"key": "summary",
+					"name": "Summary",
+					"required": true,
+					"hasDefaultValue": false,
+					"schema": {"type": "string", "system": "summary"},
+					"operations": ["set"]
+				},
+				{
+					"fieldId": "priority",
+					"key": "priority",
+					"name": "Priority",
+					"required": false,
+					"hasDefaultValue": true,
+					"schema": {"type": "priority", "system": "priority"},
+					"operations": ["set"],
+					"allowedValues": [
+						{"id": "2", "name": "High"},
+						{"id": "3", "name": "Medium"}
+					]
+				},
+				{
+					"fieldId": "customfield_10010",
+					"key": "customfield_10010",
+					"name": "Business Unit",
+					"required": false,
+					"schema": {
+						"type": "array",
+						"items": "option",
+						"custom": "com.atlassian.jira.plugin.system.customfieldtypes:multiselect",
+						"customId": 10010
+					},
+					"operations": ["add", "remove", "set"],
+					"allowedValues": [
+						{"id": "11", "value": "Platform"}
+					],
+					"autoCompleteUrl": "https://example.atlassian.net/rest/api/3/custom"
+				}
+			]
+		}`,
+	}
+	client := &Client{metadata: metadata}
+
+	fields, err := client.GetCreateFields(context.Background(), "ABC", "10001")
+	if err != nil {
+		t.Fatalf("GetCreateFields() error = %v", err)
+	}
+
+	if metadata.fieldsProjectKey != "ABC" {
+		t.Fatalf("fieldsProjectKey = %q", metadata.fieldsProjectKey)
+	}
+	if metadata.issueTypeID != "10001" {
+		t.Fatalf("issueTypeID = %q", metadata.issueTypeID)
+	}
+	want := []CreateField{
+		{
+			ID:           "summary",
+			Key:          "summary",
+			Name:         "Summary",
+			Required:     true,
+			SchemaType:   "string",
+			SchemaSystem: "summary",
+			Operations:   []string{"set"},
+		},
+		{
+			ID:              "priority",
+			Key:             "priority",
+			Name:            "Priority",
+			HasDefaultValue: true,
+			SchemaType:      "priority",
+			SchemaSystem:    "priority",
+			Operations:      []string{"set"},
+			AllowedValues:   []FieldOption{{ID: "2", Name: "High"}, {ID: "3", Name: "Medium"}},
+		},
+		{
+			ID:              "customfield_10010",
+			Key:             "customfield_10010",
+			Name:            "Business Unit",
+			SchemaType:      "array",
+			SchemaItems:     "option",
+			SchemaCustom:    "com.atlassian.jira.plugin.system.customfieldtypes:multiselect",
+			SchemaCustomID:  10010,
+			Operations:      []string{"add", "remove", "set"},
+			AllowedValues:   []FieldOption{{ID: "11", Name: "Platform"}},
+			AutoCompleteURL: "https://example.atlassian.net/rest/api/3/custom",
+		},
+	}
+	if !reflect.DeepEqual(fields, want) {
+		t.Fatalf("fields = %#v, want %#v", fields, want)
+	}
+}
+
+func TestGetCreateFieldsFallsBackToExpandedCreateMetadata(t *testing.T) {
+	metadata := &fakeMetadataService{
+		fieldsResponse: `{"values": []}`,
+		createResponse: `{
+			"projects": [
+				{
+					"key": "DEVOPS",
+					"issuetypes": [
+						{
+							"id": "10001",
+							"name": "Task",
+							"fields": {
+								"summary": {
+									"required": true,
+									"schema": {"type": "string", "system": "summary"},
+									"name": "Summary",
+									"key": "summary",
+									"operations": ["set"]
+								},
+								"priority": {
+									"required": false,
+									"schema": {"type": "priority", "system": "priority"},
+									"name": "Priority",
+									"key": "priority",
+									"operations": ["set"],
+									"allowedValues": [
+										{"id": "3", "name": "Medium"}
+									]
+								}
+							}
+						},
+						{
+							"id": "10002",
+							"name": "Story",
+							"fields": {
+								"customfield_10020": {
+									"name": "Team",
+									"schema": {"type": "option", "customId": 10020}
+								}
+							}
+						}
+					]
+				}
+			]
+		}`,
+	}
+	client := &Client{metadata: metadata}
+
+	fields, err := client.GetCreateFields(context.Background(), "DEVOPS", "10001")
+	if err != nil {
+		t.Fatalf("GetCreateFields() error = %v", err)
+	}
+
+	if !metadata.createCalled {
+		t.Fatal("expected expanded create metadata fallback")
+	}
+	if !reflect.DeepEqual(metadata.createOpts.ProjectKeys, []string{"DEVOPS"}) {
+		t.Fatalf("ProjectKeys = %#v", metadata.createOpts.ProjectKeys)
+	}
+	if !reflect.DeepEqual(metadata.createOpts.IssueTypeIDs, []string{"10001"}) {
+		t.Fatalf("IssueTypeIDs = %#v", metadata.createOpts.IssueTypeIDs)
+	}
+	if metadata.createOpts.Expand != "projects.issuetypes.fields" {
+		t.Fatalf("Expand = %q", metadata.createOpts.Expand)
+	}
+	want := []CreateField{
+		{
+			ID:            "priority",
+			Key:           "priority",
+			Name:          "Priority",
+			SchemaType:    "priority",
+			SchemaSystem:  "priority",
+			Operations:    []string{"set"},
+			AllowedValues: []FieldOption{{ID: "3", Name: "Medium"}},
+		},
+		{
+			ID:           "summary",
+			Key:          "summary",
+			Name:         "Summary",
+			Required:     true,
+			SchemaType:   "string",
+			SchemaSystem: "summary",
+			Operations:   []string{"set"},
+		},
+	}
+	if !reflect.DeepEqual(fields, want) {
+		t.Fatalf("fields = %#v, want %#v", fields, want)
+	}
+}
+
+func TestGetCreateMetadataWrapsMetadataErrors(t *testing.T) {
+	metadata := &fakeMetadataService{err: errors.New("metadata unavailable")}
+	client := &Client{metadata: metadata}
+
+	_, err := client.GetCreateIssueTypes(context.Background(), "ABC")
+	if err == nil {
+		t.Fatal("expected create issue types error")
+	}
+	if !errors.Is(err, metadata.err) {
+		t.Fatalf("issue types error = %v", err)
+	}
+
+	_, err = client.GetCreateFields(context.Background(), "ABC", "10001")
+	if err == nil {
+		t.Fatal("expected create fields error")
+	}
+	if !errors.Is(err, metadata.err) {
+		t.Fatalf("fields error = %v", err)
+	}
+}
+
+func TestCreateIssueSendsProjectTypeSummaryAndDescription(t *testing.T) {
+	issue := &fakeIssueService{
+		createResponse: &model.IssueResponseScheme{ID: "10001", Key: "ABC-123", Self: "https://example.atlassian.net/rest/api/3/issue/10001"},
+	}
+	client := &Client{
+		baseURL: "https://example.atlassian.net",
+		issue:   issue,
+	}
+
+	created, err := client.CreateIssue(context.Background(), CreateIssueRequest{
+		ProjectKey:  "ABC",
+		IssueTypeID: "10001",
+		Summary:     "New platform task",
+		Description: "First paragraph.\nSecond line.",
+	})
+	if err != nil {
+		t.Fatalf("CreateIssue() error = %v", err)
+	}
+
+	if issue.createPayload == nil || issue.createPayload.Fields == nil {
+		t.Fatal("expected create payload fields")
+	}
+	fields := issue.createPayload.Fields
+	if fields.Project == nil || fields.Project.Key != "ABC" {
+		t.Fatalf("Project = %#v", fields.Project)
+	}
+	if fields.IssueType == nil || fields.IssueType.ID != "10001" {
+		t.Fatalf("IssueType = %#v", fields.IssueType)
+	}
+	if fields.Summary != "New platform task" {
+		t.Fatalf("Summary = %q", fields.Summary)
+	}
+	if fields.Description == nil {
+		t.Fatal("expected ADF description")
+	}
+	if got := adf.Render(fields.Description); got != "First paragraph.\nSecond line." {
+		t.Fatalf("Description = %q", got)
+	}
+	if issue.createCustomFields != nil {
+		t.Fatalf("custom fields = %#v", issue.createCustomFields)
+	}
+	if created.Key != "ABC-123" || created.URL != "https://example.atlassian.net/browse/ABC-123" {
+		t.Fatalf("created = %#v", created)
+	}
+}
+
+func TestCreateIssueSendsPriorityLabelsAndCustomFieldValues(t *testing.T) {
+	issue := &fakeIssueService{
+		createResponse: &model.IssueResponseScheme{ID: "10001", Key: "ABC-123"},
+	}
+	client := &Client{
+		baseURL: "https://example.atlassian.net",
+		issue:   issue,
+	}
+
+	_, err := client.CreateIssue(context.Background(), CreateIssueRequest{
+		ProjectKey:  "ABC",
+		IssueTypeID: "10001",
+		Summary:     "New platform task",
+		Fields: []CreateIssueFieldValue{
+			{FieldID: "priority", SchemaSystem: "priority", Option: FieldOption{ID: "3", Name: "Medium"}},
+			{FieldID: "labels", SchemaSystem: "labels", Text: "platform, ecs"},
+			{FieldID: "components", SchemaSystem: "components", Option: FieldOption{ID: "101", Name: "Platform"}},
+			{FieldID: "customfield_10010", SchemaType: "string", Text: "Internal ALB"},
+			{FieldID: "customfield_10011", SchemaType: "option", Option: FieldOption{ID: "20001", Name: "Team A"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateIssue() error = %v", err)
+	}
+
+	fields := issue.createPayload.Fields
+	if fields.Priority == nil || fields.Priority.ID != "3" || fields.Priority.Name != "Medium" {
+		t.Fatalf("Priority = %#v", fields.Priority)
+	}
+	if !reflect.DeepEqual(fields.Labels, []string{"platform", "ecs"}) {
+		t.Fatalf("Labels = %#v", fields.Labels)
+	}
+	if len(fields.Components) != 1 || fields.Components[0].ID != "101" || fields.Components[0].Name != "Platform" {
+		t.Fatalf("Components = %#v", fields.Components)
+	}
+	if issue.createCustomFields == nil {
+		t.Fatal("expected custom fields")
+	}
+	if len(issue.createCustomFields.Fields) != 2 {
+		t.Fatalf("custom fields = %#v", issue.createCustomFields.Fields)
+	}
+	custom := mergedCustomFieldPayloadForTest(t, issue.createPayload, issue.createCustomFields)
+	if custom["customfield_10010"] != "Internal ALB" {
+		t.Fatalf("customfield_10010 = %#v", custom["customfield_10010"])
+	}
+	if got := custom["customfield_10011"]; !reflect.DeepEqual(got, map[string]interface{}{"id": "20001", "value": "Team A"}) {
+		t.Fatalf("customfield_10011 = %#v", got)
+	}
+}
+
+func TestCreateIssueRejectsMissingRequiredFields(t *testing.T) {
+	client := &Client{issue: &fakeIssueService{}}
+
+	for _, request := range []CreateIssueRequest{
+		{IssueTypeID: "10001", Summary: "Summary"},
+		{ProjectKey: "ABC", Summary: "Summary"},
+		{ProjectKey: "ABC", IssueTypeID: "10001"},
+	} {
+		if _, err := client.CreateIssue(context.Background(), request); err == nil {
+			t.Fatalf("expected error for request %#v", request)
+		}
+	}
+}
+
+func TestCreateIssueWrapsCreateError(t *testing.T) {
+	issue := &fakeIssueService{createErr: errors.New("create failed")}
+	client := &Client{issue: issue}
+
+	_, err := client.CreateIssue(context.Background(), CreateIssueRequest{
+		ProjectKey:  "ABC",
+		IssueTypeID: "10001",
+		Summary:     "New issue",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, issue.createErr) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func mergedCustomFieldPayloadForTest(t *testing.T, payload *model.IssueScheme, customFields *model.CustomFields) map[string]interface{} {
+	t.Helper()
+	merged, err := payload.MergeCustomFields(customFields)
+	if err != nil {
+		t.Fatalf("MergeCustomFields() error = %v", err)
+	}
+	fields, ok := merged["fields"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("fields payload = %#v", merged["fields"])
+	}
+	return fields
+}
+
+func TestUpdateSummarySendsSummaryOnly(t *testing.T) {
+	issue := &fakeIssueService{}
+	client := &Client{
+		issue: issue,
+	}
+
+	err := client.UpdateSummary(context.Background(), "ABC-123", "New summary")
+	if err != nil {
+		t.Fatalf("UpdateSummary() error = %v", err)
+	}
+
+	if issue.updateKey != "ABC-123" {
+		t.Fatalf("updateKey = %q", issue.updateKey)
+	}
+	if issue.updateNotify {
+		t.Fatal("notify should be false")
+	}
+	if issue.updatePayload == nil || issue.updatePayload.Fields == nil {
+		t.Fatal("expected update payload fields")
+	}
+	if issue.updatePayload.Fields.Summary != "New summary" {
+		t.Fatalf("Summary = %q", issue.updatePayload.Fields.Summary)
+	}
+	if issue.updateCustomFields != nil {
+		t.Fatalf("custom fields = %#v", issue.updateCustomFields)
+	}
+	if issue.updateOperations != nil {
+		t.Fatalf("operations = %#v", issue.updateOperations)
+	}
+}
+
+func TestUpdateSummaryRejectsEmptySummary(t *testing.T) {
+	client := &Client{issue: &fakeIssueService{}}
+
+	err := client.UpdateSummary(context.Background(), "ABC-123", "  ")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestUpdateSummaryWrapsUpdateError(t *testing.T) {
+	issue := &fakeIssueService{
+		updateErr: errors.New("update failed"),
+	}
+	client := &Client{
+		issue: issue,
+	}
+
+	err := client.UpdateSummary(context.Background(), "ABC-123", "New summary")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, issue.updateErr) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestUpdateDescriptionSendsADFDescriptionOnly(t *testing.T) {
+	issue := &fakeIssueService{}
+	client := &Client{
+		issue: issue,
+	}
+
+	err := client.UpdateDescription(context.Background(), "ABC-123", "Problem\n\nAcceptance Criteria\n- Works")
+	if err != nil {
+		t.Fatalf("UpdateDescription() error = %v", err)
+	}
+
+	if issue.updateKey != "ABC-123" {
+		t.Fatalf("updateKey = %q", issue.updateKey)
+	}
+	if issue.updateNotify {
+		t.Fatal("notify should be false")
+	}
+	if issue.updatePayload == nil || issue.updatePayload.Fields == nil || issue.updatePayload.Fields.Description == nil {
+		t.Fatal("expected ADF description update payload")
+	}
+	if got := adf.Render(issue.updatePayload.Fields.Description); got != "Problem\nAcceptance Criteria\n- Works" {
+		t.Fatalf("Description = %q", got)
+	}
+	if issue.updatePayload.Fields.Summary != "" {
+		t.Fatalf("Summary = %q", issue.updatePayload.Fields.Summary)
+	}
+	if issue.updateCustomFields != nil {
+		t.Fatalf("custom fields = %#v", issue.updateCustomFields)
+	}
+	if issue.updateOperations != nil {
+		t.Fatalf("operations = %#v", issue.updateOperations)
+	}
+}
+
+func TestUpdateDescriptionRejectsEmptyDescription(t *testing.T) {
+	client := &Client{issue: &fakeIssueService{}}
+
+	err := client.UpdateDescription(context.Background(), "ABC-123", "  ")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestUpdateDescriptionWrapsUpdateError(t *testing.T) {
+	issue := &fakeIssueService{
+		updateErr: errors.New("update failed"),
+	}
+	client := &Client{
+		issue: issue,
+	}
+
+	err := client.UpdateDescription(context.Background(), "ABC-123", "New description")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, issue.updateErr) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestUpdatePrioritySendsPriorityOnly(t *testing.T) {
+	issue := &fakeIssueService{}
+	client := &Client{
+		issue: issue,
+	}
+
+	err := client.UpdatePriority(context.Background(), "ABC-123", FieldOption{ID: "3", Name: "Medium"})
+	if err != nil {
+		t.Fatalf("UpdatePriority() error = %v", err)
+	}
+
+	if issue.updateKey != "ABC-123" {
+		t.Fatalf("updateKey = %q", issue.updateKey)
+	}
+	if issue.updatePayload == nil || issue.updatePayload.Fields == nil || issue.updatePayload.Fields.Priority == nil {
+		t.Fatal("expected priority update payload")
+	}
+	if issue.updatePayload.Fields.Priority.ID != "3" {
+		t.Fatalf("Priority.ID = %q", issue.updatePayload.Fields.Priority.ID)
+	}
+	if issue.updatePayload.Fields.Priority.Name != "Medium" {
+		t.Fatalf("Priority.Name = %q", issue.updatePayload.Fields.Priority.Name)
+	}
+	if issue.updatePayload.Fields.Summary != "" {
+		t.Fatalf("Summary = %q", issue.updatePayload.Fields.Summary)
+	}
+}
+
+func TestUpdatePriorityRejectsEmptyPriority(t *testing.T) {
+	client := &Client{issue: &fakeIssueService{}}
+
+	err := client.UpdatePriority(context.Background(), "ABC-123", FieldOption{})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestUpdatePriorityWrapsUpdateError(t *testing.T) {
+	issue := &fakeIssueService{
+		updateErr: errors.New("update failed"),
+	}
+	client := &Client{
+		issue: issue,
+	}
+
+	err := client.UpdatePriority(context.Background(), "ABC-123", FieldOption{ID: "3", Name: "Medium"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, issue.updateErr) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestUpdateAssigneeSendsAccountID(t *testing.T) {
+	issue := &fakeIssueService{}
+	client := &Client{
+		issue: issue,
+	}
+
+	err := client.UpdateAssignee(context.Background(), "ABC-123", User{AccountID: "abc-123", DisplayName: "Jane Doe"})
+	if err != nil {
+		t.Fatalf("UpdateAssignee() error = %v", err)
+	}
+
+	if issue.assignKey != "ABC-123" {
+		t.Fatalf("assignKey = %q", issue.assignKey)
+	}
+	if issue.assignAccountID != "abc-123" {
+		t.Fatalf("assignAccountID = %q", issue.assignAccountID)
+	}
+}
+
+func TestUpdateAssigneeRejectsMissingAccountID(t *testing.T) {
+	client := &Client{issue: &fakeIssueService{}}
+
+	err := client.UpdateAssignee(context.Background(), "ABC-123", User{DisplayName: "Jane Doe"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestUpdateAssigneeWrapsAssignError(t *testing.T) {
+	issue := &fakeIssueService{
+		assignErr: errors.New("assign failed"),
+	}
+	client := &Client{
+		issue: issue,
+	}
+
+	err := client.UpdateAssignee(context.Background(), "ABC-123", User{AccountID: "abc-123", DisplayName: "Jane Doe"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, issue.assignErr) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestGetCommentsFetchesAndParsesADFComments(t *testing.T) {
 	comments := &fakeCommentService{
 		response: &model.IssueCommentPageScheme{
@@ -554,11 +1411,31 @@ func (f *fakeSearchService) SearchJQL(_ context.Context, jql string, fields, exp
 }
 
 type fakeIssueService struct {
-	key      string
-	fields   []string
-	expands  []string
-	response *model.IssueScheme
-	err      error
+	key                string
+	fields             []string
+	expands            []string
+	response           *model.IssueScheme
+	transitions        *model.IssueTransitionsScheme
+	transitionKey      string
+	transitionErr      error
+	moveKey            string
+	transitionID       string
+	moveOptions        *model.IssueMoveOptionsV3
+	moveErr            error
+	assignKey          string
+	assignAccountID    string
+	assignErr          error
+	createPayload      *model.IssueScheme
+	createCustomFields *model.CustomFields
+	createResponse     *model.IssueResponseScheme
+	createErr          error
+	updateKey          string
+	updateNotify       bool
+	updatePayload      *model.IssueScheme
+	updateCustomFields *model.CustomFields
+	updateOperations   *model.UpdateOperations
+	updateErr          error
+	err                error
 }
 
 func (f *fakeIssueService) Get(_ context.Context, key string, fields, expands []string) (*model.IssueScheme, *model.ResponseScheme, error) {
@@ -566,6 +1443,81 @@ func (f *fakeIssueService) Get(_ context.Context, key string, fields, expands []
 	f.fields = fields
 	f.expands = expands
 	return f.response, nil, f.err
+}
+
+func (f *fakeIssueService) Transitions(_ context.Context, key string) (*model.IssueTransitionsScheme, *model.ResponseScheme, error) {
+	f.transitionKey = key
+	return f.transitions, nil, f.transitionErr
+}
+
+func (f *fakeIssueService) Move(_ context.Context, key string, transitionID string, options *model.IssueMoveOptionsV3) (*model.ResponseScheme, error) {
+	f.moveKey = key
+	f.transitionID = transitionID
+	f.moveOptions = options
+	return nil, f.moveErr
+}
+
+func (f *fakeIssueService) Assign(_ context.Context, key string, accountID string) (*model.ResponseScheme, error) {
+	f.assignKey = key
+	f.assignAccountID = accountID
+	return nil, f.assignErr
+}
+
+func (f *fakeIssueService) Create(_ context.Context, payload *model.IssueScheme, customFields *model.CustomFields) (*model.IssueResponseScheme, *model.ResponseScheme, error) {
+	f.createPayload = payload
+	f.createCustomFields = customFields
+	return f.createResponse, nil, f.createErr
+}
+
+func (f *fakeIssueService) Update(_ context.Context, key string, notify bool, payload *model.IssueScheme, customFields *model.CustomFields, operations *model.UpdateOperations) (*model.ResponseScheme, error) {
+	f.updateKey = key
+	f.updateNotify = notify
+	f.updatePayload = payload
+	f.updateCustomFields = customFields
+	f.updateOperations = operations
+	return nil, f.updateErr
+}
+
+type fakeMetadataService struct {
+	key                    string
+	projectKey             string
+	fieldsProjectKey       string
+	issueTypeID            string
+	overrideScreenSecurity bool
+	overrideEditableFlag   bool
+	response               string
+	issueTypesResponse     string
+	createResponse         string
+	createCalled           bool
+	createOpts             model.IssueMetadataCreateOptions
+	fieldsResponse         string
+	err                    error
+}
+
+func (f *fakeMetadataService) Get(_ context.Context, key string, overrideScreenSecurity bool, overrideEditableFlag bool) (gjson.Result, *model.ResponseScheme, error) {
+	f.key = key
+	f.overrideScreenSecurity = overrideScreenSecurity
+	f.overrideEditableFlag = overrideEditableFlag
+	return gjson.Parse(f.response), nil, f.err
+}
+
+func (f *fakeMetadataService) FetchIssueMappings(_ context.Context, projectKey string, _, _ int) (gjson.Result, *model.ResponseScheme, error) {
+	f.projectKey = projectKey
+	return gjson.Parse(f.issueTypesResponse), nil, f.err
+}
+
+func (f *fakeMetadataService) Create(_ context.Context, opts *model.IssueMetadataCreateOptions) (gjson.Result, *model.ResponseScheme, error) {
+	f.createCalled = true
+	if opts != nil {
+		f.createOpts = *opts
+	}
+	return gjson.Parse(f.createResponse), nil, f.err
+}
+
+func (f *fakeMetadataService) FetchFieldMappings(_ context.Context, projectKey string, issueTypeID string, _, _ int) (gjson.Result, *model.ResponseScheme, error) {
+	f.fieldsProjectKey = projectKey
+	f.issueTypeID = issueTypeID
+	return gjson.Parse(f.fieldsResponse), nil, f.err
 }
 
 type fakeCommentService struct {
