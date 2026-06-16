@@ -4,6 +4,8 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+## 0.1.0 - 2026-06-16
+
 - Wrapped Jira ADF rendering with a maintained ADF-to-Markdown converter for richer descriptions
   and comments while preserving the existing fitted table path.
 - Added sanitized real-shaped Jira ADF fixtures, a dev-only ADF fixture capture/sanitize helper, and
