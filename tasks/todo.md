@@ -1,5 +1,166 @@
 # Task Plan
 
+## Same-Package TUI File Split
+
+- [x] Record execution scope and split order.
+- [x] Move worker command constructors into a same-package file and verify `internal/tui`.
+- [x] Move diagnostics types and rendering helpers into a same-package file and verify `internal/tui`.
+- [x] Move issue-list types and rendering helpers into a same-package file if the range is clean.
+- [x] Move remaining clean workflow clusters into same-package files.
+- [x] Split workflow-specific tests so coverage follows the new file boundaries.
+- [x] Audit docs, comments, imports, and misplaced tests before calling the split done.
+- [x] Update audit/backlog/changelog/task review notes.
+- [x] Run final verification with `go test ./internal/tui -count=1`, `go test ./... -count=1`, and `make check`.
+
+### Same-Package TUI File Split Scope
+
+Execute the package-boundary audit recommendation with mechanical same-package file moves only.
+Keep `package tui`, the Bubble Tea `Model` boundary, all worker-backed Jira IO, and current behavior
+unchanged. Stop and re-plan if a candidate split needs non-mechanical rewrites or creates import
+cycles.
+
+### Same-Package TUI File Split Review
+
+- Added same-package workflow files for worker command submission, diagnostics, issue-list
+  rendering, comments, create issue/create AI, Claude assist, detail views/actions, rich text,
+  browser chrome, worker results, navigation, formatting, summary editing, and external actions.
+- Kept `model.go` focused on constants, core types, `Model`, options, `Init`, `Update`, and top-level
+  `View`/`render` dispatch.
+- Split the broad TUI test file into workflow test files for create issue, Claude assist, comments,
+  diagnostics, issue list, rich text, and detail behavior while keeping shared fakes/helpers in
+  `model_test.go`.
+- Moved a detail overlay regression out of `issue_list_test.go` into `detail_test.go` during the
+  final boundary audit.
+- Reduced `internal/tui/model.go` from 10,540 lines to 1,105 lines and `internal/tui/model_test.go`
+  from 8,057 lines to 658 lines without changing `package tui` or the Bubble Tea `Model` boundary.
+- Saved the proactive package-boundary lesson to project memory and `tasks/lessons.md`: in Go,
+  same-package file splits should happen before a single file absorbs unrelated workflows.
+- Reviewed split-file comments/imports/docs for stale intermediate-state wording before final
+  verification.
+- Verified with `go test ./internal/tui -count=1`, `go test ./... -count=1`, and `make check`.
+
+## Package And File Boundary Audit
+
+- [x] Record audit criteria and scope.
+- [x] Collect codebase shape metrics: large files, package sizes, test concentration, and dependency direction.
+- [x] Inspect high-risk files/packages for mixed responsibilities and repeated local helpers.
+- [x] Write split/no-split recommendations with staged next steps.
+- [x] Update backlog/project docs as needed.
+- [x] Verify the audit artifacts and run an appropriate docs/code health check.
+
+### Package And File Boundary Audit Scope
+
+Evaluate whether the codebase is drifting toward monolithic files or unclear internal libraries
+after the TUI consistency work. Use evidence rather than file length alone: package cohesion,
+change concentration, repeated helper patterns, dependency direction, test locality, and whether a
+small internal package would reduce future bug risk without creating unnecessary abstraction.
+
+### Package And File Boundary Audit Review
+
+- Added `docs/package-boundary-audit.md` with size, cohesion, dependency-direction, test-locality,
+  and package-boundary findings.
+- Identified `internal/tui/model.go` and `internal/tui/model_test.go` as the urgent monolith risk at
+  audit time. The issue was file-level responsibility concentration, not package import direction.
+- Recommended same-package splits first so the current Bubble Tea `Model` boundary stays intact:
+  detail, detail rendering, comments, create issue, create AI, Claude assist, worker commands,
+  issue list, diagnostics, and shared model state.
+- Recommended deferring new `internal/tui` subpackages until reusable adapters have multiple
+  independent callers and no dependency on app-specific `Model` state.
+- Recommended keeping `internal/jira` and `internal/worker` as current package boundaries, with
+  later file-level splits by endpoint/request family when churn or cache/scheduler work justifies it.
+- Updated the backlog so the next structural work was a mechanical same-package TUI file split, not
+  a broad architectural rewrite.
+- Verified with `make check`.
+
+## Ticket Detail Menus And Actions Regression Pass
+
+- [x] Reproduce the missing Add Comment path from the focused Comments section.
+- [x] Inventory ticket-detail keys, section activations, field editors, and action menu behavior.
+- [x] Add regression tests for every broken or under-covered visible ticket-detail action.
+- [x] Fix root causes with minimal section/keymap changes.
+- [x] Run focused ticket-detail tests, `go test ./internal/tui -count=1`, `go test ./... -count=1`,
+  and `make check`.
+- [x] Update docs/changelog/review notes before returning to TUI consistency work.
+
+### Ticket Detail Menus And Actions Regression Pass Scope
+
+Before resuming the hand-rolled TUI component audit, verify ticket-detail interactions end to end:
+section tabs, section-specific footer hints, `enter` activation, Actions menu entries, Summary,
+Priority, Assignee, Status, Links, Hierarchy, Comments, browser/copy commands, create shortcut,
+help context, and cancellation behavior. Prefer one consistent activation pattern: visible section
+or menu actions must have a matching key binding, footer/help entry, and focused regression test.
+
+### Ticket Detail Menus And Actions Regression Pass Review
+
+- Restored the focused Comments section action: `enter` opens the existing comment composer and the
+  footer advertises `enter add`.
+- Enabled implemented Actions menu routes for Status transitions and Assignee changes, delegating to
+  the same worker-backed flows used by direct section/field activation.
+- Added an Assignee key context so the assignee picker owns its footer/help instead of inheriting
+  generic Ticket Detail commands.
+- Added contract tests for focused ticket-detail `enter` behavior and section footer hints across
+  Summary, Assignee, Priority, Links, Hierarchy, Comments, Actions, and Status.
+- Captured the consistency lesson: visible targets, footer/help bindings, key handling, and resulting
+  mode/command need to be tested together.
+- Verified with focused ticket-detail tests, `go test ./internal/tui -count=1`, `go test ./... -count=1`,
+  and `make check`.
+
+## Hand-Rolled TUI Component Audit
+
+- [x] Inspect current backlog, working agreement, dependency baseline, and recurring TUI lessons.
+- [x] Write a design spec for the audit and first implementation slice.
+- [x] Write an implementation plan for the audit matrix and first maintained-primitive migration.
+- [x] Create `docs/tui-component-audit.md` with custom TUI surfaces, candidates, recommendations, and priorities.
+- [x] Add or confirm focused tests around the first low-risk migration target.
+- [x] Implement one small maintained-primitive migration: config scalar text input now uses Bubbles `textinput`.
+- [x] Update docs/changelog/backlog as needed.
+- [x] Run focused tests, `go test ./... -count=1`, and `make check`.
+
+### Hand-Rolled TUI Component Audit Scope
+
+Audit custom TUI rendering/input surfaces before adding more workflows. Prefer maintained Bubble
+Tea/Bubbles/Lip Gloss primitives where they fit, but keep Jira-specific behavior and current worker
+flows stable. The audit found footer/help rendering and config scalar text input are lower-risk first
+migrations than create metadata pickers. Create pickers remain a near-term target because long
+component lists have already caused usability friction.
+
+### Hand-Rolled TUI Component Audit Review
+
+- Added `docs/tui-component-audit.md` with ranked custom TUI surfaces and maintained Bubble
+  Tea/Bubbles/Lip Gloss candidates.
+- Chose config scalar text input as the first small migration because it is isolated from Jira
+  workflows and easy to regression test.
+- Replaced the config editor's manual scalar edit buffer with Bubbles `textinput`, preserving
+  custom boolean/color field behavior.
+- Added cursor-aware scalar edit coverage proving left-arrow movement inserts text at the cursor
+  instead of appending or treating the arrow as literal text.
+- Replaced local footer command rendering with a Bubbles `key`/`help` adapter while preserving
+  existing key contexts, footer labels, grouping, and full help text.
+- Added a shared Bubbles list-backed choice-list adapter and migrated comment mention results onto
+  it as the first bounded picker/list surface.
+- Migrated Assignee search results onto the same shared Bubbles list-backed choice-list adapter,
+  preserving Jira user search and assignment behavior while sharing pagination/range rendering.
+- Migrated focused dynamic create option fields onto the same shared adapter, preserving existing
+  typeahead filter and selection behavior for Jira-provided options.
+- Migrated create issue type selection onto the same shared adapter, preserving keyboard movement
+  and create-field metadata loading behavior.
+- Replaced manual create option filter input with Bubbles `textinput`, keeping existing filter
+  strings synchronized for matching and submit behavior.
+- Migrated the Priority picker onto the same shared adapter, preserving metadata-backed selection
+  and submit behavior.
+- Captured the consistency lesson: component migrations should add one reusable adapter path and
+  move surfaces onto it incrementally instead of creating one-off wrappers.
+- Left richer multi-column/action-state lists for the package/file boundary audit rather than
+  forcing them into the simple choice-list adapter.
+- Added a design-first backlog item for responsive large Jira view loading so cache persistence,
+  freshness semantics, and priority scheduling are planned before implementation starts.
+- Added a post-TUI-consistency backlog item to audit package/file boundaries and recommend
+  split/no-split changes before the next large feature.
+- Verified with `go test ./internal/configui -count=1`,
+  `go test ./internal/tui -run 'Test(KeyBindingsAdaptToBubblesKeyHelp|FooterHelp|HelpOverlay|DetailFooter)' -count=1`,
+  `go test ./internal/tui -run 'Test(ChoiceListUsesSharedBubblesListAdapter|CommentComposerMentionPicker|CommentComposerShowsUnresolvedMentions)' -count=1`,
+  `go test ./... -count=1`, and `make check`.
+
 ## ADF Completion With Real Fixtures And Compact Code Blocks
 
 - [x] Add tests that rich code blocks render without ASCII border rows or side borders.

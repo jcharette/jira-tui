@@ -1,0 +1,484 @@
+package tui
+
+import (
+	"fmt"
+	"os"
+	"strings"
+
+	"charm.land/bubbles/v2/viewport"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/jon/jira-tui/internal/jira"
+)
+
+type issueDisplayRow struct {
+	issue          jira.Issue
+	parent         *jira.Issue
+	parentVisible  bool
+	index          int
+	childCount     int
+	hiddenChildren int
+}
+
+type issueListColumns struct {
+	width         int
+	gutterWidth   int
+	typeWidth     int
+	keyWidth      int
+	statusWidth   int
+	priorityWidth int
+	assigneeWidth int
+	showStatus    bool
+	showPriority  bool
+	showAssignee  bool
+	summaryWidth  int
+}
+
+type issueDisplayTree struct {
+	issues          []jira.Issue
+	roots           []issueDisplayRoot
+	children        map[string][]int
+	indexByKey      map[string]int
+	missingParents  map[string]missingParentGroup
+	missingParentOf map[string]bool
+}
+
+type issueDisplayRoot struct {
+	issueIndex       int
+	missingParentKey string
+}
+
+type missingParentGroup struct {
+	key      string
+	summary  string
+	children []int
+}
+
+type issueSymbolMode string
+
+const (
+	symbolModeAuto    issueSymbolMode = "auto"
+	symbolModePlain   issueSymbolMode = "plain"
+	symbolModeSymbols issueSymbolMode = "symbols"
+	symbolModeEmoji   issueSymbolMode = "emoji"
+	symbolModeNerd    issueSymbolMode = "nerd"
+)
+
+type issueSymbols struct {
+	Epic    string
+	Story   string
+	Task    string
+	Bug     string
+	Subtask string
+	Issue   string
+}
+
+func (m Model) renderIssueWorkspace(layout browserLayout) string {
+	return m.renderIssueList(layout)
+}
+
+func (m Model) renderIssueList(layout browserLayout) string {
+	var b strings.Builder
+	rowCount := layout.rows
+	rows := m.issueRows(layout)
+	start := clamp(m.offset, 0, max(0, len(rows)-rowCount))
+	end := min(len(rows), start+rowCount)
+
+	b.WriteString(m.issueListHeader(layout))
+	b.WriteByte('\n')
+	if len(m.issues) > 0 {
+		vp := viewport.New(
+			viewport.WithWidth(max(1, layout.listWidth-4)),
+			viewport.WithHeight(max(1, rowCount)),
+		)
+		vp.SoftWrap = false
+		vp.FillHeight = false
+		vp.SetContent(strings.Join(rows, "\n"))
+		vp.SetYOffset(start)
+		b.WriteString(strings.TrimRight(vp.View(), "\n "))
+	} else {
+		b.WriteString(m.theme.Muted.Render("No issues found for this view."))
+	}
+
+	title := m.issueListTitle(len(rows), rowCount, start, end)
+	content := m.issueListTitleLine(title, layout) + "\n" + strings.TrimRight(b.String(), "\n")
+	if len(rows) > rowCount {
+		content += "\n" + m.theme.Muted.Render(m.pageIndicator(start, end))
+	}
+	return m.theme.ActivePane.Width(layout.listWidth).Render(content)
+}
+
+func (m Model) issueListTitle(rowTotal int, rowCount int, start int, end int) string {
+	title := "0 issues"
+	if len(m.issues) > 0 {
+		title = fmt.Sprintf("%d issues", len(m.issues))
+		if rowTotal > rowCount {
+			title = fmt.Sprintf("%d issues  rows %d-%d", len(m.issues), start+1, end)
+		}
+	}
+	return title
+}
+
+func (m Model) issueListTitleLine(title string, layout browserLayout) string {
+	line := m.theme.PaneTitle.Render(title) + " " + m.theme.Muted.Render("sorted by "+m.sortLabel())
+	if m.useCompactIssueListChrome(layout) {
+		return line
+	}
+	return line + "\n"
+}
+
+func (m Model) issueListHeader(layout browserLayout) string {
+	columns := m.issueListColumns(layout)
+	left := fmt.Sprintf("%s %s %-*s  %s", strings.Repeat(" ", columns.gutterWidth), padRight("T", columns.typeWidth), columns.keyWidth, "KEY", "SUMMARY")
+	right := m.issueListMetaHeader(layout)
+	spacer := max(1, columns.width-lipgloss.Width(left)-lipgloss.Width(right))
+	return m.theme.Muted.Render(left + strings.Repeat(" ", spacer) + right)
+}
+
+func (m Model) issueListMetaHeader(layout browserLayout) string {
+	columns := m.issueListColumns(layout)
+	return m.issueListMetaPlain(columns, "STATUS", "PRI", "OWNER")
+}
+
+func (m Model) issueRows(layout browserLayout) []string {
+	displayTree := buildIssueDisplayTree(m.issues)
+	var rows []string
+	for _, root := range displayTree.roots {
+		if root.missingParentKey != "" {
+			rows = append(rows, m.missingParentRows(displayTree, root.missingParentKey, layout)...)
+			continue
+		}
+		rows = append(rows, m.issueTreeRows(displayTree, root.issueIndex, "", true, layout)...)
+	}
+	return rows
+}
+
+func buildIssueDisplayTree(issues []jira.Issue) issueDisplayTree {
+	children := make(map[string][]int)
+	indexByKey := make(map[string]int, len(issues))
+	seen := make(map[string]bool, len(issues))
+	for index, issue := range issues {
+		seen[issue.Key] = true
+		indexByKey[issue.Key] = index
+	}
+	var roots []issueDisplayRoot
+	missingParents := make(map[string]missingParentGroup)
+	missingParentOf := make(map[string]bool)
+	seenMissingParent := make(map[string]bool)
+	for index, issue := range issues {
+		if issue.ParentKey != "" {
+			if seen[issue.ParentKey] {
+				children[issue.ParentKey] = append(children[issue.ParentKey], index)
+				continue
+			}
+			group := missingParents[issue.ParentKey]
+			group.key = issue.ParentKey
+			if group.summary == "" {
+				group.summary = issue.ParentSummary
+			}
+			group.children = append(group.children, index)
+			missingParents[issue.ParentKey] = group
+			missingParentOf[issue.ParentKey] = true
+			if !seenMissingParent[issue.ParentKey] {
+				roots = append(roots, issueDisplayRoot{missingParentKey: issue.ParentKey})
+				seenMissingParent[issue.ParentKey] = true
+			}
+			continue
+		}
+		roots = append(roots, issueDisplayRoot{issueIndex: index})
+	}
+	return issueDisplayTree{
+		issues:          issues,
+		roots:           roots,
+		children:        children,
+		indexByKey:      indexByKey,
+		missingParents:  missingParents,
+		missingParentOf: missingParentOf,
+	}
+}
+
+func (m Model) missingParentRows(displayTree issueDisplayTree, parentKey string, layout browserLayout) []string {
+	group := displayTree.missingParents[parentKey]
+	label := parentKey
+	if group.summary != "" {
+		label += "  " + group.summary
+	}
+	gutterWidth := issueTreeGutterWidth(layout)
+	rows := []string{m.theme.Muted.Render(padRight("  ◇", gutterWidth) + truncate(label, max(20, layout.listWidth-gutterWidth-2)))}
+	for index, child := range group.children {
+		rows = append(rows, m.issueTreeRows(displayTree, child, "  ", index == len(group.children)-1, layout)...)
+	}
+	return rows
+}
+
+func (m Model) issueTreeRows(displayTree issueDisplayTree, index int, prefix string, last bool, layout browserLayout) []string {
+	row := displayTree.issueRow(index)
+	gutter := issueTreeGutter(prefix, last, index == m.selected, layout)
+	label := m.renderIssueDisplayRow(row, gutter, layout)
+	if index == m.selected {
+		label = m.theme.Selected.Render(label)
+		if detail := m.selectedIssueListDetail(row, layout); detail != "" {
+			label += "\n" + m.theme.Muted.Render(padRight("", issueTreeGutterWidth(layout)+issueTypeColumnWidth+1)+detail)
+		}
+	}
+	rows := strings.Split(label, "\n")
+	children := displayTree.children[row.issue.Key]
+	nextPrefix := prefix
+	if prefix != "" || len(children) > 0 {
+		if last {
+			nextPrefix += "  "
+		} else {
+			nextPrefix += "│ "
+		}
+	}
+	for childPosition, childIndex := range children {
+		rows = append(rows, m.issueTreeRows(displayTree, childIndex, nextPrefix, childPosition == len(children)-1, layout)...)
+	}
+	return rows
+}
+
+func issueTreeGutter(prefix string, last bool, selected bool, layout browserLayout) string {
+	cursor := " "
+	if selected {
+		cursor = "▌"
+	}
+	if prefix == "" {
+		return padRight(cursor, issueTreeRootGutter)
+	}
+	connector := prefix
+	if last {
+		connector += "╰─"
+	} else {
+		connector += "├─"
+	}
+	return cursor + fitLeft(connector, issueTreeGutterWidth(layout)-2) + " "
+}
+
+func (t issueDisplayTree) issueRow(index int) issueDisplayRow {
+	issue := t.issues[index]
+	childIndexes := t.children[issue.Key]
+	hiddenChildren := issue.SubtaskCount - len(childIndexes)
+	if hiddenChildren < 0 {
+		hiddenChildren = 0
+	}
+	row := issueDisplayRow{
+		issue:          issue,
+		index:          index,
+		childCount:     len(childIndexes),
+		hiddenChildren: hiddenChildren,
+	}
+	if parentIndex, ok := t.indexByKey[issue.ParentKey]; ok {
+		parent := t.issues[parentIndex]
+		row.parent = &parent
+		row.parentVisible = true
+	}
+	if t.missingParentOf[issue.ParentKey] {
+		row.parentVisible = true
+	}
+	return row
+}
+
+func (m Model) renderIssueDisplayRow(row issueDisplayRow, gutter string, layout browserLayout) string {
+	issue := row.issue
+	kind := m.issueKindSymbol(issue)
+	columns := m.issueListColumns(layout)
+	gutter = fitIssueTreeGutter(gutter, layout)
+	kind = fitRight(kind, columns.typeWidth)
+	keyText := truncate(issue.Key, columns.keyWidth)
+	key := m.theme.Key.Render(fmt.Sprintf("%-*s", columns.keyWidth, keyText))
+	statusText := truncate(issue.Status, columns.statusWidth)
+	if statusText == "" {
+		statusText = "Unknown"
+	}
+	status := statusStyle(m.theme, issue.Status).Render(fmt.Sprintf("%-*s", columns.statusWidth, statusText))
+	priorityText := priorityBadge(issue.Priority)
+	priority := priorityStyle(m.theme, issue.Priority).Render(fmt.Sprintf("%-*s", columns.priorityWidth, truncate(priorityText, columns.priorityWidth)))
+	assigneeText := truncate(shortName(displayValue(issue.Assignee, "Unassigned")), columns.assigneeWidth)
+	assignee := m.theme.Muted.Render(fmt.Sprintf("%-*s", columns.assigneeWidth, assigneeText))
+	right := m.issueListMeta(columns, status, priority, assignee)
+
+	leftPlain := fmt.Sprintf("%s %s %-*s  ", gutter, kind, columns.keyWidth, keyText)
+	summaryWidth := max(12, columns.width-lipgloss.Width(leftPlain)-lipgloss.Width(m.issueListMetaPlain(columns, statusText, truncate(priorityText, columns.priorityWidth), assigneeText))-1)
+	summary := truncate(issue.Summary, summaryWidth)
+	if summary == "" {
+		summary = "(no summary)"
+	}
+	left := fmt.Sprintf("%s %s %s  %s", m.theme.Muted.Render(gutter), m.theme.Muted.Render(kind), key, summary)
+	spacer := max(1, columns.width-lipgloss.Width(left)-lipgloss.Width(right))
+	return left + strings.Repeat(" ", spacer) + right
+}
+
+func fitIssueTreeGutter(gutter string, layout browserLayout) string {
+	maxWidth := issueTreeGutterWidth(layout)
+	if lipgloss.Width(gutter) < issueTreeRootGutter {
+		return padRight(gutter, issueTreeRootGutter)
+	}
+	if lipgloss.Width(gutter) > maxWidth {
+		return fitRight(gutter, maxWidth)
+	}
+	return gutter
+}
+
+func issueTreeGutterWidth(layout browserLayout) int {
+	switch {
+	case layout.listWidth < 76:
+		return 6
+	case layout.listWidth < 90:
+		return 8
+	default:
+		return issueTreeMaxGutter
+	}
+}
+
+func (m Model) issueListColumns(layout browserLayout) issueListColumns {
+	width := max(40, layout.listWidth-4)
+	gutterWidth := issueTreeRootGutter
+	typeWidth := issueTypeColumnWidth
+	keyWidth := 12
+	statusWidth := 14
+	priorityWidth := 4
+	assigneeWidth := 14
+	showStatus := true
+	showPriority := true
+	showAssignee := layout.listWidth >= 96
+
+	switch {
+	case layout.listWidth < 64:
+		keyWidth = 8
+		statusWidth = 8
+		showPriority = false
+		showAssignee = false
+	case layout.listWidth < 76:
+		keyWidth = 10
+		statusWidth = 10
+		showPriority = false
+		showAssignee = false
+	case layout.listWidth < 90:
+		keyWidth = 10
+		statusWidth = 12
+		showAssignee = false
+	}
+
+	rightPlain := m.issueListMetaPlain(issueListColumns{
+		statusWidth:   statusWidth,
+		priorityWidth: priorityWidth,
+		assigneeWidth: assigneeWidth,
+		showStatus:    showStatus,
+		showPriority:  showPriority,
+		showAssignee:  showAssignee,
+	}, strings.Repeat("S", statusWidth), strings.Repeat("P", priorityWidth), strings.Repeat("O", assigneeWidth))
+	leftWidth := gutterWidth + 1 + typeWidth + 1 + keyWidth + 2
+	summaryWidth := max(12, width-leftWidth-lipgloss.Width(rightPlain)-1)
+	return issueListColumns{
+		width:         width,
+		gutterWidth:   gutterWidth,
+		typeWidth:     typeWidth,
+		keyWidth:      keyWidth,
+		statusWidth:   statusWidth,
+		priorityWidth: priorityWidth,
+		assigneeWidth: assigneeWidth,
+		showStatus:    showStatus,
+		showPriority:  showPriority,
+		showAssignee:  showAssignee,
+		summaryWidth:  summaryWidth,
+	}
+}
+
+func (m Model) issueListMeta(columns issueListColumns, status, priority, assignee string) string {
+	var parts []string
+	if columns.showStatus {
+		parts = append(parts, status)
+	}
+	if columns.showPriority {
+		parts = append(parts, priority)
+	}
+	if columns.showAssignee {
+		parts = append(parts, assignee)
+	}
+	return strings.Join(parts, " ")
+}
+
+func (m Model) issueListMetaPlain(columns issueListColumns, status, priority, assignee string) string {
+	var parts []string
+	if columns.showStatus {
+		parts = append(parts, fmt.Sprintf("%-*s", columns.statusWidth, truncate(status, columns.statusWidth)))
+	}
+	if columns.showPriority {
+		parts = append(parts, fmt.Sprintf("%-*s", columns.priorityWidth, truncate(priority, columns.priorityWidth)))
+	}
+	if columns.showAssignee {
+		parts = append(parts, fmt.Sprintf("%-*s", columns.assigneeWidth, truncate(assignee, columns.assigneeWidth)))
+	}
+	return strings.Join(parts, " ")
+}
+
+func (m Model) selectedIssueListDetail(row issueDisplayRow, layout browserLayout) string {
+	issue := row.issue
+	width := max(40, layout.listWidth-4)
+	var parts []string
+	if issue.ParentKey != "" && !row.parentVisible {
+		parts = append(parts, "parent "+issue.ParentKey)
+	}
+	if row.childCount > 0 && row.hiddenChildren > 0 {
+		parts = append(parts, fmt.Sprintf("%d children", row.childCount))
+	}
+	if row.hiddenChildren > 0 {
+		parts = append(parts, fmt.Sprintf("+%d hidden", row.hiddenChildren))
+	}
+	if issue.SubtaskCount > 0 && row.childCount == 0 {
+		parts = append(parts, fmt.Sprintf("%d subtasks reported", issue.SubtaskCount))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	line := m.theme.Muted.Render(strings.Join(parts, "  |  "))
+	return truncate(line, width)
+}
+
+func (m Model) issueKindSymbol(issue jira.Issue) string {
+	symbols := m.issueSymbols()
+	normalized := strings.ToLower(issue.IssueType)
+	switch {
+	case strings.Contains(normalized, "epic"):
+		return symbols.Epic
+	case issue.IsSubtask || strings.Contains(normalized, "sub-task") || strings.Contains(normalized, "subtask"):
+		return symbols.Subtask
+	case strings.Contains(normalized, "story"):
+		return symbols.Story
+	case strings.Contains(normalized, "bug"):
+		return symbols.Bug
+	case strings.Contains(normalized, "task"):
+		return symbols.Task
+	default:
+		return symbols.Issue
+	}
+}
+
+func (m Model) issueSymbols() issueSymbols {
+	switch m.effectiveSymbolMode() {
+	case symbolModePlain:
+		return issueSymbols{Epic: "E", Story: "S", Task: "T", Bug: "B", Subtask: "-", Issue: "*"}
+	case symbolModeEmoji:
+		return issueSymbols{Epic: "🟣", Story: "🟦", Task: "🟨", Bug: "🐞", Subtask: "↳", Issue: "•"}
+	case symbolModeNerd:
+		return issueSymbols{Epic: "◆", Story: "󰧭", Task: "󰄬", Bug: "", Subtask: "↳", Issue: "•"}
+	default:
+		return issueSymbols{Epic: "◆", Story: "■", Task: "●", Bug: "!", Subtask: "↳", Issue: "•"}
+	}
+}
+
+func (m Model) effectiveSymbolMode() issueSymbolMode {
+	mode := m.symbolMode
+	if mode == "" || mode == symbolModeAuto {
+		return detectSymbolMode()
+	}
+	return mode
+}
+
+func detectSymbolMode() issueSymbolMode {
+	term := strings.ToLower(os.Getenv("TERM"))
+	lang := strings.ToLower(os.Getenv("LC_ALL") + os.Getenv("LC_CTYPE") + os.Getenv("LANG"))
+	if term == "dumb" || (!strings.Contains(lang, "utf-8") && !strings.Contains(lang, "utf8")) {
+		return symbolModePlain
+	}
+	return symbolModeSymbols
+}

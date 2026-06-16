@@ -4,6 +4,36 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Improved config editor scalar text fields with cursor-aware Bubbles text input while preserving
+  existing boolean and color controls.
+- Routed issue-browser footer command rendering through Bubbles `key`/`help` adapters while
+  preserving existing context labels and grouped keyboard help.
+- Added a shared Bubbles list-backed choice-list adapter and migrated comment mention results onto
+  it as the first picker/list surface.
+- Migrated Assignee search results onto the shared Bubbles list-backed choice-list adapter while
+  preserving the existing Jira user search and assignment flow.
+- Migrated focused dynamic create option fields, including Components, onto the shared Bubbles
+  list-backed choice-list adapter while preserving existing filter and selection behavior.
+- Migrated create issue type selection onto the shared Bubbles list-backed choice-list adapter
+  while preserving keyboard movement and create-field metadata loading.
+- Replaced manual create option filter input with Bubbles `textinput` while keeping existing
+  create-field filter and selection state synchronized.
+- Migrated the Priority picker onto the shared Bubbles list-backed choice-list adapter while
+  preserving metadata-backed selection and submit behavior.
+- Restored focused ticket-detail action consistency: pressing `enter` on Comments now opens Add
+  Comment, the Actions menu routes implemented Status and Assignee workflows, and Assignee has its
+  own footer/help context.
+- Added ticket-detail contract tests that verify focused `enter` actions and section footer hints
+  stay aligned across Summary, Assignee, Priority, Links, Hierarchy, Comments, Actions, and Status.
+- Added a package/file boundary audit that identifies `internal/tui/model.go` and
+  `internal/tui/model_test.go` as the main monolith risk and recommends same-package workflow file
+  splits before new internal packages.
+- Split the former TUI monolith into same-package workflow files for commands, diagnostics,
+  issue-list rendering, comments, create issue, Claude assist, detail views, rich text, chrome,
+  navigation, worker results, formatting, summary editing, and external actions.
+- Split the broad TUI test file into matching workflow test files while keeping shared model fakes
+  and core update tests in `model_test.go`.
+
 ## 0.1.0 - 2026-06-16
 
 - Wrapped Jira ADF rendering with a maintained ADF-to-Markdown converter for richer descriptions

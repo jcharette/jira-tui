@@ -1,0 +1,485 @@
+package tui
+
+import (
+	"fmt"
+	"strings"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/jellydator/ttlcache/v3"
+	"github.com/jon/jira-tui/internal/jira"
+	"github.com/jon/jira-tui/internal/worker"
+)
+
+func (m Model) handleWorkerResult(result worker.Result) (Model, tea.Cmd) {
+	switch result.Kind {
+	case worker.KindSearchIssues:
+		return m.handleSearchResult(result)
+	case worker.KindGetIssue:
+		return m.handleDetailResult(result), nil
+	case worker.KindGetComments:
+		return m.handleCommentsResult(result), nil
+	case worker.KindAddComment:
+		if result.ID == m.activeClaudeAssistCommentReqID {
+			return m.handleClaudeAssistCommentResult(result)
+		}
+		return m.handleAddCommentResult(result)
+	case worker.KindSearchUsers:
+		return m.handleUserSearchResult(result), nil
+	case worker.KindExpandIssues:
+		return m.handleExpandIssuesResult(result), nil
+	case worker.KindGetTransitions:
+		return m.handleGetTransitionsResult(result), nil
+	case worker.KindTransitionIssue:
+		return m.handleTransitionIssueResult(result), nil
+	case worker.KindGetEditMetadata:
+		return m.handleEditMetadataResult(result), nil
+	case worker.KindUpdateSummary:
+		if result.ID == m.activeClaudeAssistSummaryReqID {
+			return m.handleClaudeAssistApplyResult(result), nil
+		}
+		return m.handleUpdateSummaryResult(result), nil
+	case worker.KindUpdateDescription:
+		return m.handleClaudeAssistApplyResult(result), nil
+	case worker.KindUpdatePriority:
+		return m.handleUpdatePriorityResult(result), nil
+	case worker.KindUpdateAssignee:
+		return m.handleUpdateAssigneeResult(result), nil
+	case worker.KindGetCreateIssueTypes:
+		return m.handleGetCreateIssueTypesResult(result), nil
+	case worker.KindGetCreateFields:
+		return m.handleGetCreateFieldsResult(result), nil
+	case worker.KindCreateIssue:
+		return m.handleCreateIssueResult(result), nil
+	default:
+		return m, nil
+	}
+}
+
+func (m Model) handleAssigneeSearchResult(result worker.Result) Model {
+	if result.ID != m.assigneeSearchReqID {
+		return m
+	}
+	m.assigneeSearchLoading = false
+	if result.Err != nil {
+		m.assigneeSearchErr = result.Err
+		m.detailNotice = "Assignee search failed: " + result.Err.Error()
+		return m
+	}
+	if result.SearchUsers == nil {
+		m.assigneeSearchErr = worker.ErrInvalidRequest
+		m.detailNotice = "Assignee search failed: " + worker.ErrInvalidRequest.Error()
+		return m
+	}
+	if result.SearchUsers.Query != m.assigneeQuery {
+		return m
+	}
+	m.cacheUserSearch(result.SearchUsers.Query, result.SearchUsers.Users)
+	m.assigneeUsers = result.SearchUsers.Users
+	m.selectedAssignee = clamp(m.selectedAssignee, 0, max(0, len(m.assigneeUsers)-1))
+	m.assigneeSearchErr = nil
+	m.detailNotice = ""
+	return m
+}
+
+func (m Model) cachedUserSearch(query string) ([]jira.User, bool) {
+	if m.userSearchCache == nil {
+		return nil, false
+	}
+	item := m.userSearchCache.Get(userSearchCacheKey(query))
+	if item == nil {
+		return nil, false
+	}
+	return item.Value(), true
+}
+
+func (m Model) cacheUserSearch(query string, users []jira.User) {
+	if m.userSearchCache == nil || strings.TrimSpace(query) == "" {
+		return
+	}
+	m.userSearchCache.Set(userSearchCacheKey(query), users, ttlcache.DefaultTTL)
+}
+
+func userSearchCacheKey(query string) string {
+	return strings.ToLower(strings.TrimSpace(query))
+}
+
+func (m Model) handleEditMetadataResult(result worker.Result) Model {
+	if result.ID != m.activeSummaryMetadataReqID && result.ID != m.activePriorityMetadataReqID {
+		return m
+	}
+	isPriorityRequest := result.ID == m.activePriorityMetadataReqID
+	if isPriorityRequest {
+		m.priorityMetadataLoading = false
+	} else {
+		m.summaryMetadataLoading = false
+	}
+	if result.Err != nil {
+		if isPriorityRequest {
+			m.priorityMetadataErr = result.Err
+			m.detailNotice = "Priority metadata failed: " + result.Err.Error()
+		} else {
+			m.summaryMetadataErr = result.Err
+			m.detailNotice = "Summary metadata failed: " + result.Err.Error()
+		}
+		return m
+	}
+	if result.GetEditMetadata == nil {
+		if isPriorityRequest {
+			m.priorityMetadataErr = worker.ErrInvalidRequest
+			m.detailNotice = "Priority metadata failed: " + worker.ErrInvalidRequest.Error()
+		} else {
+			m.summaryMetadataErr = worker.ErrInvalidRequest
+			m.detailNotice = "Summary metadata failed: " + worker.ErrInvalidRequest.Error()
+		}
+		return m
+	}
+	requestKey := m.summaryMetadataRequestKey
+	if isPriorityRequest {
+		requestKey = m.priorityMetadataRequestKey
+	}
+	if result.GetEditMetadata.Key != requestKey {
+		return m
+	}
+	selected, ok := m.selectedIssue()
+	if !ok || selected.Key != result.GetEditMetadata.Key {
+		return m
+	}
+	if m.editMetadata == nil {
+		m.editMetadata = make(map[string]jira.EditMetadata)
+	}
+	m.editMetadata[result.GetEditMetadata.Key] = result.GetEditMetadata.Metadata
+	if isPriorityRequest {
+		m.priorityMetadataErr = nil
+		return m.beginPriorityEditing(result.GetEditMetadata.Metadata)
+	}
+	m.summaryMetadataErr = nil
+	if !result.GetEditMetadata.Metadata.Summary.Editable {
+		m.detailNotice = "Summary is not editable for " + result.GetEditMetadata.Key + "."
+		return m
+	}
+	m.beginSummaryEditing()
+	return m
+}
+
+func (m Model) handleUpdateSummaryResult(result worker.Result) Model {
+	if result.ID != m.activeSummaryReqID {
+		return m
+	}
+	m.summarySubmitting = false
+	if result.Err != nil {
+		m.detailNotice = "Summary update failed: " + result.Err.Error()
+		return m
+	}
+	if result.UpdateSummary == nil {
+		m.detailNotice = "Summary update failed: " + worker.ErrInvalidRequest.Error()
+		return m
+	}
+	if result.UpdateSummary.Key != m.summarySubmitKey {
+		return m
+	}
+	m.updateIssueSummary(result.UpdateSummary.Key, result.UpdateSummary.Summary)
+	m.summaryEditing = false
+	m.summaryDirty = false
+	m.summarySubmitKey = ""
+	m.summarySubmitValue = ""
+	m.detailNotice = "Summary updated."
+	return m
+}
+
+func (m Model) handleUpdatePriorityResult(result worker.Result) Model {
+	if result.ID != m.activePriorityReqID {
+		return m
+	}
+	m.prioritySubmitting = false
+	if result.Err != nil {
+		m.detailNotice = "Priority update failed: " + result.Err.Error()
+		return m
+	}
+	if result.UpdatePriority == nil {
+		m.detailNotice = "Priority update failed: " + worker.ErrInvalidRequest.Error()
+		return m
+	}
+	if result.UpdatePriority.Key != m.prioritySubmitKey {
+		return m
+	}
+	priorityName := displayValue(result.UpdatePriority.Priority.Name, result.UpdatePriority.Priority.ID)
+	m.updateIssuePriority(result.UpdatePriority.Key, priorityName)
+	m.priorityFocus = false
+	m.prioritySubmitKey = ""
+	m.prioritySubmitValue = jira.FieldOption{}
+	m.detailNotice = "Priority updated to " + displayValue(priorityName, "Unknown") + "."
+	return m
+}
+
+func (m Model) handleUpdateAssigneeResult(result worker.Result) Model {
+	if result.ID != m.activeAssigneeReqID {
+		return m
+	}
+	m.assigneeSubmitting = false
+	if result.Err != nil {
+		m.detailNotice = "Assignee update failed: " + result.Err.Error()
+		return m
+	}
+	if result.UpdateAssignee == nil {
+		m.detailNotice = "Assignee update failed: " + worker.ErrInvalidRequest.Error()
+		return m
+	}
+	if result.UpdateAssignee.Key != m.assigneeSubmitKey {
+		return m
+	}
+	assigneeName := displayValue(result.UpdateAssignee.Assignee.DisplayName, result.UpdateAssignee.Assignee.Email)
+	m.updateIssueAssignee(result.UpdateAssignee.Key, assigneeName)
+	m.assigneeFocus = false
+	m.assigneeSubmitKey = ""
+	m.assigneeSubmitValue = jira.User{}
+	m.detailNotice = "Assignee updated to " + displayValue(assigneeName, "Unknown") + "."
+	return m
+}
+
+func (m Model) handleGetTransitionsResult(result worker.Result) Model {
+	if result.ID != m.activeTransitionsReqID {
+		return m
+	}
+	m.transitionLoading = false
+	if result.Err != nil {
+		m.transitionErr = result.Err
+		m.detailNotice = "Transitions failed: " + result.Err.Error()
+		return m
+	}
+	if result.GetTransitions == nil {
+		m.transitionErr = worker.ErrInvalidRequest
+		m.detailNotice = "Transitions failed: " + worker.ErrInvalidRequest.Error()
+		return m
+	}
+	if result.GetTransitions.Key != m.transitionRequestKey {
+		return m
+	}
+	selected, ok := m.selectedIssue()
+	if !ok || selected.Key != result.GetTransitions.Key {
+		return m
+	}
+	if m.transitions == nil {
+		m.transitions = make(map[string][]jira.Transition)
+	}
+	m.transitions[result.GetTransitions.Key] = result.GetTransitions.Transitions
+	m.selectedTransition = clamp(m.selectedTransition, 0, max(0, len(result.GetTransitions.Transitions)-1))
+	m.transitionFocus = len(result.GetTransitions.Transitions) > 0
+	m.transitionErr = nil
+	if len(result.GetTransitions.Transitions) == 0 {
+		m.detailNotice = "No available status transitions for " + result.GetTransitions.Key + "."
+	} else {
+		m.detailNotice = fmt.Sprintf("Loaded %d status transitions for %s.", len(result.GetTransitions.Transitions), result.GetTransitions.Key)
+	}
+	return m
+}
+
+func (m Model) handleTransitionIssueResult(result worker.Result) Model {
+	if result.ID != m.activeTransitionReqID {
+		return m
+	}
+	m.transitionSubmitting = false
+	if result.Err != nil {
+		m.detailNotice = "Status update failed: " + result.Err.Error()
+		return m
+	}
+	if result.TransitionIssue == nil {
+		m.detailNotice = "Status update failed: " + worker.ErrInvalidRequest.Error()
+		return m
+	}
+	if result.TransitionIssue.Key != m.transitionSubmitKey {
+		return m
+	}
+	m.updateIssueStatus(result.TransitionIssue.Key, result.TransitionIssue.ToStatus)
+	m.transitionFocus = false
+	m.transitionSubmitKey = ""
+	m.transitionSubmitToStatus = ""
+	m.detailNotice = "Status updated to " + displayValue(result.TransitionIssue.ToStatus, "Unknown") + "."
+	return m
+}
+
+func (m Model) handleExpandIssuesResult(result worker.Result) Model {
+	if result.ID != m.activeExpandReqID {
+		return m
+	}
+	m.expandLoading = false
+	if result.Err != nil {
+		m.detailNotice = "Expand failed: " + result.Err.Error()
+		return m
+	}
+	if result.ExpandIssues == nil {
+		m.detailNotice = "Expand failed: " + worker.ErrInvalidRequest.Error()
+		return m
+	}
+	if result.ExpandIssues.ParentKey != m.expandRequestKey || result.ExpandIssues.Mode != m.expandMode {
+		return m
+	}
+	added := m.mergeExpandedIssues(result.ExpandIssues.Issues)
+	label := "open children"
+	if result.ExpandIssues.Mode == worker.ExpandModeAll {
+		label = "all children"
+	}
+	if added == 0 {
+		m.detailNotice = "No new " + label + " found for " + result.ExpandIssues.ParentKey + "."
+		return m
+	}
+	m.detailNotice = fmt.Sprintf("Loaded %d %s for %s.", added, label, result.ExpandIssues.ParentKey)
+	m.ensureSelectionVisible(m.currentLayoutRows())
+	return m
+}
+
+func (m Model) handleSearchResult(result worker.Result) (Model, tea.Cmd) {
+	if result.ID != m.activeRequestID {
+		return m, nil
+	}
+	m.loading = false
+	m.refreshing = false
+	if result.Err != nil {
+		m.err = result.Err
+		return m, nil
+	}
+	if result.SearchIssues == nil {
+		m.err = worker.ErrInvalidRequest
+		return m, nil
+	}
+
+	m.err = nil
+	m.replaceIssues(result.SearchIssues.Issues)
+	m.lastSynced = result.SearchIssues.SyncedAt
+	return m.startDetailRequestForSelected()
+}
+
+func (m Model) handleDetailResult(result worker.Result) Model {
+	if result.ID != m.activeDetailRequestID {
+		return m
+	}
+	if m.detailRequestKey != "" {
+		selected, ok := m.selectedIssue()
+		if ok && selected.Key != m.detailRequestKey {
+			return m
+		}
+	}
+
+	m.detailLoading = false
+	if result.Err != nil {
+		m.detailErr = result.Err
+		return m
+	}
+	if result.GetIssue == nil {
+		m.detailErr = worker.ErrInvalidRequest
+		return m
+	}
+	if m.details == nil {
+		m.details = make(map[string]jira.IssueDetail)
+	}
+	m.details[result.GetIssue.Key] = result.GetIssue.Detail
+	m.markIssueDetailFresh(result.GetIssue.Key)
+	m.detailErr = nil
+	return m
+}
+
+func (m Model) isIssueDetailFresh(key string) bool {
+	if m.detailFreshnessCache == nil || strings.TrimSpace(key) == "" {
+		return false
+	}
+	return m.detailFreshnessCache.Get(key) != nil
+}
+
+func (m Model) markIssueDetailFresh(key string) {
+	if m.detailFreshnessCache == nil || strings.TrimSpace(key) == "" {
+		return
+	}
+	m.detailFreshnessCache.Set(key, struct{}{}, ttlcache.DefaultTTL)
+}
+
+func (m Model) handleAddCommentResult(result worker.Result) (Model, tea.Cmd) {
+	if result.ID != m.activeCommentReqID {
+		return m, nil
+	}
+	if m.commentRequestKey != "" {
+		selected, ok := m.selectedIssue()
+		if ok && selected.Key != m.commentRequestKey {
+			return m, nil
+		}
+	}
+	m.commentSubmitting = false
+	if result.Err != nil {
+		m.detailNotice = "Comment failed: " + result.Err.Error()
+		m.commentConfirm = false
+		return m, nil
+	}
+	if result.AddComment == nil {
+		m.detailNotice = "Comment failed: " + worker.ErrInvalidRequest.Error()
+		m.commentConfirm = false
+		return m, nil
+	}
+
+	key := result.AddComment.Key
+	m.mode = modeDetail
+	m.commentDraft = ""
+	m.commentMentions = nil
+	m.commentConfirm = false
+	m.commentRequestKey = ""
+	m.detailNotice = "Comment posted."
+	if m.comments != nil {
+		delete(m.comments, key)
+	}
+	m.nextRequestID++
+	m.activeCommentsReqID = m.nextRequestID
+	m.commentsRequestKey = key
+	m.commentsLoading = true
+	m.commentsErr = nil
+	return m, m.submitIssueComments(m.activeCommentsReqID, key)
+}
+
+func (m Model) handleUserSearchResult(result worker.Result) Model {
+	if result.ID == m.assigneeSearchReqID {
+		return m.handleAssigneeSearchResult(result)
+	}
+	if result.ID != m.mentionSearchReqID {
+		return m
+	}
+	m.mentionSearchLoading = false
+	if result.Err != nil {
+		m.mentionSearchErr = result.Err
+		return m
+	}
+	if result.SearchUsers == nil {
+		m.mentionSearchErr = worker.ErrInvalidRequest
+		return m
+	}
+	if result.SearchUsers.Query != m.mentionQuery {
+		return m
+	}
+	m.mentionUsers = result.SearchUsers.Users
+	m.mentionCursor = clamp(m.mentionCursor, 0, max(0, len(m.mentionUsers)-1))
+	m.mentionSearchErr = nil
+	return m
+}
+
+func (m Model) handleCommentsResult(result worker.Result) Model {
+	if result.ID != m.activeCommentsReqID {
+		return m
+	}
+	if m.commentsRequestKey != "" {
+		selected, ok := m.selectedIssue()
+		if ok && selected.Key != m.commentsRequestKey {
+			return m
+		}
+	}
+
+	m.commentsLoading = false
+	if result.Err != nil {
+		m.commentsErr = result.Err
+		return m
+	}
+	if result.GetComments == nil {
+		m.commentsErr = worker.ErrInvalidRequest
+		return m
+	}
+	if m.comments == nil {
+		m.comments = make(map[string][]jira.Comment)
+	}
+	m.comments[result.GetComments.Key] = result.GetComments.Comments
+	m.commentsErr = nil
+	return m
+}

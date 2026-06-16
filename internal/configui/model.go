@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jon/jira-tui/internal/config"
@@ -23,7 +24,7 @@ type Model struct {
 	section  int
 	selected int
 	editing  bool
-	buffer   string
+	editor   textinput.Model
 
 	width  int
 	height int
@@ -153,7 +154,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.PasteMsg:
 		if m.editing {
 			pasted := sanitizePastedText(msg.Content)
-			m.buffer += pasted
+			var cmd tea.Cmd
+			m.editor, cmd = m.editor.Update(tea.PasteMsg{Content: pasted})
 			m.problems = nil
 			m.err = nil
 			m.testStatus = ""
@@ -162,6 +164,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.testStatus = "Secret pasted"
 				m.testDetails = fmt.Sprintf("Added %d characters to %s.", len(pasted), m.currentField().label)
 			}
+			return m, cmd
 		}
 		return m, nil
 	case connectionTestMsg:
@@ -232,8 +235,7 @@ func (m Model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.toggleCurrentBool()
 				return m, nil
 			}
-			m.editing = true
-			m.buffer = m.currentField().value
+			m.startEditingCurrentField()
 		}
 	case "s":
 		return m.save()
@@ -250,26 +252,38 @@ func (m Model) updateEditor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "esc":
 		m.editing = false
-		m.buffer = ""
+		m.editor = textinput.Model{}
 	case "enter":
-		m.setCurrentValue(m.buffer)
+		m.setCurrentValue(m.editor.Value())
 		m.editing = false
-		m.buffer = ""
+		m.editor = textinput.Model{}
 		m.problems = nil
 		m.err = nil
 		m.testStatus = ""
 		m.testDetails = ""
-	case "backspace", "ctrl+h":
-		if len(m.buffer) > 0 {
-			m.buffer = m.buffer[:len(m.buffer)-1]
-		}
 	default:
-		value := msg.Key().Text
-		if value != "" {
-			m.buffer += value
-		}
+		var cmd tea.Cmd
+		m.editor, cmd = m.editor.Update(msg)
+		return m, cmd
 	}
 	return m, nil
+}
+
+func (m *Model) startEditingCurrentField() {
+	m.editing = true
+	m.editor = newConfigTextInput(m.currentField())
+}
+
+func newConfigTextInput(field field) textinput.Model {
+	editor := textinput.New()
+	editor.Prompt = ""
+	editor.SetValue(field.value)
+	editor.CursorEnd()
+	if field.secret {
+		editor.EchoMode = textinput.EchoPassword
+	}
+	editor.Focus()
+	return editor
 }
 
 func (m *Model) moveField(delta int) {
@@ -531,11 +545,9 @@ func (m Model) renderFields(layout layout) string {
 		}
 		value := displayValue(field)
 		if m.editing && index == m.selected {
-			value = m.buffer
-			if field.secret {
-				value = strings.Repeat("*", len(m.buffer))
-			}
-			value = m.theme.Input.Render(value)
+			editor := m.editor
+			editor.SetWidth(max(1, layout.fieldPane-24))
+			value = m.theme.Input.Render(editor.View())
 		} else if field.section == sectionAppearance {
 			value = renderColorSwatch(m.theme, value)
 		} else if field.boolean {

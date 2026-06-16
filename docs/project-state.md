@@ -1,6 +1,6 @@
 # Project State
 
-Last updated: 2026-06-14
+Last updated: 2026-06-16
 
 ## Goal
 
@@ -149,8 +149,9 @@ starting the issue list. Runtime settings are updated through `jira config`, not
 or environment variables. Claude is configured in the same config editor. It defaults disabled; an
 empty Claude command means auto-detect the local `claude` CLI with `exec.LookPath`, while a manual
 path such as `/opt/homebrew/bin/claude` is honored as an override. This Claude Code path uses the
-user's local CLI/session and does not require an Anthropic API key. Boolean config fields render as
-true/false picker controls instead of requiring users to type raw boolean strings.
+user's local CLI/session and does not require an Anthropic API key. Scalar config fields use Bubbles
+`textinput` for cursor-aware editing, while boolean config fields render as true/false picker
+controls instead of requiring users to type raw boolean strings.
 
 Default JQL:
 
@@ -269,24 +270,25 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   created date, and updated date when Jira returns those fields.
 - Focused ticket detail loads the latest Jira comments for the selected issue through the worker
   pool and renders them with the same ADF-aware terminal formatting as descriptions.
-- Focused ticket detail can add a Jira comment from the Actions section; the composer uses `ctrl+s` to
-  review, `y` to post, `n` to return to editing, and `esc` to cancel. Successful posts refresh the
-  issue comments.
+- Focused ticket detail can add a Jira comment from the Comments section by pressing `enter`, or
+  from the Actions section. The composer uses `ctrl+s` to review, `y` to post, `n` to return to
+  editing, and `esc` to cancel. Successful posts refresh the issue comments.
 - Focused ticket detail can edit Summary directly from the header field: `s` focuses Summary,
   `enter` loads Jira edit metadata through the worker pool, and a focused edit dialog owns the
   summary draft, validation notice, save, and cancel controls. Successful updates refresh the
   visible issue row and cached detail summary immediately.
 - Focused ticket detail includes a direct Status section. Selecting Status and pressing `enter`
   loads available Jira transitions through the worker pool, then opens the shared detail dialog
-  pattern with Jira-populated transition choices. Successful transitions update the visible issue
-  and cached detail status immediately.
+  pattern with Jira-populated transition choices. The Actions menu routes to the same transition
+  flow. Successful transitions update the visible issue and cached detail status immediately.
 - Focused ticket detail can edit Priority directly with `p`. The flow loads Jira edit metadata
   through the worker pool, opens a picker modal populated from Jira `allowedValues`, and submits the
   selected priority through the worker pool. Successful updates refresh the visible issue row and
   cached detail priority immediately.
 - Focused ticket detail can edit Assignee directly from the header metadata. Selecting Assignee and
   pressing `enter` opens a `Change Assignee` modal; typing filters Jira users through the worker
-  pool, arrow keys select a result, and `enter` assigns by Jira account ID. Successful updates
+  pool, arrow keys select a result, and `enter` assigns by Jira account ID. The Assignee modal owns
+  its footer/help context, and the Actions menu routes to the same picker. Successful updates
   refresh the visible issue row and cached detail assignee immediately.
 - Focused ticket detail treats Summary, Assignee, and Priority as first-class focus targets before
   the section tabs. `tab` and `shift+tab` move through editable fields and sections, while `enter`
@@ -317,12 +319,14 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
 - Jira user search is available through the client and worker pool for comment mentions.
 - Typing `@` in the comment composer opens a bounded Jira user-search picker. Selected users are
   inserted as visible `@Name` text and submitted as Jira ADF `mention` nodes with Atlassian account
-  IDs. Raw typed `@mention` text is still previewed as unresolved until selected through the picker.
+  IDs. Mention results render through the shared Bubbles list-backed choice-list adapter. Raw typed
+  `@mention` text is still previewed as unresolved until selected through the picker.
 - TUI keyboard bindings are centralized by active context, and `?` opens a keyboard help screen for
-  the current mode. Footer help is rendered from the same keymap source, grouped by task, and kept
-  to the high-value commands for the active screen. The footer starts with the active key context
-  so users can tell whether they are in the issue table, ticket detail, hierarchy, links, actions,
-  comment composition, or another focused mode.
+  the current mode. Local key metadata adapts to Bubbles `key.Binding`, and footer help renders
+  through Bubbles `help` while preserving the app's grouped task grammar. Footer help is kept to the
+  high-value commands for the active screen. The footer starts with the active key context so users
+  can tell whether they are in the issue table, ticket detail, hierarchy, links, actions, comment
+  composition, or another focused mode.
 - The keyboard help panel keeps its title and active context visible while the binding list scrolls,
   so paging help does not hide which mode is being documented.
 - Empty and error state panels describe state only; recovery commands such as refresh stay in the

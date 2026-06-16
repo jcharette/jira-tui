@@ -1,0 +1,392 @@
+package tui
+
+import (
+	"sort"
+	"strings"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/jon/jira-tui/internal/jira"
+	"github.com/jon/jira-tui/internal/worker"
+)
+
+func (m Model) startRefresh() (Model, tea.Cmd) {
+	m.nextRequestID++
+	m.activeRequestID = m.nextRequestID
+	m.expandLoading = false
+	m.expandRequestKey = ""
+	if len(m.issues) == 0 {
+		m.loading = true
+	} else {
+		m.refreshing = true
+	}
+	return m, m.submitIssueSearch(m.activeRequestID)
+}
+
+func (m Model) startExpandSelectedIssue(mode worker.ExpandMode) (Model, tea.Cmd) {
+	issue, ok := m.selectedIssue()
+	if !ok || issue.Key == "" {
+		m.detailNotice = "No issue selected."
+		return m, nil
+	}
+	m.nextRequestID++
+	m.activeExpandReqID = m.nextRequestID
+	m.expandRequestKey = issue.Key
+	m.expandMode = mode
+	m.expandLoading = true
+	label := "open children"
+	if mode == worker.ExpandModeAll {
+		label = "all children"
+	}
+	m.detailNotice = "Loading " + label + " for " + issue.Key + "."
+	return m, m.submitExpandIssues(m.activeExpandReqID, issue.Key, mode)
+}
+
+func (m Model) switchView(delta int) (Model, tea.Cmd) {
+	if len(m.views) == 0 {
+		return m, nil
+	}
+	m.view = (m.view + delta + len(m.views)) % len(m.views)
+	m.jql = m.views[m.view].JQL
+	m.selected = 0
+	m.offset = 0
+	m.issues = nil
+	m.err = nil
+	m.mode = modeTable
+	m.loading = true
+	m.refreshing = false
+	m.expandLoading = false
+	m.expandRequestKey = ""
+	m.detailNotice = ""
+	return m.startRefresh()
+}
+
+func (m *Model) mergeExpandedIssues(children []jira.Issue) int {
+	if len(children) == 0 {
+		return 0
+	}
+	selectedKey := ""
+	if selected, ok := m.selectedIssue(); ok {
+		selectedKey = selected.Key
+	}
+	seen := make(map[string]bool, len(m.issues)+len(children))
+	for _, issue := range m.issues {
+		seen[issue.Key] = true
+	}
+	added := 0
+	for _, child := range children {
+		if child.Key == "" || seen[child.Key] {
+			continue
+		}
+		m.issues = append(m.issues, child)
+		seen[child.Key] = true
+		added++
+	}
+	if added == 0 {
+		return 0
+	}
+	m.issues = orderIssues(m.issues, m.sort)
+	if selectedKey != "" {
+		for index, issue := range m.issues {
+			if issue.Key == selectedKey {
+				m.selected = index
+				break
+			}
+		}
+	}
+	return added
+}
+
+func (m *Model) switchSort(delta int) {
+	sortCount := int(sortKey) + 1
+	m.sort = sortMode((int(m.sort) + delta + sortCount) % sortCount)
+	selectedKey := ""
+	if len(m.issues) > 0 && m.selected >= 0 && m.selected < len(m.issues) {
+		selectedKey = m.issues[m.selected].Key
+	}
+	m.issues = orderIssues(m.issues, m.sort)
+	if selectedKey != "" {
+		for index, issue := range m.issues {
+			if issue.Key == selectedKey {
+				m.selected = index
+				break
+			}
+		}
+	}
+	m.ensureSelectionVisible(m.currentLayoutRows())
+}
+
+func (m Model) activeViewName() string {
+	if len(m.views) == 0 || m.view < 0 || m.view >= len(m.views) {
+		return "Default"
+	}
+	return m.views[m.view].Name
+}
+
+func (m *Model) moveSelection(delta int) {
+	if len(m.issues) == 0 {
+		m.selected = 0
+		m.offset = 0
+		return
+	}
+	m.selected = clamp(m.selected+delta, 0, len(m.issues)-1)
+	m.resetDetailScroll()
+	m.ensureSelectionVisible(m.currentLayoutRows())
+}
+
+func (m *Model) pageSelection(delta int) {
+	if len(m.issues) == 0 {
+		m.selected = 0
+		m.offset = 0
+		return
+	}
+	rows := m.currentLayoutRows()
+	step := max(1, rows-1)
+	m.selected = clamp(m.selected+(delta*step), 0, len(m.issues)-1)
+	m.resetDetailScroll()
+	m.ensureSelectionVisible(rows)
+}
+
+func (m *Model) scrollDetail(delta int) {
+	content := m.currentDetailContent()
+	rows := max(1, m.fullDetailRows()-1)
+	width := m.currentDetailBodyWidth()
+	vp := m.newDetailViewport(content, width, rows)
+	if delta > 0 {
+		vp.ScrollDown(delta)
+	} else if delta < 0 {
+		vp.ScrollUp(-delta)
+	}
+	m.detailOffset = vp.YOffset()
+	m.saveDetailSectionOffset()
+}
+
+func (m *Model) pageDetail(delta int) {
+	content := m.currentDetailContent()
+	rows := max(1, m.fullDetailRows()-1)
+	width := m.currentDetailBodyWidth()
+	vp := m.newDetailViewport(content, width, rows)
+	if delta > 0 {
+		vp.PageDown()
+	} else if delta < 0 {
+		vp.PageUp()
+	}
+	m.detailOffset = vp.YOffset()
+	m.saveDetailSectionOffset()
+}
+
+func (m *Model) scrollDetailToBottom() {
+	content := m.currentDetailContent()
+	rows := max(1, m.fullDetailRows()-1)
+	width := m.currentDetailBodyWidth()
+	vp := m.newDetailViewport(content, width, rows)
+	vp.GotoBottom()
+	m.detailOffset = vp.YOffset()
+	m.saveDetailSectionOffset()
+}
+
+func (m *Model) ensureSelectionVisible(rows int) {
+	rows = max(1, rows)
+	renderedRows := m.issueRows(m.browserLayout(m.width))
+	selectedRow := m.selectedRenderedRowIndex(renderedRows)
+	maxOffset := max(0, len(renderedRows)-rows)
+	if selectedRow < m.offset {
+		m.offset = selectedRow
+	}
+	if selectedRow >= m.offset+rows {
+		m.offset = selectedRow - rows + 1
+	}
+	m.offset = clamp(m.offset, 0, maxOffset)
+}
+
+func (m Model) selectedRenderedRowIndex(rows []string) int {
+	if len(m.issues) == 0 || m.selected < 0 || m.selected >= len(m.issues) {
+		return 0
+	}
+	key := m.issues[m.selected].Key
+	for index, row := range rows {
+		if strings.Contains(row, key) {
+			return index
+		}
+	}
+	return clamp(m.selected, 0, max(0, len(rows)-1))
+}
+
+func (m Model) currentLayoutRows() int {
+	width := m.width
+	if width <= 0 {
+		width = 100
+	}
+	return m.browserLayout(width).rows
+}
+
+func (m Model) selectedIssue() (jira.Issue, bool) {
+	if len(m.issues) == 0 || m.selected < 0 || m.selected >= len(m.issues) {
+		return jira.Issue{}, false
+	}
+	return m.issues[m.selected], true
+}
+
+func (m *Model) replaceIssues(issues []jira.Issue) {
+	selectedKey := ""
+	if len(m.issues) > 0 && m.selected >= 0 && m.selected < len(m.issues) {
+		selectedKey = m.issues[m.selected].Key
+	}
+
+	m.issues = orderIssues(issues, m.sort)
+	if len(m.issues) == 0 {
+		m.selected = 0
+		m.offset = 0
+		return
+	}
+
+	if selectedKey != "" {
+		for index, issue := range m.issues {
+			if issue.Key == selectedKey {
+				m.selected = index
+				m.ensureSelectionVisible(m.currentLayoutRows())
+				return
+			}
+		}
+	}
+	m.selected = clamp(m.selected, 0, len(m.issues)-1)
+	m.ensureSelectionVisible(m.currentLayoutRows())
+}
+
+func (m *Model) updateIssueStatus(key string, status string) {
+	if key == "" || status == "" {
+		return
+	}
+	for index := range m.issues {
+		if m.issues[index].Key == key {
+			m.issues[index].Status = status
+			break
+		}
+	}
+	if detail, ok := m.details[key]; ok {
+		detail.Status = status
+		detail.Issue.Status = status
+		m.details[key] = detail
+	}
+}
+
+func (m *Model) updateIssuePriority(key string, priority string) {
+	if key == "" || priority == "" {
+		return
+	}
+	for index := range m.issues {
+		if m.issues[index].Key == key {
+			m.issues[index].Priority = priority
+			break
+		}
+	}
+	if detail, ok := m.details[key]; ok {
+		detail.Priority = priority
+		detail.Issue.Priority = priority
+		m.details[key] = detail
+	}
+}
+
+func (m *Model) updateIssueAssignee(key string, assignee string) {
+	if key == "" || assignee == "" {
+		return
+	}
+	for index := range m.issues {
+		if m.issues[index].Key == key {
+			m.issues[index].Assignee = assignee
+			break
+		}
+	}
+	if detail, ok := m.details[key]; ok {
+		detail.Assignee = assignee
+		detail.Issue.Assignee = assignee
+		m.details[key] = detail
+	}
+}
+
+func (m *Model) updateIssueSummary(key string, summary string) {
+	if key == "" || summary == "" {
+		return
+	}
+	for index := range m.issues {
+		if m.issues[index].Key == key {
+			m.issues[index].Summary = summary
+			break
+		}
+	}
+	if detail, ok := m.details[key]; ok {
+		detail.Summary = summary
+		detail.Issue.Summary = summary
+		m.details[key] = detail
+	}
+}
+
+func (m *Model) updateIssueDescription(key string, description string) {
+	if key == "" {
+		return
+	}
+	if detail, ok := m.details[key]; ok {
+		detail.Description = description
+		m.details[key] = detail
+	}
+}
+
+func orderIssues(issues []jira.Issue, mode sortMode) []jira.Issue {
+	byParent := make(map[string][]jira.Issue)
+	topLevel := make([]jira.Issue, 0, len(issues))
+	seen := make(map[string]bool, len(issues))
+	for _, issue := range issues {
+		seen[issue.Key] = true
+	}
+	for _, issue := range issues {
+		if issue.ParentKey != "" && seen[issue.ParentKey] {
+			byParent[issue.ParentKey] = append(byParent[issue.ParentKey], issue)
+			continue
+		}
+		topLevel = append(topLevel, issue)
+	}
+
+	sortIssueGroup(topLevel, mode)
+	for parent := range byParent {
+		sortIssueGroup(byParent[parent], mode)
+	}
+
+	ordered := make([]jira.Issue, 0, len(issues))
+	for _, issue := range topLevel {
+		ordered = append(ordered, issue)
+		ordered = append(ordered, byParent[issue.Key]...)
+	}
+	return ordered
+}
+
+func sortIssueGroup(issues []jira.Issue, mode sortMode) {
+	if mode == sortJira {
+		return
+	}
+	sort.SliceStable(issues, func(i, j int) bool {
+		left := issues[i]
+		right := issues[j]
+		switch mode {
+		case sortPriority:
+			if priorityRank(left.Priority) != priorityRank(right.Priority) {
+				return priorityRank(left.Priority) > priorityRank(right.Priority)
+			}
+		case sortStatus:
+			if left.Status != right.Status {
+				return left.Status < right.Status
+			}
+		case sortAssignee:
+			if left.Assignee != right.Assignee {
+				return left.Assignee < right.Assignee
+			}
+		case sortType:
+			if left.IssueType != right.IssueType {
+				return left.IssueType < right.IssueType
+			}
+		case sortKey:
+			if left.Key != right.Key {
+				return left.Key < right.Key
+			}
+		}
+		return left.Key < right.Key
+	})
+}

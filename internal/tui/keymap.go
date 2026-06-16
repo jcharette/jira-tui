@@ -1,6 +1,10 @@
 package tui
 
-import "strings"
+import (
+	"strings"
+
+	"charm.land/bubbles/v2/key"
+)
 
 type keyContext string
 
@@ -12,6 +16,7 @@ const (
 	keyContextActions        keyContext = "Actions"
 	keyContextStatus         keyContext = "Status"
 	keyContextPriority       keyContext = "Priority"
+	keyContextAssignee       keyContext = "Assignee"
 	keyContextSummary        keyContext = "Summary"
 	keyContextComment        keyContext = "Add Comment"
 	keyContextMentionPicker  keyContext = "Mention Picker"
@@ -41,6 +46,24 @@ func (b keyBinding) footerText() string {
 	return b.keyText() + " " + b.Label
 }
 
+func (b keyBinding) bubbleKeyBinding() key.Binding {
+	return key.NewBinding(
+		key.WithKeys(b.Keys...),
+		key.WithHelp(b.keyText(), b.Label),
+	)
+}
+
+func (b keyBinding) bubbleKeyBindingForFullHelp() key.Binding {
+	description := b.Description
+	if strings.TrimSpace(description) == "" {
+		description = b.Label
+	}
+	return key.NewBinding(
+		key.WithKeys(b.Keys...),
+		key.WithHelp(b.keyText(), description),
+	)
+}
+
 func activeKeyContext(m Model) keyContext {
 	switch {
 	case m.mode == modeComment && m.mentionPickerOpen:
@@ -59,6 +82,8 @@ func activeKeyContext(m Model) keyContext {
 		return keyContextStatus
 	case m.mode == modeDetail && m.priorityFocus:
 		return keyContextPriority
+	case m.mode == modeDetail && m.assigneeFocus:
+		return keyContextAssignee
 	case m.mode == modeDetail && m.summaryFocus:
 		return keyContextSummary
 	case m.mode == modeDetail && m.hierarchyFocus:
@@ -97,6 +122,8 @@ func keyBindings(context keyContext) []keyBinding {
 		bindings = append(bindings, statusBindings()...)
 	case keyContextPriority:
 		bindings = append(bindings, priorityBindings()...)
+	case keyContextAssignee:
+		bindings = append(bindings, assigneeBindings()...)
 	case keyContextSummary:
 		bindings = append(bindings, summaryBindings()...)
 	case keyContextComment:
@@ -216,6 +243,15 @@ func priorityBindings() []keyBinding {
 		{Keys: []string{"esc"}, Label: "cancel", Description: "Cancel priority editing.", Group: "Navigation", Footer: true},
 		{Keys: []string{"j", "k", "up", "down"}, FooterKey: "j/k", Label: "priority", Description: "Select a Jira priority.", Group: "Priority", Footer: true},
 		{Keys: []string{"enter"}, Label: "apply", Description: "Apply the selected priority.", Group: "Priority", Footer: true},
+	}
+}
+
+func assigneeBindings() []keyBinding {
+	return []keyBinding{
+		{Keys: []string{"type"}, Label: "filter", Description: "Type to search Jira assignable users.", Group: "Assignee", Footer: true},
+		{Keys: []string{"up", "down"}, FooterKey: "up/down", Label: "select", Description: "Move through matching Jira users.", Group: "Assignee", Footer: true},
+		{Keys: []string{"enter"}, Label: "apply", Description: "Apply the selected assignee.", Group: "Assignee", Footer: true},
+		{Keys: []string{"esc"}, Label: "cancel", Description: "Cancel assignee editing.", Group: "Assignee", Footer: true},
 	}
 }
 

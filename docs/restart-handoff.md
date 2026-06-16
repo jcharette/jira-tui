@@ -58,9 +58,13 @@ Last updated: 2026-06-13
 
 ## Files Most Relevant To Resume
 
-- `internal/tui/model.go`: main Bubble Tea model and ticket list/detail rendering.
+- `internal/tui/model.go`: core Bubble Tea model, constructor/options, update loop, and top-level
+  view dispatch.
+- `internal/tui/detail.go`, `comment.go`, `create_issue.go`, `claude_assist.go`, `issue_list.go`,
+  `rich_text.go`, `chrome.go`, `navigation.go`, and `results.go`: same-package TUI workflow files.
 - `internal/tui/keymap.go`: centralized key contexts and footer/help bindings.
-- `internal/tui/model_test.go`: rendering/navigation regression tests.
+- `internal/tui/*_test.go`: workflow regression tests, with shared fakes/helpers in
+  `model_test.go`.
 - `internal/jira/client.go`: Jira API wrapper.
 - `internal/worker/pool.go`: background Jira work dispatcher.
 - `internal/adf/`: Jira ADF terminal renderer.
@@ -102,4 +106,3 @@ Run make check and make install-user before stopping.
    - Code-heavy descriptions.
    - Epics with children/subtasks.
    - Tickets with links and comments.
-

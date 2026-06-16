@@ -154,6 +154,34 @@ func TestBooleanFieldsToggleWithoutTextEditing(t *testing.T) {
 	}
 }
 
+func TestScalarFieldEditingUsesCursorAwareTextInput(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.DefaultProject = "ABC"
+	model := NewModel("/tmp/jira.toml", cfg, nil)
+	model.section = sectionQueries
+	model.selected = fieldIndexForTest(model, sectionQueries, "Default Project")
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+	if !next.editing {
+		t.Fatal("expected scalar field to enter edit mode")
+	}
+
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "left", Code: tea.KeyLeft}))
+	next = updated.(Model)
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "x", Code: 'x'}))
+	next = updated.(Model)
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next = updated.(Model)
+
+	if next.editing {
+		t.Fatal("expected enter to accept scalar edit")
+	}
+	if value := fieldValueForTest(next, "Default Project"); value != "ABxC" {
+		t.Fatalf("Default Project = %q, want cursor-aware insert into ABxC", value)
+	}
+}
+
 func setFieldForTest(model *Model, label string, value string) {
 	for index, field := range model.fields {
 		if field.label == label {

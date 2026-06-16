@@ -3,6 +3,9 @@
 - Prefer maintained third-party libraries for reusable infrastructure when they fit the Go TUI
   stack. Before feature or fix work, ask whether a library can reduce hand-rolled cache, sync,
   concurrency, parsing, or UI primitive code; hand-roll only when library options are a poor fit.
+- For TUI actions, test the full interaction contract together: visible focused target or menu row,
+  advertised footer/help binding, key handling, and resulting mode/command. Do not test rendering
+  and key behavior as unrelated concerns.
 - The TUI must always stay responsive. It is acceptable and encouraged to use more background
   workers/threads for Jira reads, cache refresh, TTL expiry handling, and prefetch/sync work, as
   long as those flows are bounded, use maintained libraries where they fit, and never block the
@@ -166,3 +169,9 @@
 - After users answer Open Questions, the Claude resync path must be visible in the same panel. Add
   an explicit focused action such as `ctrl+r refine with answers` instead of requiring users to tab
   away and infer that Generate Draft is the resync control.
+- TUI component migrations must prioritize consistency over isolated cleanup. When replacing
+  hand-rolled picker/list/input behavior, introduce one reusable internal adapter pattern and migrate
+  surfaces onto it incrementally instead of creating one-off wrappers for each screen.
+- Watch file and package boundaries before they become cleanup projects. In Go, prefer proactive
+  same-package file splits when one file starts owning multiple workflows; do not wait for a
+  10,000-line file before asking whether the current boundary is still maintainable.

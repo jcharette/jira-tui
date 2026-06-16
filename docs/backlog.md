@@ -10,10 +10,14 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
 
 - Follow [working-agreement.md](working-agreement.md) for every future code/doc change.
 - Use [roadmap.md](roadmap.md) as the milestone source of truth.
-- Next major initiative: audit hand-rolled TUI rendering and input components for replacement with
-  maintained Bubble Tea, Bubbles, Lip Gloss, or compatible public libraries before extending custom
-  UI code. Prioritize code paths where custom rendering/input handling has already caused bugs or
-  unnecessary complexity.
+- Use [package-boundary-audit.md](package-boundary-audit.md) before adding new TUI workflow
+  surfaces: keep additions in the existing same-package workflow files, avoid putting unrelated
+  behavior back into `model.go`, and defer new packages until there is a clear second consumer or
+  dependency boundary.
+- Continue replacing hand-rolled TUI rendering and input components with maintained Bubble Tea,
+  Bubbles, Lip Gloss, or compatible public libraries when the package/file boundary audit identifies
+  a clear, low-risk adapter opportunity. Do not force multi-column action/state tables into the
+  simple choice-list adapter without a design pass.
 - Keep ticket detail rendering as the priority before new workflow features: handle Jira ADF links,
   mentions, inline code, code blocks, lists, blockquotes, panels/statuses, and tables clearly in the
   terminal.
@@ -32,6 +36,12 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
   compose mode for comments, edit-field mode for metadata-backed forms, transition mode for status
   changes, and an action menu/command palette for less common operations.
 - Add incremental loading strategy for sprint data and future expanded comment/detail workflows.
+- Design responsive loading for large Jira views before implementing cache/sync work: investigate a
+  cache-backed read model that can show useful local results quickly, refresh in the background,
+  expose freshness/last-sync state, and avoid silently stale data. Evaluate in-memory plus optional
+  persistent local storage, stale-while-refresh behavior, explicit invalidation after writes, and a
+  maintained priority queue/scheduler approach so user-triggered reads/writes outrank background
+  prefetch, refresh, and sync jobs.
 - Add a generic in-memory TTL cache policy around Jira reads using maintained library support where
   possible: cache typeahead/metadata/detail/view data with per-data TTLs, refresh important entries
   asynchronously on expiry or view timers, use bounded background workers/threads where helpful,
