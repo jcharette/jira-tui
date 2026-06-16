@@ -46,7 +46,7 @@ func (m Model) renderRichDescriptionBody(value string, width int) string {
 			codeLines = append(codeLines, line)
 			continue
 		}
-		lines = append(lines, renderInlineCode(m.theme, line))
+		lines = append(lines, m.renderRichLine(line, width))
 	}
 	if inCodeBlock && len(codeLines) > 0 {
 		lines = appendCodeBlock(lines, m.renderCodeBlockLines(codeLines, width))
@@ -146,7 +146,7 @@ func renderTableLine(theme ui.Theme, line string) string {
 		if index == 0 || index == len(cells)-1 {
 			continue
 		}
-		cells[index] = renderInlineCode(theme, cell)
+		cells[index] = renderRichInline(theme, cell)
 	}
 	return theme.Muted.Render("|") + strings.Join(cells[1:len(cells)-1], theme.Muted.Render("|")) + theme.Muted.Render("|")
 }
@@ -164,14 +164,31 @@ func isTableSeparator(line string) bool {
 	return strings.Contains(trimmed, "-")
 }
 
-func renderInlineCode(theme ui.Theme, line string) string {
+func (m Model) renderRichLine(line string, width int) string {
+	trimmed := strings.TrimSpace(line)
+	if body, ok := strings.CutPrefix(trimmed, "[panel] "); ok {
+		contentWidth := max(12, width-2)
+		body = strings.TrimSpace(body)
+		return m.theme.NoticeBlock.Width(contentWidth + 2).Render(m.theme.Warning.Render("Panel") + " " + renderRichInline(m.theme, body))
+	}
+	return renderRichInline(m.theme, line)
+}
+
+func renderRichInline(theme ui.Theme, line string) string {
 	var b strings.Builder
 	remaining := line
 	for {
 		start := strings.Index(remaining, "`")
-		if start < 0 {
+		statusStart, statusEnd, statusText := nextADFStatusMarker(remaining)
+		if start < 0 && statusStart < 0 {
 			b.WriteString(theme.Text.Render(remaining))
 			break
+		}
+		if statusStart >= 0 && (start < 0 || statusStart < start) {
+			b.WriteString(theme.Text.Render(remaining[:statusStart]))
+			b.WriteString(theme.Warning.Copy().Bold(true).Render(statusText))
+			remaining = remaining[statusEnd:]
+			continue
 		}
 		b.WriteString(theme.Text.Render(remaining[:start]))
 		remaining = remaining[start+1:]
@@ -189,6 +206,46 @@ func renderInlineCode(theme ui.Theme, line string) string {
 		remaining = remaining[end+1:]
 	}
 	return b.String()
+}
+
+func nextADFStatusMarker(value string) (int, int, string) {
+	start := strings.Index(value, "[")
+	for start >= 0 {
+		endRelative := strings.Index(value[start+1:], "]")
+		if endRelative < 0 {
+			return -1, -1, ""
+		}
+		end := start + 1 + endRelative
+		text := strings.TrimSpace(value[start+1 : end])
+		if isADFStatusText(text) {
+			return start, end + 1, text
+		}
+		next := strings.Index(value[start+1:], "[")
+		if next < 0 {
+			return -1, -1, ""
+		}
+		start += next + 1
+	}
+	return -1, -1, ""
+}
+
+func isADFStatusText(value string) bool {
+	if value == "" || len(value) > 32 {
+		return false
+	}
+	hasLetterOrDigit := false
+	for _, r := range value {
+		switch {
+		case r >= 'A' && r <= 'Z':
+			hasLetterOrDigit = true
+		case r >= '0' && r <= '9':
+			hasLetterOrDigit = true
+		case r == ' ' || r == '-' || r == '_':
+		default:
+			return false
+		}
+	}
+	return hasLetterOrDigit
 }
 
 func wrapRichText(value string, width int) string {

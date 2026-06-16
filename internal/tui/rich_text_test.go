@@ -91,6 +91,24 @@ func TestRenderRichDescriptionUsesLipglossTable(t *testing.T) {
 	}
 }
 
+func TestRenderRichDescriptionStylesPanelAndStatusMarkers(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+
+	rendered := model.renderRichDescriptionBody("[panel] [BLOCKED] Roll back the deploy before retrying.", 72)
+
+	for _, unwanted := range []string{"[panel]", "[BLOCKED]"} {
+		if strings.Contains(rendered, unwanted) {
+			t.Fatalf("expected ADF marker %q to be styled away: %q", unwanted, rendered)
+		}
+	}
+	for _, want := range []string{"Panel", "BLOCKED", "Roll back the deploy"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("missing %q in %q", want, rendered)
+		}
+	}
+}
+
 func TestRenderDescriptionSeparatesHeaderFromRichBody(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()

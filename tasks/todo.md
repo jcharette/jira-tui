@@ -1,5 +1,29 @@
 # Task Plan
 
+## Ticket Detail Rich Rendering Polish
+
+- [x] Inspect current rich ticket detail rendering gaps after the package split.
+- [x] Add focused coverage for Jira ADF panel/status markers.
+- [x] Style panel/status markers in the TUI rich text renderer without changing `internal/adf.Render`.
+- [x] Run focused rich-rendering tests.
+- [x] Run final verification with `go test ./internal/tui -count=1`, `go test ./... -count=1`, and `make check`.
+
+### Ticket Detail Rich Rendering Polish Scope
+
+Continue the Read/View backlog by improving how Jira ADF-derived rich text appears in ticket detail
+without changing Jira API conversion or broad layout behavior. Keep the slice small: preserve the
+plain-text `internal/adf.Render` boundary and make the TUI presentation layer style markers it
+already receives.
+
+### Ticket Detail Rich Rendering Polish Review
+
+- Added regression coverage for ADF panel/status marker rendering.
+- Converted `[panel]` prefixes into the existing compact notice-block style in rich ticket text.
+- Converted narrow all-caps Jira status tokens such as `[BLOCKED]` into styled status text so raw
+  bracket markers do not leak into ticket detail.
+- Verified with focused rich-rendering tests, `go test ./internal/tui -count=1`,
+  `go test ./... -count=1`, and `make check`.
+
 ## Same-Package TUI File Split
 
 - [x] Record execution scope and split order.

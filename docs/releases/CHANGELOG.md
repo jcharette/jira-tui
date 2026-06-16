@@ -4,6 +4,8 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Styled Jira ADF panel/status markers in ticket detail rich text so bracket markers such as
+  `[panel]` and `[BLOCKED]` no longer leak into the rendered body.
 - Improved config editor scalar text fields with cursor-aware Bubbles text input while preserving
   existing boolean and color controls.
 - Routed issue-browser footer command rendering through Bubbles `key`/`help` adapters while
