@@ -1,5 +1,32 @@
 # Task Plan
 
+## Jira Cache And Background Refresh Design
+
+- [x] Inspect current Jira read/write flow, worker pool, refresh behavior, and existing caches.
+- [x] Document freshness, stale-while-refresh, write invalidation, priority, diagnostics, and
+  persistence rules.
+- [x] Define the first implementation slice around an in-memory active-view cache.
+- [x] Verify docs/code health with `make check`.
+
+### Jira Cache And Background Refresh Design Scope
+
+Plan the performance work before implementation so large Jira views become responsive without
+silently stale data. Keep the current worker-backed Jira IO model, prioritize foreground user
+actions over background refresh, and avoid persistent storage until the in-memory read model proves
+useful.
+
+### Jira Cache And Background Refresh Design Review
+
+- Added `docs/jira-cache-performance-design.md`.
+- Identified that active JQL search results are not currently cached as a reusable read model; large
+  views still wait on Jira search plus enrichment before replacing the issue list.
+- Kept existing `ants` worker pool and `ttlcache` usage as near-term primitives.
+- Defined priority classes for writes, foreground reads, explicit refresh, foreground prefetch, and
+  background sync.
+- Chose the next implementation slice: in-memory active-view cache with stale-while-refresh,
+  freshness labels, failed-refresh stale preservation, and selection-preserving merge tests.
+- Verified with `make check`.
+
 ## Ticket Detail Rich Rendering Polish
 
 - [x] Inspect current rich ticket detail rendering gaps after the package split.

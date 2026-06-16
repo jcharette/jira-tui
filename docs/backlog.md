@@ -35,12 +35,9 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
   compose mode for comments, edit-field mode for metadata-backed forms, transition mode for status
   changes, and an action menu/command palette for less common operations.
 - Add incremental loading strategy for sprint data and future expanded comment/detail workflows.
-- Design responsive loading for large Jira views before implementing cache/sync work: investigate a
-  cache-backed read model that can show useful local results quickly, refresh in the background,
-  expose freshness/last-sync state, and avoid silently stale data. Evaluate in-memory plus optional
-  persistent local storage, stale-while-refresh behavior, explicit invalidation after writes, and a
-  maintained priority queue/scheduler approach so user-triggered reads/writes outrank background
-  prefetch, refresh, and sync jobs.
+- Implement the first slice from [jira-cache-performance-design.md](jira-cache-performance-design.md):
+  an in-memory active-view cache with stale-while-refresh, visible freshness state, failed-refresh
+  stale preservation, and selection-preserving merge tests.
 - Add a generic in-memory TTL cache policy around Jira reads using maintained library support where
   possible: cache typeahead/metadata/detail/view data with per-data TTLs, refresh important entries
   asynchronously on expiry or view timers, use bounded background workers/threads where helpful,

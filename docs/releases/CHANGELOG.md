@@ -4,6 +4,9 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Added a Jira cache/background refresh design for responsive large views, freshness labels,
+  priority classes, stale-while-refresh behavior, write invalidation, diagnostics, and future
+  persistent cache constraints.
 - Styled Jira ADF panel/status markers, blockquotes, mentions, URLs, and email addresses in ticket
   detail rich text while preserving compact code blocks and fitted table rendering.
 - Improved config editor scalar text fields with cursor-aware Bubbles text input while preserving
