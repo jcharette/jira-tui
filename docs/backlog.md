@@ -18,9 +18,8 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
   Bubbles, Lip Gloss, or compatible public libraries when the package/file boundary audit identifies
   a clear, low-risk adapter opportunity. Do not force multi-column action/state tables into the
   simple choice-list adapter without a design pass.
-- Keep ticket detail rendering as the priority before new workflow features: handle Jira ADF links,
-  mentions, inline code, code blocks, lists, blockquotes, panels/statuses, and tables clearly in the
-  terminal.
+- Keep ticket detail rich rendering covered as new Jira ADF shapes appear: links, mentions, inline
+  code, code blocks, lists, blockquotes, panels/statuses, and tables now have focused TUI coverage.
 - Continue rich comment composition support with Jira mentions and formatting controls on top of
   the bounded multi-line comment editor and detected-link/ADF-link support.
 - Add tests around TUI navigation and rendering.

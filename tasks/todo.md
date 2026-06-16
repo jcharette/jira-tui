@@ -5,6 +5,8 @@
 - [x] Inspect current rich ticket detail rendering gaps after the package split.
 - [x] Add focused coverage for Jira ADF panel/status markers.
 - [x] Style panel/status markers in the TUI rich text renderer without changing `internal/adf.Render`.
+- [x] Add focused coverage for blockquotes, mentions, and links in rich ticket detail text.
+- [x] Style blockquotes, mentions, URLs, and emails in the same TUI rich text presentation path.
 - [x] Run focused rich-rendering tests.
 - [x] Run final verification with `go test ./internal/tui -count=1`, `go test ./... -count=1`, and `make check`.
 
@@ -21,6 +23,9 @@ already receives.
 - Converted `[panel]` prefixes into the existing compact notice-block style in rich ticket text.
 - Converted narrow all-caps Jira status tokens such as `[BLOCKED]` into styled status text so raw
   bracket markers do not leak into ticket detail.
+- Converted `> ` blockquote lines into compact left-rule quote blocks.
+- Styled inline URLs, email addresses, and `@mentions` in the shared rich text renderer while
+  preserving existing inline code behavior.
 - Verified with focused rich-rendering tests, `go test ./internal/tui -count=1`,
   `go test ./... -count=1`, and `make check`.
 

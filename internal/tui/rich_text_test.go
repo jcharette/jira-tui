@@ -109,6 +109,38 @@ func TestRenderRichDescriptionStylesPanelAndStatusMarkers(t *testing.T) {
 	}
 }
 
+func TestRenderRichDescriptionStylesBlockquotes(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+
+	rendered := model.renderRichDescriptionBody("> Keep this migration reversible.", 72)
+
+	if strings.Contains(rendered, "> Keep") {
+		t.Fatalf("expected raw blockquote marker to be styled away: %q", rendered)
+	}
+	for _, want := range []string{"Keep this migration reversible", "│"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("missing %q in %q", want, rendered)
+		}
+	}
+}
+
+func TestRenderRichDescriptionStylesMentionsAndLinks(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+
+	rendered := model.renderRichDescriptionBody("Ask @Jane Doe to review https://example.test/runbook and `main.tf`.", 96)
+
+	for _, want := range []string{"@Jane Doe", "https://example.test/runbook", "main.tf"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("missing %q in %q", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "`main.tf`") {
+		t.Fatalf("inline code markers should still be styled away: %q", rendered)
+	}
+}
+
 func TestRenderDescriptionSeparatesHeaderFromRichBody(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()

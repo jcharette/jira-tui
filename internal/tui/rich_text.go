@@ -5,6 +5,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	lipglosstable "github.com/charmbracelet/lipgloss/table"
+	"github.com/jon/jira-tui/internal/linkdetect"
 	"github.com/jon/jira-tui/internal/ui"
 )
 
@@ -171,6 +172,11 @@ func (m Model) renderRichLine(line string, width int) string {
 		body = strings.TrimSpace(body)
 		return m.theme.NoticeBlock.Width(contentWidth + 2).Render(m.theme.Warning.Render("Panel") + " " + renderRichInline(m.theme, body))
 	}
+	if body, ok := strings.CutPrefix(trimmed, "> "); ok {
+		contentWidth := max(12, width-2)
+		body = strings.TrimSpace(body)
+		return m.theme.CommentBlock.Width(contentWidth + 2).Render(renderRichInline(m.theme, body))
+	}
 	return renderRichInline(m.theme, line)
 }
 
@@ -180,14 +186,28 @@ func renderRichInline(theme ui.Theme, line string) string {
 	for {
 		start := strings.Index(remaining, "`")
 		statusStart, statusEnd, statusText := nextADFStatusMarker(remaining)
-		if start < 0 && statusStart < 0 {
+		linkStart, linkEnd := nextRichLink(remaining)
+		mentionStart, mentionEnd := nextRichMention(remaining)
+		if start < 0 && statusStart < 0 && linkStart < 0 && mentionStart < 0 {
 			b.WriteString(theme.Text.Render(remaining))
 			break
 		}
-		if statusStart >= 0 && (start < 0 || statusStart < start) {
+		if statusStart >= 0 && isFirstRichToken(statusStart, start, linkStart, mentionStart) {
 			b.WriteString(theme.Text.Render(remaining[:statusStart]))
 			b.WriteString(theme.Warning.Copy().Bold(true).Render(statusText))
 			remaining = remaining[statusEnd:]
+			continue
+		}
+		if linkStart >= 0 && isFirstRichToken(linkStart, start, statusStart, mentionStart) {
+			b.WriteString(theme.Text.Render(remaining[:linkStart]))
+			b.WriteString(theme.Key.Copy().Underline(true).Render(remaining[linkStart:linkEnd]))
+			remaining = remaining[linkEnd:]
+			continue
+		}
+		if mentionStart >= 0 && isFirstRichToken(mentionStart, start, statusStart, linkStart) {
+			b.WriteString(theme.Text.Render(remaining[:mentionStart]))
+			b.WriteString(theme.Selected.Render(remaining[mentionStart:mentionEnd]))
+			remaining = remaining[mentionEnd:]
 			continue
 		}
 		b.WriteString(theme.Text.Render(remaining[:start]))
@@ -206,6 +226,66 @@ func renderRichInline(theme ui.Theme, line string) string {
 		remaining = remaining[end+1:]
 	}
 	return b.String()
+}
+
+func isFirstRichToken(candidate int, others ...int) bool {
+	if candidate < 0 {
+		return false
+	}
+	for _, other := range others {
+		if other >= 0 && other < candidate {
+			return false
+		}
+	}
+	return true
+}
+
+func nextRichLink(value string) (int, int) {
+	links := linkdetect.Detect(value)
+	if len(links) == 0 {
+		return -1, -1
+	}
+	return links[0].Start, links[0].End
+}
+
+func nextRichMention(value string) (int, int) {
+	start := strings.Index(value, "@")
+	for start >= 0 {
+		if start > 0 && !isMentionBoundary(value[start-1]) {
+			next := strings.Index(value[start+1:], "@")
+			if next < 0 {
+				return -1, -1
+			}
+			start += next + 1
+			continue
+		}
+		end := start + 1
+		for end < len(value) && isMentionChar(value[end]) {
+			end++
+		}
+		if end > start+1 {
+			return start, end
+		}
+		next := strings.Index(value[start+1:], "@")
+		if next < 0 {
+			return -1, -1
+		}
+		start += next + 1
+	}
+	return -1, -1
+}
+
+func isMentionBoundary(value byte) bool {
+	return value == ' ' || value == '\t' || value == '\n' || value == '(' || value == '['
+}
+
+func isMentionChar(value byte) bool {
+	return (value >= 'A' && value <= 'Z') ||
+		(value >= 'a' && value <= 'z') ||
+		(value >= '0' && value <= '9') ||
+		value == '_' ||
+		value == '-' ||
+		value == '.'
 }
 
 func nextADFStatusMarker(value string) (int, int, string) {
