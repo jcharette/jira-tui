@@ -284,6 +284,84 @@ func TestStorePersistsIssueEditMetadataRecords(t *testing.T) {
 	}
 }
 
+func TestStorePersistsCreateIssueTypesRecords(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(filepath.Join(t.TempDir(), "cache.sqlite"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+
+	syncedAt := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	record := CreateIssueTypesRecord{
+		Namespace:  "https://example.atlassian.net",
+		ProjectKey: "ABC",
+		IssueTypes: []jira.CreateIssueType{{ID: "10001", Name: "Task"}},
+		SyncedAt:   syncedAt,
+		FreshTill:  syncedAt.Add(time.Minute),
+	}
+	if err := store.PutCreateIssueTypes(ctx, record); err != nil {
+		t.Fatalf("PutCreateIssueTypes() error = %v", err)
+	}
+
+	got, ok, err := store.GetCreateIssueTypes(ctx, record.Namespace, record.ProjectKey)
+	if err != nil {
+		t.Fatalf("GetCreateIssueTypes() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("expected create issue types record")
+	}
+	if len(got.IssueTypes) != 1 || got.IssueTypes[0].ID != "10001" || got.IssueTypes[0].Name != "Task" {
+		t.Fatalf("IssueTypes = %#v", got.IssueTypes)
+	}
+	if !got.SyncedAt.Equal(record.SyncedAt) || !got.FreshTill.Equal(record.FreshTill) {
+		t.Fatalf("timestamps = %s/%s", got.SyncedAt, got.FreshTill)
+	}
+}
+
+func TestStorePersistsCreateFieldsRecords(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(filepath.Join(t.TempDir(), "cache.sqlite"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+
+	syncedAt := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	record := CreateFieldsRecord{
+		Namespace:   "https://example.atlassian.net",
+		ProjectKey:  "ABC",
+		IssueTypeID: "10001",
+		Fields: []jira.CreateField{{
+			ID:       "components",
+			Name:     "Components",
+			Required: true,
+			AllowedValues: []jira.FieldOption{
+				{ID: "20001", Name: "csp_gateway"},
+			},
+		}},
+		SyncedAt:  syncedAt,
+		FreshTill: syncedAt.Add(time.Minute),
+	}
+	if err := store.PutCreateFields(ctx, record); err != nil {
+		t.Fatalf("PutCreateFields() error = %v", err)
+	}
+
+	got, ok, err := store.GetCreateFields(ctx, record.Namespace, record.ProjectKey, record.IssueTypeID)
+	if err != nil {
+		t.Fatalf("GetCreateFields() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("expected create fields record")
+	}
+	if len(got.Fields) != 1 || got.Fields[0].ID != "components" || len(got.Fields[0].AllowedValues) != 1 || got.Fields[0].AllowedValues[0].Name != "csp_gateway" {
+		t.Fatalf("Fields = %#v", got.Fields)
+	}
+	if !got.SyncedAt.Equal(record.SyncedAt) || !got.FreshTill.Equal(record.FreshTill) {
+		t.Fatalf("timestamps = %s/%s", got.SyncedAt, got.FreshTill)
+	}
+}
+
 func TestDefaultPathUsesAppCacheFile(t *testing.T) {
 	path, err := DefaultPath()
 	if err != nil {

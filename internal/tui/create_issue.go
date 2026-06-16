@@ -53,7 +53,7 @@ func (m Model) handleGetCreateIssueTypesResult(result worker.Result) Model {
 	if result.GetCreateIssueTypes.ProjectKey != m.createProjectKey {
 		return m
 	}
-	m.createIssueTypes = result.GetCreateIssueTypes.IssueTypes
+	m.cacheCreateIssueTypes(result.GetCreateIssueTypes.ProjectKey, result.GetCreateIssueTypes.IssueTypes, result.GetCreateIssueTypes.SyncedAt)
 	m.selectedCreateIssueType = clamp(m.selectedCreateIssueType, 0, max(0, len(m.createIssueTypes)-1))
 	m.createIssueTypesErr = nil
 	return m
@@ -75,7 +75,7 @@ func (m Model) handleGetCreateFieldsResult(result worker.Result) Model {
 	if result.GetCreateFields.ProjectKey != m.createProjectKey || result.GetCreateFields.IssueTypeID != m.createIssueType.ID {
 		return m
 	}
-	m.createFields = result.GetCreateFields.Fields
+	m.cacheCreateFields(result.GetCreateFields.ProjectKey, result.GetCreateFields.IssueTypeID, result.GetCreateFields.Fields, result.GetCreateFields.SyncedAt)
 	m.createFieldsErr = nil
 	m.beginCreateForm()
 	m.applyCreateAIFieldDrafts()
@@ -615,6 +615,12 @@ func (m Model) startCreateIssue() (Model, tea.Cmd) {
 	m.resetCreateIssueState()
 	m.createOpen = true
 	m.createProjectKey = projectKey
+	m.hydrateCreateIssueTypes(projectKey)
+	if _, cached := m.cachedCreateIssueTypes(projectKey); cached && m.isCreateIssueTypesFresh(projectKey) {
+		m.selectedCreateIssueType = clamp(m.selectedCreateIssueType, 0, max(0, len(m.createIssueTypes)-1))
+		m.createIssueTypesErr = nil
+		return m, nil
+	}
 	m.createIssueTypesLoading = true
 	m.nextRequestID++
 	m.activeCreateIssueTypesReqID = m.nextRequestID
@@ -902,6 +908,13 @@ func (m Model) selectCreateIssueType() (Model, tea.Cmd) {
 	m.createChangingType = false
 	if strings.TrimSpace(m.createIssueType.ID) == "" {
 		m.detailNotice = "Create ticket failed: missing issue type ID."
+		return m, nil
+	}
+	m.hydrateCreateFields(m.createProjectKey, m.createIssueType.ID)
+	if _, cached := m.cachedCreateFields(m.createProjectKey, m.createIssueType.ID); cached && m.isCreateFieldsFresh(m.createProjectKey, m.createIssueType.ID) {
+		m.createFieldsErr = nil
+		m.beginCreateForm()
+		m.applyCreateAIFieldDrafts()
 		return m, nil
 	}
 	m.createFieldsLoading = true

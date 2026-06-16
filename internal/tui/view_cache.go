@@ -22,6 +22,10 @@ type activeViewStore interface {
 	PutIssueTransitions(context.Context, cache.IssueTransitionsRecord) error
 	GetIssueEditMetadata(context.Context, string, string) (cache.IssueEditMetadataRecord, bool, error)
 	PutIssueEditMetadata(context.Context, cache.IssueEditMetadataRecord) error
+	GetCreateIssueTypes(context.Context, string, string) (cache.CreateIssueTypesRecord, bool, error)
+	PutCreateIssueTypes(context.Context, cache.CreateIssueTypesRecord) error
+	GetCreateFields(context.Context, string, string, string) (cache.CreateFieldsRecord, bool, error)
+	PutCreateFields(context.Context, cache.CreateFieldsRecord) error
 }
 
 type issueViewCacheRecord struct {
@@ -386,4 +390,169 @@ func (m Model) persistIssueEditMetadata(key string, metadata jira.EditMetadata, 
 		SyncedAt:  syncedAt,
 		FreshTill: syncedAt.Add(issueEditMetadataCacheTTL),
 	})
+}
+
+func (m *Model) hydrateCreateIssueTypes(projectKey string) {
+	if _, ok := m.cachedCreateIssueTypes(projectKey); ok {
+		return
+	}
+	if m.activeViewStore == nil || strings.TrimSpace(m.activeViewNamespace) == "" {
+		return
+	}
+	record, ok, err := m.activeViewStore.GetCreateIssueTypes(context.Background(), m.activeViewNamespace, normalizeCreateProjectKey(projectKey))
+	if err != nil || !ok {
+		return
+	}
+	m.cacheCreateIssueTypesRecord(record)
+}
+
+func (m *Model) hydrateCreateFields(projectKey string, issueTypeID string) {
+	if _, ok := m.cachedCreateFields(projectKey, issueTypeID); ok {
+		return
+	}
+	if m.activeViewStore == nil || strings.TrimSpace(m.activeViewNamespace) == "" {
+		return
+	}
+	record, ok, err := m.activeViewStore.GetCreateFields(context.Background(), m.activeViewNamespace, normalizeCreateProjectKey(projectKey), strings.TrimSpace(issueTypeID))
+	if err != nil || !ok {
+		return
+	}
+	m.cacheCreateFieldsRecord(record)
+}
+
+func (m Model) isCreateIssueTypesFresh(projectKey string) bool {
+	record, ok := m.cachedCreateIssueTypes(projectKey)
+	return ok && record.Fresh(m.currentTime())
+}
+
+func (m Model) cachedCreateIssueTypes(projectKey string) (jiraCacheRecord[[]jira.CreateIssueType], bool) {
+	if m.createIssueTypesCache == nil || normalizeCreateProjectKey(projectKey) == "" {
+		return jiraCacheRecord[[]jira.CreateIssueType]{}, false
+	}
+	item := m.createIssueTypesCache.Get(normalizeCreateProjectKey(projectKey))
+	if item == nil {
+		return jiraCacheRecord[[]jira.CreateIssueType]{}, false
+	}
+	return item.Value(), true
+}
+
+func (m *Model) cacheCreateIssueTypes(projectKey string, issueTypes []jira.CreateIssueType, syncedAt time.Time) {
+	projectKey = normalizeCreateProjectKey(projectKey)
+	if projectKey == "" {
+		return
+	}
+	copied := append([]jira.CreateIssueType(nil), issueTypes...)
+	m.createIssueTypes = copied
+	if m.createIssueTypesCache != nil {
+		m.createIssueTypesCache.Set(projectKey, newJiraCacheRecord(copied, syncedAt, createIssueTypesCacheTTL), ttlcache.DefaultTTL)
+	}
+	m.persistCreateIssueTypes(projectKey, copied, syncedAt)
+}
+
+func (m *Model) cacheCreateIssueTypesRecord(record cache.CreateIssueTypesRecord) {
+	projectKey := normalizeCreateProjectKey(record.ProjectKey)
+	if projectKey == "" {
+		return
+	}
+	copied := append([]jira.CreateIssueType(nil), record.IssueTypes...)
+	m.createIssueTypes = copied
+	if m.createIssueTypesCache != nil {
+		m.createIssueTypesCache.Set(projectKey, jiraCacheRecord[[]jira.CreateIssueType]{
+			Value:     copied,
+			SyncedAt:  record.SyncedAt,
+			FreshTill: record.FreshTill,
+		}, ttlcache.DefaultTTL)
+	}
+}
+
+func (m Model) isCreateFieldsFresh(projectKey string, issueTypeID string) bool {
+	record, ok := m.cachedCreateFields(projectKey, issueTypeID)
+	return ok && record.Fresh(m.currentTime())
+}
+
+func (m Model) cachedCreateFields(projectKey string, issueTypeID string) (jiraCacheRecord[[]jira.CreateField], bool) {
+	key := createFieldsCacheKey(projectKey, issueTypeID)
+	if m.createFieldsCache == nil || key == "" {
+		return jiraCacheRecord[[]jira.CreateField]{}, false
+	}
+	item := m.createFieldsCache.Get(key)
+	if item == nil {
+		return jiraCacheRecord[[]jira.CreateField]{}, false
+	}
+	return item.Value(), true
+}
+
+func (m *Model) cacheCreateFields(projectKey string, issueTypeID string, fields []jira.CreateField, syncedAt time.Time) {
+	key := createFieldsCacheKey(projectKey, issueTypeID)
+	if key == "" {
+		return
+	}
+	copied := append([]jira.CreateField(nil), fields...)
+	m.createFields = copied
+	if m.createFieldsCache != nil {
+		m.createFieldsCache.Set(key, newJiraCacheRecord(copied, syncedAt, createFieldsCacheTTL), ttlcache.DefaultTTL)
+	}
+	m.persistCreateFields(projectKey, issueTypeID, copied, syncedAt)
+}
+
+func (m *Model) cacheCreateFieldsRecord(record cache.CreateFieldsRecord) {
+	key := createFieldsCacheKey(record.ProjectKey, record.IssueTypeID)
+	if key == "" {
+		return
+	}
+	copied := append([]jira.CreateField(nil), record.Fields...)
+	m.createFields = copied
+	if m.createFieldsCache != nil {
+		m.createFieldsCache.Set(key, jiraCacheRecord[[]jira.CreateField]{
+			Value:     copied,
+			SyncedAt:  record.SyncedAt,
+			FreshTill: record.FreshTill,
+		}, ttlcache.DefaultTTL)
+	}
+}
+
+func (m Model) persistCreateIssueTypes(projectKey string, issueTypes []jira.CreateIssueType, syncedAt time.Time) {
+	if m.activeViewStore == nil || strings.TrimSpace(m.activeViewNamespace) == "" {
+		return
+	}
+	if syncedAt.IsZero() {
+		syncedAt = m.currentTime()
+	}
+	_ = m.activeViewStore.PutCreateIssueTypes(context.Background(), cache.CreateIssueTypesRecord{
+		Namespace:  m.activeViewNamespace,
+		ProjectKey: normalizeCreateProjectKey(projectKey),
+		IssueTypes: append([]jira.CreateIssueType(nil), issueTypes...),
+		SyncedAt:   syncedAt,
+		FreshTill:  syncedAt.Add(createIssueTypesCacheTTL),
+	})
+}
+
+func (m Model) persistCreateFields(projectKey string, issueTypeID string, fields []jira.CreateField, syncedAt time.Time) {
+	if m.activeViewStore == nil || strings.TrimSpace(m.activeViewNamespace) == "" {
+		return
+	}
+	if syncedAt.IsZero() {
+		syncedAt = m.currentTime()
+	}
+	_ = m.activeViewStore.PutCreateFields(context.Background(), cache.CreateFieldsRecord{
+		Namespace:   m.activeViewNamespace,
+		ProjectKey:  normalizeCreateProjectKey(projectKey),
+		IssueTypeID: strings.TrimSpace(issueTypeID),
+		Fields:      append([]jira.CreateField(nil), fields...),
+		SyncedAt:    syncedAt,
+		FreshTill:   syncedAt.Add(createFieldsCacheTTL),
+	})
+}
+
+func normalizeCreateProjectKey(projectKey string) string {
+	return strings.ToUpper(strings.TrimSpace(projectKey))
+}
+
+func createFieldsCacheKey(projectKey string, issueTypeID string) string {
+	projectKey = normalizeCreateProjectKey(projectKey)
+	issueTypeID = strings.TrimSpace(issueTypeID)
+	if projectKey == "" || issueTypeID == "" {
+		return ""
+	}
+	return projectKey + "\x00" + issueTypeID
 }

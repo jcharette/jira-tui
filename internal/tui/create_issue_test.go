@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/jon/jira-tui/internal/cache"
 	"github.com/jon/jira-tui/internal/claude"
 	"github.com/jon/jira-tui/internal/jira"
 	"github.com/jon/jira-tui/internal/worker"
@@ -72,6 +73,45 @@ func TestCreateShortcutLoadsCreateIssueTypes(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q in %q", want, view)
 		}
+	}
+}
+
+func TestCreateShortcutUsesFreshPersistentIssueTypes(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.Local)
+	store := newFakeActiveViewStore()
+	store.createIssueTypes = cache.CreateIssueTypesRecord{
+		Namespace:  "https://example.atlassian.net",
+		ProjectKey: "ABC",
+		IssueTypes: []jira.CreateIssueType{{ID: "10001", Name: "Story"}},
+		SyncedAt:   now.Add(-10 * time.Second),
+		FreshTill:  now.Add(time.Minute),
+	}
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithActiveViewStore(store, "https://example.atlassian.net"),
+	)
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.loading = false
+	model.width = 100
+	model.height = 30
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "n", Code: 'n'}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("fresh persistent issue types should not submit Jira work")
+	}
+	if next.createIssueTypesLoading {
+		t.Fatal("fresh persistent issue types should render without loading")
+	}
+	if len(next.createIssueTypes) != 1 || next.createIssueTypes[0].Name != "Story" {
+		t.Fatalf("createIssueTypes = %#v", next.createIssueTypes)
+	}
+	view := next.render()
+	if !strings.Contains(view, "> Story") {
+		t.Fatalf("cached issue type should render in picker:\n%s", view)
 	}
 }
 
@@ -149,6 +189,127 @@ func TestCreateIssueTypePickerLoadsFieldsForSelection(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("expected field metadata request command")
+	}
+}
+
+func TestCreateIssueTypePickerUsesFreshPersistentFields(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.Local)
+	store := newFakeActiveViewStore()
+	store.createFields = cache.CreateFieldsRecord{
+		Namespace:   "https://example.atlassian.net",
+		ProjectKey:  "ABC",
+		IssueTypeID: "10002",
+		Fields: []jira.CreateField{{
+			ID:       "components",
+			Name:     "Components",
+			Required: true,
+			AllowedValues: []jira.FieldOption{
+				{ID: "20001", Name: "csp_gateway"},
+			},
+		}},
+		SyncedAt:  now.Add(-10 * time.Second),
+		FreshTill: now.Add(time.Minute),
+	}
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithActiveViewStore(store, "https://example.atlassian.net"),
+	)
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.loading = false
+	model.createOpen = true
+	model.createProjectKey = "ABC"
+	model.createIssueTypes = []jira.CreateIssueType{
+		{ID: "10001", Name: "Task"},
+		{ID: "10002", Name: "Bug"},
+	}
+	model.selectedCreateIssueType = 1
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("fresh persistent create fields should not submit Jira work")
+	}
+	if next.createFieldsLoading {
+		t.Fatal("fresh persistent create fields should render without loading")
+	}
+	if next.createIssueType.ID != "10002" {
+		t.Fatalf("createIssueType = %#v", next.createIssueType)
+	}
+	if len(next.createFields) != 1 || next.createFields[0].ID != "components" {
+		t.Fatalf("createFields = %#v", next.createFields)
+	}
+	if next.createFieldFocus != createSummaryFieldIndex {
+		t.Fatalf("createFieldFocus = %d", next.createFieldFocus)
+	}
+}
+
+func TestCreateMetadataResultsPersistToStore(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.Local)
+	store := newFakeActiveViewStore()
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithActiveViewStore(store, "https://example.atlassian.net"),
+	)
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.activeCreateIssueTypesReqID = 11
+	model.createProjectKey = "ABC"
+
+	updated, _ := model.Update(workerResultMsg{
+		result: worker.Result{
+			ID:   11,
+			Kind: worker.KindGetCreateIssueTypes,
+			GetCreateIssueTypes: &worker.GetCreateIssueTypesResult{
+				ProjectKey: "ABC",
+				IssueTypes: []jira.CreateIssueType{
+					{ID: "10001", Name: "Story"},
+				},
+				SyncedAt: now,
+			},
+		},
+	})
+	next := updated.(Model)
+
+	if store.putCreateIssueTypes.Namespace != "https://example.atlassian.net" || store.putCreateIssueTypes.ProjectKey != "ABC" {
+		t.Fatalf("putCreateIssueTypes = %#v", store.putCreateIssueTypes)
+	}
+	if len(store.putCreateIssueTypes.IssueTypes) != 1 || store.putCreateIssueTypes.IssueTypes[0].Name != "Story" {
+		t.Fatalf("persisted issue types = %#v", store.putCreateIssueTypes.IssueTypes)
+	}
+	if !store.putCreateIssueTypes.SyncedAt.Equal(now) || !store.putCreateIssueTypes.FreshTill.Equal(now.Add(createIssueTypesCacheTTL)) {
+		t.Fatalf("issue type timestamps = %s/%s", store.putCreateIssueTypes.SyncedAt, store.putCreateIssueTypes.FreshTill)
+	}
+
+	next.activeCreateFieldsReqID = 12
+	next.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Story"}
+	updated, _ = next.Update(workerResultMsg{
+		result: worker.Result{
+			ID:   12,
+			Kind: worker.KindGetCreateFields,
+			GetCreateFields: &worker.GetCreateFieldsResult{
+				ProjectKey:  "ABC",
+				IssueTypeID: "10001",
+				Fields: []jira.CreateField{
+					{ID: "components", Name: "Components"},
+				},
+				SyncedAt: now,
+			},
+		},
+	})
+	next = updated.(Model)
+
+	if store.putCreateFields.Namespace != "https://example.atlassian.net" || store.putCreateFields.ProjectKey != "ABC" || store.putCreateFields.IssueTypeID != "10001" {
+		t.Fatalf("putCreateFields = %#v", store.putCreateFields)
+	}
+	if len(store.putCreateFields.Fields) != 1 || store.putCreateFields.Fields[0].ID != "components" {
+		t.Fatalf("persisted fields = %#v", store.putCreateFields.Fields)
+	}
+	if !store.putCreateFields.SyncedAt.Equal(now) || !store.putCreateFields.FreshTill.Equal(now.Add(createFieldsCacheTTL)) {
+		t.Fatalf("field timestamps = %s/%s", store.putCreateFields.SyncedAt, store.putCreateFields.FreshTill)
 	}
 }
 

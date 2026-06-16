@@ -31,6 +31,10 @@ const (
 	issueTransitionsCacheRetentionTTL  = 15 * time.Minute
 	issueEditMetadataCacheTTL          = 5 * time.Minute
 	issueEditMetadataCacheRetentionTTL = 30 * time.Minute
+	createIssueTypesCacheTTL           = 5 * time.Minute
+	createIssueTypesCacheRetentionTTL  = 30 * time.Minute
+	createFieldsCacheTTL               = 5 * time.Minute
+	createFieldsCacheRetentionTTL      = 30 * time.Minute
 	activeViewCacheTTL                 = 90 * time.Second
 	activeViewCacheRetentionTTL        = 30 * time.Minute
 	initialRequestID                   = 1
@@ -96,10 +100,12 @@ type Model struct {
 	createOpen                         bool
 	createProjectKey                   string
 	createIssueTypes                   []jira.CreateIssueType
+	createIssueTypesCache              *ttlcache.Cache[string, jiraCacheRecord[[]jira.CreateIssueType]]
 	selectedCreateIssueType            int
 	createIssueTypesLoading            bool
 	createIssueTypesErr                error
 	createFields                       []jira.CreateField
+	createFieldsCache                  *ttlcache.Cache[string, jiraCacheRecord[[]jira.CreateField]]
 	createFieldsLoading                bool
 	createFieldsErr                    error
 	createIssueType                    jira.CreateIssueType
@@ -397,28 +403,30 @@ type linkActionMsg struct {
 
 func NewModel(client worker.JiraClient, jql string, options ...Option) Model {
 	model := Model{
-		jql:                 jql,
-		loading:             true,
-		requestTimeout:      defaultRequestTimeout,
-		workerCount:         defaultWorkerCount,
-		queueSize:           defaultQueueSize,
-		nextRequestID:       initialRequestID,
-		activeRequestID:     initialRequestID,
-		theme:               ui.NewTheme(config.DefaultTheme()),
-		symbolMode:          symbolModeAuto,
-		details:             make(map[string]jira.IssueDetail),
-		activeViewCache:     newIssueViewCache(),
-		detailCache:         newJiraCache[jira.IssueDetail](issueDetailCacheRetentionTTL),
-		comments:            make(map[string][]jira.Comment),
-		commentsCache:       newJiraCache[[]jira.Comment](issueCommentsCacheRetentionTTL),
-		transitions:         make(map[string][]jira.Transition),
-		transitionsCache:    newJiraCache[[]jira.Transition](issueTransitionsCacheRetentionTTL),
-		editMetadata:        make(map[string]jira.EditMetadata),
-		editMetadataCache:   newJiraCache[jira.EditMetadata](issueEditMetadataCacheRetentionTTL),
-		detailSectionOffset: make(map[string]int),
-		userSearchCache:     ttlcache.New[string, []jira.User](ttlcache.WithTTL[string, []jira.User](userSearchCacheTTL)),
-		claudeRunner:        claude.LocalRunner{},
-		now:                 time.Now,
+		jql:                   jql,
+		loading:               true,
+		requestTimeout:        defaultRequestTimeout,
+		workerCount:           defaultWorkerCount,
+		queueSize:             defaultQueueSize,
+		nextRequestID:         initialRequestID,
+		activeRequestID:       initialRequestID,
+		theme:                 ui.NewTheme(config.DefaultTheme()),
+		symbolMode:            symbolModeAuto,
+		details:               make(map[string]jira.IssueDetail),
+		activeViewCache:       newIssueViewCache(),
+		detailCache:           newJiraCache[jira.IssueDetail](issueDetailCacheRetentionTTL),
+		comments:              make(map[string][]jira.Comment),
+		commentsCache:         newJiraCache[[]jira.Comment](issueCommentsCacheRetentionTTL),
+		transitions:           make(map[string][]jira.Transition),
+		transitionsCache:      newJiraCache[[]jira.Transition](issueTransitionsCacheRetentionTTL),
+		editMetadata:          make(map[string]jira.EditMetadata),
+		editMetadataCache:     newJiraCache[jira.EditMetadata](issueEditMetadataCacheRetentionTTL),
+		createIssueTypesCache: newJiraCache[[]jira.CreateIssueType](createIssueTypesCacheRetentionTTL),
+		createFieldsCache:     newJiraCache[[]jira.CreateField](createFieldsCacheRetentionTTL),
+		detailSectionOffset:   make(map[string]int),
+		userSearchCache:       ttlcache.New[string, []jira.User](ttlcache.WithTTL[string, []jira.User](userSearchCacheTTL)),
+		claudeRunner:          claude.LocalRunner{},
+		now:                   time.Now,
 	}
 	for _, option := range options {
 		option(&model)

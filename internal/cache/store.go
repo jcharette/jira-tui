@@ -62,6 +62,23 @@ type IssueEditMetadataRecord struct {
 	FreshTill time.Time
 }
 
+type CreateIssueTypesRecord struct {
+	Namespace  string
+	ProjectKey string
+	IssueTypes []jira.CreateIssueType
+	SyncedAt   time.Time
+	FreshTill  time.Time
+}
+
+type CreateFieldsRecord struct {
+	Namespace   string
+	ProjectKey  string
+	IssueTypeID string
+	Fields      []jira.CreateField
+	SyncedAt    time.Time
+	FreshTill   time.Time
+}
+
 func DefaultPath() (string, error) {
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
@@ -428,6 +445,131 @@ WHERE namespace = ? AND issue_key = ?
 	}, true, nil
 }
 
+func (s *Store) PutCreateIssueTypes(ctx context.Context, record CreateIssueTypesRecord) error {
+	if s == nil || s.db == nil {
+		return errors.New("cache store is closed")
+	}
+	record.Namespace = strings.TrimSpace(record.Namespace)
+	record.ProjectKey = strings.TrimSpace(record.ProjectKey)
+	if record.Namespace == "" || record.ProjectKey == "" {
+		return errors.New("create issue types namespace and project key are required")
+	}
+	payload, err := json.Marshal(record.IssueTypes)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `
+INSERT INTO create_issue_types(namespace, project_key, issue_types_json, synced_at_unix_nano, fresh_till_unix_nano, updated_at_unix_nano)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT(namespace, project_key) DO UPDATE SET
+	issue_types_json = excluded.issue_types_json,
+	synced_at_unix_nano = excluded.synced_at_unix_nano,
+	fresh_till_unix_nano = excluded.fresh_till_unix_nano,
+	updated_at_unix_nano = excluded.updated_at_unix_nano
+`, record.Namespace, record.ProjectKey, string(payload), record.SyncedAt.UnixNano(), record.FreshTill.UnixNano(), time.Now().UnixNano())
+	return err
+}
+
+func (s *Store) GetCreateIssueTypes(ctx context.Context, namespace string, projectKey string) (CreateIssueTypesRecord, bool, error) {
+	if s == nil || s.db == nil {
+		return CreateIssueTypesRecord{}, false, errors.New("cache store is closed")
+	}
+	namespace = strings.TrimSpace(namespace)
+	projectKey = strings.TrimSpace(projectKey)
+	if namespace == "" || projectKey == "" {
+		return CreateIssueTypesRecord{}, false, nil
+	}
+	var payload string
+	var syncedAtUnixNano int64
+	var freshTillUnixNano int64
+	err := s.db.QueryRowContext(ctx, `
+SELECT issue_types_json, synced_at_unix_nano, fresh_till_unix_nano
+FROM create_issue_types
+WHERE namespace = ? AND project_key = ?
+`, namespace, projectKey).Scan(&payload, &syncedAtUnixNano, &freshTillUnixNano)
+	if errors.Is(err, sql.ErrNoRows) {
+		return CreateIssueTypesRecord{}, false, nil
+	}
+	if err != nil {
+		return CreateIssueTypesRecord{}, false, err
+	}
+	var issueTypes []jira.CreateIssueType
+	if err := json.Unmarshal([]byte(payload), &issueTypes); err != nil {
+		return CreateIssueTypesRecord{}, false, fmt.Errorf("decode create issue types cache: %w", err)
+	}
+	return CreateIssueTypesRecord{
+		Namespace:  namespace,
+		ProjectKey: projectKey,
+		IssueTypes: issueTypes,
+		SyncedAt:   time.Unix(0, syncedAtUnixNano),
+		FreshTill:  time.Unix(0, freshTillUnixNano),
+	}, true, nil
+}
+
+func (s *Store) PutCreateFields(ctx context.Context, record CreateFieldsRecord) error {
+	if s == nil || s.db == nil {
+		return errors.New("cache store is closed")
+	}
+	record.Namespace = strings.TrimSpace(record.Namespace)
+	record.ProjectKey = strings.TrimSpace(record.ProjectKey)
+	record.IssueTypeID = strings.TrimSpace(record.IssueTypeID)
+	if record.Namespace == "" || record.ProjectKey == "" || record.IssueTypeID == "" {
+		return errors.New("create fields namespace, project key, and issue type ID are required")
+	}
+	payload, err := json.Marshal(record.Fields)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `
+INSERT INTO create_fields(namespace, project_key, issue_type_id, fields_json, synced_at_unix_nano, fresh_till_unix_nano, updated_at_unix_nano)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(namespace, project_key, issue_type_id) DO UPDATE SET
+	fields_json = excluded.fields_json,
+	synced_at_unix_nano = excluded.synced_at_unix_nano,
+	fresh_till_unix_nano = excluded.fresh_till_unix_nano,
+	updated_at_unix_nano = excluded.updated_at_unix_nano
+`, record.Namespace, record.ProjectKey, record.IssueTypeID, string(payload), record.SyncedAt.UnixNano(), record.FreshTill.UnixNano(), time.Now().UnixNano())
+	return err
+}
+
+func (s *Store) GetCreateFields(ctx context.Context, namespace string, projectKey string, issueTypeID string) (CreateFieldsRecord, bool, error) {
+	if s == nil || s.db == nil {
+		return CreateFieldsRecord{}, false, errors.New("cache store is closed")
+	}
+	namespace = strings.TrimSpace(namespace)
+	projectKey = strings.TrimSpace(projectKey)
+	issueTypeID = strings.TrimSpace(issueTypeID)
+	if namespace == "" || projectKey == "" || issueTypeID == "" {
+		return CreateFieldsRecord{}, false, nil
+	}
+	var payload string
+	var syncedAtUnixNano int64
+	var freshTillUnixNano int64
+	err := s.db.QueryRowContext(ctx, `
+SELECT fields_json, synced_at_unix_nano, fresh_till_unix_nano
+FROM create_fields
+WHERE namespace = ? AND project_key = ? AND issue_type_id = ?
+`, namespace, projectKey, issueTypeID).Scan(&payload, &syncedAtUnixNano, &freshTillUnixNano)
+	if errors.Is(err, sql.ErrNoRows) {
+		return CreateFieldsRecord{}, false, nil
+	}
+	if err != nil {
+		return CreateFieldsRecord{}, false, err
+	}
+	var fields []jira.CreateField
+	if err := json.Unmarshal([]byte(payload), &fields); err != nil {
+		return CreateFieldsRecord{}, false, fmt.Errorf("decode create fields cache: %w", err)
+	}
+	return CreateFieldsRecord{
+		Namespace:   namespace,
+		ProjectKey:  projectKey,
+		IssueTypeID: issueTypeID,
+		Fields:      fields,
+		SyncedAt:    time.Unix(0, syncedAtUnixNano),
+		FreshTill:   time.Unix(0, freshTillUnixNano),
+	}, true, nil
+}
+
 func (s *Store) migrate(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, `PRAGMA user_version = `+fmt.Sprint(schemaVersion)); err != nil {
 		return err
@@ -488,6 +630,29 @@ CREATE TABLE IF NOT EXISTS issue_edit_metadata (
 	PRIMARY KEY(namespace, issue_key)
 );
 CREATE INDEX IF NOT EXISTS issue_edit_metadata_updated_at_idx ON issue_edit_metadata(updated_at_unix_nano);
+
+CREATE TABLE IF NOT EXISTS create_issue_types (
+	namespace TEXT NOT NULL,
+	project_key TEXT NOT NULL,
+	issue_types_json TEXT NOT NULL,
+	synced_at_unix_nano INTEGER NOT NULL,
+	fresh_till_unix_nano INTEGER NOT NULL,
+	updated_at_unix_nano INTEGER NOT NULL,
+	PRIMARY KEY(namespace, project_key)
+);
+CREATE INDEX IF NOT EXISTS create_issue_types_updated_at_idx ON create_issue_types(updated_at_unix_nano);
+
+CREATE TABLE IF NOT EXISTS create_fields (
+	namespace TEXT NOT NULL,
+	project_key TEXT NOT NULL,
+	issue_type_id TEXT NOT NULL,
+	fields_json TEXT NOT NULL,
+	synced_at_unix_nano INTEGER NOT NULL,
+	fresh_till_unix_nano INTEGER NOT NULL,
+	updated_at_unix_nano INTEGER NOT NULL,
+	PRIMARY KEY(namespace, project_key, issue_type_id)
+);
+CREATE INDEX IF NOT EXISTS create_fields_updated_at_idx ON create_fields(updated_at_unix_nano);
 `)
 	return err
 }

@@ -1120,17 +1120,21 @@ func TestSubmitIssueSearchReturnsFailedResultFromPool(t *testing.T) {
 }
 
 type fakeActiveViewStore struct {
-	record          cache.ActiveViewRecord
-	put             cache.ActiveViewRecord
-	detail          cache.IssueDetailRecord
-	putDetail       cache.IssueDetailRecord
-	comments        cache.IssueCommentsRecord
-	putComments     cache.IssueCommentsRecord
-	deletedComments string
-	transitions     cache.IssueTransitionsRecord
-	putTransitions  cache.IssueTransitionsRecord
-	editMetadata    cache.IssueEditMetadataRecord
-	putEditMetadata cache.IssueEditMetadataRecord
+	record              cache.ActiveViewRecord
+	put                 cache.ActiveViewRecord
+	detail              cache.IssueDetailRecord
+	putDetail           cache.IssueDetailRecord
+	comments            cache.IssueCommentsRecord
+	putComments         cache.IssueCommentsRecord
+	deletedComments     string
+	transitions         cache.IssueTransitionsRecord
+	putTransitions      cache.IssueTransitionsRecord
+	editMetadata        cache.IssueEditMetadataRecord
+	putEditMetadata     cache.IssueEditMetadataRecord
+	createIssueTypes    cache.CreateIssueTypesRecord
+	putCreateIssueTypes cache.CreateIssueTypesRecord
+	createFields        cache.CreateFieldsRecord
+	putCreateFields     cache.CreateFieldsRecord
 }
 
 func newFakeActiveViewStore() *fakeActiveViewStore {
@@ -1199,5 +1203,29 @@ func (f *fakeActiveViewStore) GetIssueEditMetadata(_ context.Context, namespace 
 
 func (f *fakeActiveViewStore) PutIssueEditMetadata(_ context.Context, record cache.IssueEditMetadataRecord) error {
 	f.putEditMetadata = record
+	return nil
+}
+
+func (f *fakeActiveViewStore) GetCreateIssueTypes(_ context.Context, namespace string, projectKey string) (cache.CreateIssueTypesRecord, bool, error) {
+	if f.createIssueTypes.Namespace == namespace && f.createIssueTypes.ProjectKey == projectKey {
+		return f.createIssueTypes, true, nil
+	}
+	return cache.CreateIssueTypesRecord{}, false, nil
+}
+
+func (f *fakeActiveViewStore) PutCreateIssueTypes(_ context.Context, record cache.CreateIssueTypesRecord) error {
+	f.putCreateIssueTypes = record
+	return nil
+}
+
+func (f *fakeActiveViewStore) GetCreateFields(_ context.Context, namespace string, projectKey string, issueTypeID string) (cache.CreateFieldsRecord, bool, error) {
+	if f.createFields.Namespace == namespace && f.createFields.ProjectKey == projectKey && f.createFields.IssueTypeID == issueTypeID {
+		return f.createFields, true, nil
+	}
+	return cache.CreateFieldsRecord{}, false, nil
+}
+
+func (f *fakeActiveViewStore) PutCreateFields(_ context.Context, record cache.CreateFieldsRecord) error {
+	f.putCreateFields = record
 	return nil
 }

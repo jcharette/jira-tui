@@ -1,5 +1,37 @@
 # Task Plan
 
+## Persistent Create Metadata Cache
+
+- [x] Add retained hot-cache records for create issue types and create fields.
+- [x] Add SQLite records for create issue types keyed by Jira namespace and project key.
+- [x] Add SQLite records for create fields keyed by Jira namespace, project key, and issue type ID.
+- [x] Hydrate fresh persisted issue types before loading the create issue type picker.
+- [x] Hydrate fresh persisted create fields before rendering the create form.
+- [x] Persist successful create metadata Jira reads back to SQLite.
+- [x] Add focused store and TUI persistence tests.
+- [x] Update cache design/backlog/changelog notes.
+- [x] Run final verification with `go test ./internal/cache -count=1`,
+  `go test ./internal/tui -count=1`, `go test ./... -count=1`, and `make check`.
+
+### Persistent Create Metadata Cache Scope
+
+Extend the existing hot-cache plus SQLite pattern to create issue type metadata and create field
+metadata only. Keep expanded children, cache cleanup, and detailed cache diagnostics for later
+slices. Treat stale create metadata as needing refresh before rendering dependent create screens,
+because Jira required fields and allowed values can change by project, issue type, or permission.
+
+### Persistent Create Metadata Cache Review
+
+- Added retained hot-cache records for create issue types and create fields.
+- Added SQLite tables and store methods for create issue type and create field metadata.
+- Hydrated fresh persisted issue types before rendering the create type picker.
+- Hydrated fresh persisted fields before rendering the create form.
+- Persisted successful create metadata worker reads back to SQLite.
+- Verified focused red/green coverage for store round-trips, fresh create metadata hydration, and
+  create metadata result persistence.
+- Verified with `go test ./internal/cache -count=1`, `go test ./internal/tui -count=1`,
+  `go test ./... -count=1`, and `make check`.
+
 ## Persistent Transition And Edit Metadata Cache
 
 - [x] Add retained hot-cache records for transitions and edit metadata.
