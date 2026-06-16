@@ -44,7 +44,9 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
   asynchronously on expiry or view timers, use bounded background workers/threads where helpful,
   and merge new ticket rows into active views without blocking the TUI.
 - Extend the Diagnostics overlay with queue depth, per-view refresh timestamps, cache expiry/refresh
-  events, and background sync summaries as cache and prefetch tooling grows.
+  events, and background sync summaries as cache and prefetch tooling grows. Queue running,
+  pending, coalesced, and capacity counts are now visible; per-cache-record refresh summaries still
+  need to land with cache unification.
 - Add an opt-in sanitized API debug log built on the Diagnostics model: record Jira operation,
   endpoint family, request ID, project/issue keys, result class, status/error summary, timing, and
   empty/paged result counts without storing tokens or raw response bodies. Use this later as the

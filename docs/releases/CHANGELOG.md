@@ -4,6 +4,8 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Added worker scheduler stats to Diagnostics so the overlay shows queue running, pending,
+  coalesced, and capacity counts even before activity events exist.
 - Added worker request priority and duplicate-read coalescing around the existing `ants` pool so
   foreground Jira work can be admitted ahead of queued background refresh.
 - Added an in-memory active-view cache using `ttlcache` so fresh Jira views render without a new

@@ -158,7 +158,11 @@ even when cached data is fresh.
 Status: implemented in `internal/worker.Pool` as an admission scheduler around the existing
 maintained `ants` execution pool. Worker requests now carry priority and coalesce-key metadata;
 duplicate reads fan out cloned results, and queued lower-priority work can be dropped before
-foreground work is rejected. Queue-depth diagnostics remain for a later diagnostics slice.
+foreground work is rejected.
+
+Queue running, pending, coalesced, and capacity counts are exposed through a scheduler stats
+snapshot and rendered in Diagnostics. Dropped-job counters and per-priority depth remain future
+diagnostics enhancements if the compact snapshot is not enough in practice.
 
 ### Slice 3: Detail/comment metadata cache unification and diagnostics
 

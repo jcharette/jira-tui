@@ -218,6 +218,38 @@ func TestDiagnosticsOverlayShowsSummaryAndActivityBars(t *testing.T) {
 	}
 }
 
+func TestDiagnosticsQueueSummaryShowsWorkerSchedulerState(t *testing.T) {
+	summary := renderWorkerQueueSummary(worker.Stats{
+		Running:   1,
+		Pending:   2,
+		Coalesced: 3,
+		Capacity:  4,
+	}, 100)
+
+	for _, want := range []string{"Queue running 1", "pending 2", "coalesced 3", "capacity 4"} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("missing %q in %q", want, summary)
+		}
+	}
+}
+
+func TestDiagnosticsOverlayShowsQueueSummaryWithoutEvents(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.diagnosticsOpen = true
+	model.width = 100
+	model.height = 30
+
+	view := model.render()
+
+	for _, want := range []string{"Queue running 0", "pending 0", "No background activity recorded yet."} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in %q", want, view)
+		}
+	}
+}
+
 func TestDiagnosticsOverlayRowsIncludeOperationLabels(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()

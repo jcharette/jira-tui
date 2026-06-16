@@ -1008,6 +1008,44 @@ func TestPoolTreatsDefaultPriorityAsForeground(t *testing.T) {
 	close(release)
 }
 
+func TestPoolStatsReportSchedulerState(t *testing.T) {
+	release := make(chan struct{})
+	started := make(chan struct{})
+	pool := NewPool(
+		&blockingIssueSearcher{release: release, started: started},
+		WithWorkerCount(1),
+		WithQueueSize(1),
+	)
+	t.Cleanup(func() {
+		close(release)
+		pool.Stop()
+	})
+
+	if err := pool.Submit(searchRequest(1)); err != nil {
+		t.Fatalf("Submit running request error = %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for first request to start")
+	}
+	pending := searchRequest(2)
+	pending.CoalesceKey = "search:project=ABC"
+	if err := pool.Submit(pending); err != nil {
+		t.Fatalf("Submit pending request error = %v", err)
+	}
+	coalesced := searchRequest(3)
+	coalesced.CoalesceKey = pending.CoalesceKey
+	if err := pool.Submit(coalesced); err != nil {
+		t.Fatalf("Submit coalesced request error = %v", err)
+	}
+
+	stats := pool.Stats()
+	if stats.Running != 1 || stats.Pending != 1 || stats.Coalesced != 1 || stats.Capacity != 2 {
+		t.Fatalf("Stats() = %#v", stats)
+	}
+}
+
 func TestPoolReturnsInvalidRequestResult(t *testing.T) {
 	pool := NewPool(&fakeIssueSearcher{}, WithWorkerCount(1), WithQueueSize(1))
 	defer pool.Stop()

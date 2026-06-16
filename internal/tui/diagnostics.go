@@ -41,10 +41,14 @@ func (m Model) renderDiagnostics(layout browserLayout) string {
 	b.WriteString(m.detailSectionHeader("diagnostics", "Diagnostics", "Background Activity", max(32, layout.contentWidth-4)))
 	b.WriteString("\n\n")
 	if len(events) == 0 {
+		b.WriteString(renderWorkerQueueSummary(m.workerStats(), max(20, layout.contentWidth-6)))
+		b.WriteString("\n\n")
 		b.WriteString(m.theme.Muted.Render("No background activity recorded yet."))
 		return m.theme.ActivePane.Width(layout.contentWidth).Render(strings.TrimRight(b.String(), "\n"))
 	}
 	b.WriteString(m.renderDiagnosticsSummary(events, max(20, layout.contentWidth-6)))
+	b.WriteString("\n")
+	b.WriteString(renderWorkerQueueSummary(m.workerStats(), max(20, layout.contentWidth-6)))
 	b.WriteString("\n\n")
 	b.WriteString(m.theme.Muted.Render(fmt.Sprintf("%-8s  %-8s  %-8s  %s", "TIME", "KIND", "STATUS", "DETAIL")))
 	for _, event := range events {
@@ -65,6 +69,24 @@ func (m Model) renderDiagnosticsSummary(events []diagnosticEvent, width int) str
 	summary := fmt.Sprintf("Workers %d   Cache %d   Errors %d   Active %d   Last %s", stats.Workers, stats.Cache, stats.Errors, stats.Active, last)
 	bars := fmt.Sprintf("Activity  worker %s  cache  %s", diagnosticActivityBar(stats.Workers, len(events), 12), diagnosticActivityBar(stats.Cache, len(events), 12))
 	return truncate(summary, width) + "\n" + truncate(bars, width)
+}
+
+func (m Model) workerStats() worker.Stats {
+	if m.workers == nil {
+		return worker.Stats{}
+	}
+	return m.workers.Stats()
+}
+
+func renderWorkerQueueSummary(stats worker.Stats, width int) string {
+	summary := fmt.Sprintf(
+		"Queue running %d   pending %d   coalesced %d   capacity %d",
+		stats.Running,
+		stats.Pending,
+		stats.Coalesced,
+		stats.Capacity,
+	)
+	return truncate(summary, width)
 }
 
 func diagnosticStatsFor(events []diagnosticEvent) diagnosticStats {

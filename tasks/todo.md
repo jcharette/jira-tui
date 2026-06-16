@@ -1,5 +1,32 @@
 # Task Plan
 
+## Worker Diagnostics Queue Summary
+
+- [x] Expose worker scheduler stats from the existing worker pool.
+- [x] Show a compact queue summary in the Diagnostics overlay.
+- [x] Keep the Diagnostics overlay useful even when no activity events have been recorded yet.
+- [x] Add focused worker and TUI rendering tests.
+- [x] Update cache design/backlog/changelog notes.
+- [x] Run final verification with `go test ./internal/worker -count=1`,
+  `go test ./internal/tui -count=1`, `go test ./... -count=1`, and `make check`.
+
+### Worker Diagnostics Queue Summary Scope
+
+Continue the cache/performance work by making the scheduler observable without adding a new
+queueing dependency. Keep `ants` as the maintained execution primitive and expose only a small,
+read-only stats snapshot from the app-specific admission layer.
+
+### Worker Diagnostics Queue Summary Review
+
+- Added `worker.Stats` and `Pool.Stats()` as a lock-protected read-only snapshot of the existing
+  scheduler state.
+- Added a compact Diagnostics queue line for running, pending, coalesced, and capacity counts.
+- Kept the Diagnostics overlay informative before any activity events are recorded by showing the
+  queue summary above the empty-state message.
+- Added focused worker and TUI tests for scheduler stats and queue summary rendering.
+- Verified with `go test ./internal/worker -count=1`, `go test ./internal/tui -count=1`,
+  `go test ./... -count=1`, and `make check`.
+
 ## Worker Priority And Coalescing
 
 - [x] Add worker request priority and coalesce-key metadata.

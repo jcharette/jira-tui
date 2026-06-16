@@ -313,6 +313,13 @@ type scheduledRequest struct {
 	sequence int64
 }
 
+type Stats struct {
+	Running   int
+	Pending   int
+	Coalesced int
+	Capacity  int
+}
+
 type Pool struct {
 	client JiraClient
 
@@ -421,6 +428,21 @@ func (p *Pool) Submit(request Request) error {
 
 func (p *Pool) Results() <-chan Result {
 	return p.results
+}
+
+func (p *Pool) Stats() Stats {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	stats := Stats{
+		Running:  p.running,
+		Pending:  len(p.pending),
+		Capacity: p.capacity(),
+	}
+	for _, waiters := range p.coalesced {
+		stats.Coalesced += len(waiters)
+	}
+	return stats
 }
 
 func (p *Pool) Stop() {
