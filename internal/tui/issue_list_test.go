@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"reflect"
@@ -10,6 +11,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/jon/jira-tui/internal/cache"
 	"github.com/jon/jira-tui/internal/config"
 	"github.com/jon/jira-tui/internal/jira"
 	"github.com/jon/jira-tui/internal/ui"
@@ -104,6 +106,77 @@ func TestSwitchViewUsesFreshCachedIssueViewWithoutRefresh(t *testing.T) {
 	}
 	if len(next.issues) != 1 || next.issues[0].Key != "ABC-9" {
 		t.Fatalf("issues = %#v", next.issues)
+	}
+}
+
+func TestNewModelHydratesFreshPersistentActiveView(t *testing.T) {
+	now := time.Now()
+	store := newFakeActiveViewStore()
+	store.record = cache.ActiveViewRecord{
+		Namespace: "https://example.atlassian.net",
+		CacheKey:  activeViewCacheKey("project = ABC"),
+		Issues:    []jira.Issue{{Key: "ABC-9", Summary: "Persistent cached issue"}},
+		SyncedAt:  now.Add(-10 * time.Second),
+		FreshTill: now.Add(time.Minute),
+	}
+
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithActiveViewStore(store, "https://example.atlassian.net"),
+	)
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+
+	if model.loading {
+		t.Fatal("hydrated model should render without initial loading")
+	}
+	if model.viewStale {
+		t.Fatal("fresh hydrated model should not be stale")
+	}
+	if len(model.issues) != 1 || model.issues[0].Key != "ABC-9" {
+		t.Fatalf("issues = %#v", model.issues)
+	}
+	if cmd := model.Init(); cmd == nil {
+		t.Fatal("Init should still return worker wait/refresh scheduling")
+	}
+}
+
+func TestSearchResultPersistsActiveView(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.Local)
+	store := newFakeActiveViewStore()
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithActiveViewStore(store, "https://example.atlassian.net"),
+	)
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.activeRequestID = 7
+
+	updated, _ := model.Update(workerResultMsg{
+		result: worker.Result{
+			ID:   7,
+			Kind: worker.KindSearchIssues,
+			SearchIssues: &worker.SearchIssuesResult{
+				Issues:   []jira.Issue{{Key: "ABC-1", Summary: "Persist me"}},
+				SyncedAt: now,
+			},
+		},
+	})
+	next := updated.(Model)
+
+	if next.err != nil {
+		t.Fatalf("err = %v", next.err)
+	}
+	if store.put.Namespace != "https://example.atlassian.net" || store.put.CacheKey != activeViewCacheKey("project = ABC") {
+		t.Fatalf("put = %#v", store.put)
+	}
+	if len(store.put.Issues) != 1 || store.put.Issues[0].Key != "ABC-1" {
+		t.Fatalf("persisted issues = %#v", store.put.Issues)
+	}
+	if !store.put.SyncedAt.Equal(now) || !store.put.FreshTill.Equal(now.Add(activeViewCacheTTL)) {
+		t.Fatalf("persisted timestamps = %s/%s", store.put.SyncedAt, store.put.FreshTill)
 	}
 }
 
@@ -1044,4 +1117,25 @@ func TestSubmitIssueSearchReturnsFailedResultFromPool(t *testing.T) {
 	if !errors.Is(failed.result.Err, searchErr) {
 		t.Fatalf("err = %v", failed.result.Err)
 	}
+}
+
+type fakeActiveViewStore struct {
+	record cache.ActiveViewRecord
+	put    cache.ActiveViewRecord
+}
+
+func newFakeActiveViewStore() *fakeActiveViewStore {
+	return &fakeActiveViewStore{}
+}
+
+func (f *fakeActiveViewStore) GetActiveView(_ context.Context, namespace string, cacheKey string) (cache.ActiveViewRecord, bool, error) {
+	if f.record.Namespace == namespace && f.record.CacheKey == cacheKey {
+		return f.record, true, nil
+	}
+	return cache.ActiveViewRecord{}, false, nil
+}
+
+func (f *fakeActiveViewStore) PutActiveView(_ context.Context, record cache.ActiveViewRecord) error {
+	f.put = record
+	return nil
 }

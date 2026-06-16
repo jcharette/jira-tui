@@ -48,6 +48,9 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
   events, and background sync summaries as cache and prefetch tooling grows. Queue running,
   pending, coalesced, and capacity counts are now visible; per-cache-record refresh summaries still
   need to land with cache unification.
+- Extend the SQLite persistent cache beyond active views after the active-view path proves useful:
+  persist selected detail/comment records and metadata with per-site namespaces, schema migrations,
+  and safe cache deletion.
 - Add an opt-in sanitized API debug log built on the Diagnostics model: record Jira operation,
   endpoint family, request ID, project/issue keys, result class, status/error summary, timing, and
   empty/paged result counts without storing tokens or raw response bodies. Use this later as the

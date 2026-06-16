@@ -195,12 +195,14 @@ type Model struct {
 	activeCreateAIPromptReqID          int
 	now                                func() time.Time
 
-	loading         bool
-	refreshing      bool
-	viewStale       bool
-	err             error
-	lastSynced      time.Time
-	activeViewCache *ttlcache.Cache[string, issueViewCacheRecord]
+	loading             bool
+	refreshing          bool
+	viewStale           bool
+	err                 error
+	lastSynced          time.Time
+	activeViewCache     *ttlcache.Cache[string, issueViewCacheRecord]
+	activeViewStore     activeViewStore
+	activeViewNamespace string
 
 	details                     map[string]jira.IssueDetail
 	detailCache                 *ttlcache.Cache[string, jiraCacheRecord[jira.IssueDetail]]
@@ -361,6 +363,13 @@ func WithViews(views []config.IssueView, active string) Option {
 	}
 }
 
+func WithActiveViewStore(store activeViewStore, namespace string) Option {
+	return func(m *Model) {
+		m.activeViewStore = store
+		m.activeViewNamespace = strings.TrimSpace(namespace)
+	}
+}
+
 type refreshTickMsg struct{}
 type workSubmittedMsg struct {
 	kind worker.Kind
@@ -406,6 +415,7 @@ func NewModel(client worker.JiraClient, jql string, options ...Option) Model {
 	for _, option := range options {
 		option(&model)
 	}
+	model.hydrateActiveIssueView()
 	model.workers = worker.NewPool(
 		client,
 		worker.WithWorkerCount(model.workerCount),
@@ -415,11 +425,14 @@ func NewModel(client worker.JiraClient, jql string, options ...Option) Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(
-		m.submitIssueSearch(m.activeRequestID, worker.PriorityForeground),
+	cmds := []tea.Cmd{
 		m.waitForWorkerResult(),
 		m.scheduleRefresh(),
-	)
+	}
+	if m.loading || m.viewStale || len(m.issues) == 0 {
+		cmds = append(cmds, m.submitIssueSearch(m.activeRequestID, worker.PriorityForeground))
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

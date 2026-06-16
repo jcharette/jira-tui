@@ -6,6 +6,7 @@ import (
 	"os"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/jon/jira-tui/internal/cache"
 	"github.com/jon/jira-tui/internal/claude"
 	"github.com/jon/jira-tui/internal/config"
 	"github.com/jon/jira-tui/internal/configui"
@@ -72,9 +73,7 @@ func runApp() error {
 		claudeCommand = cfg.Claude.Command
 	}
 	client := jira.NewClient(cfg)
-	model := jiratui.NewModel(
-		client,
-		cfg.DefaultJQL,
+	options := []jiratui.Option{
 		jiratui.WithViews(cfg.Views, cfg.ActiveView),
 		jiratui.WithRefreshInterval(cfg.RefreshInterval),
 		jiratui.WithRequestTimeout(cfg.RequestTimeout),
@@ -100,7 +99,12 @@ func runApp() error {
 			Message:   claudeStatus.Message,
 			Err:       claudeStatus.Err,
 		}),
-	)
+	}
+	if cacheStore, cacheErr := cache.OpenDefault(); cacheErr == nil {
+		defer cacheStore.Close()
+		options = append(options, jiratui.WithActiveViewStore(cacheStore, cfg.BaseURL))
+	}
+	model := jiratui.NewModel(client, cfg.DefaultJQL, options...)
 
 	if _, err := tea.NewProgram(model).Run(); err != nil {
 		return fmt.Errorf("runtime error: %w", err)

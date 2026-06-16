@@ -4,6 +4,8 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Added a SQLite-backed persistent cache for active Jira views using `modernc.org/sqlite`, so cached
+  view rows can hydrate from the user's app cache directory across app restarts.
 - Moved issue comments onto retained cache records so fresh comments skip Jira work, stale comments
   stay visible while refreshing, and comment posts invalidate retained comment data.
 - Replaced marker-only issue detail freshness with retained detail cache records using the existing

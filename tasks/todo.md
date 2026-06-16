@@ -1,5 +1,39 @@
 # Task Plan
 
+## Persistent Active View Cache
+
+- [x] Add a SQLite-backed cache store using `modernc.org/sqlite`.
+- [x] Store active-view issue rows as app-local JSON payloads keyed by namespace and normalized JQL.
+- [x] Store sync and freshness timestamps so cached rows can hydrate fresh or stale views.
+- [x] Keep persistence private to `os.UserCacheDir()` for the real app and injectable for tests.
+- [x] Wire active-view cache writes to the store after successful Jira search results.
+- [x] Hydrate active views from the store before submitting Jira refreshes.
+- [x] Keep in-memory `ttlcache` as the hot cache layer.
+- [x] Add focused store and TUI hydration tests.
+- [x] Update cache design/backlog/changelog notes.
+- [x] Run final verification with `go test ./internal/cache -count=1`,
+  `go test ./internal/tui -count=1`, `go test ./... -count=1`, and `make check`.
+
+### Persistent Active View Cache Scope
+
+Implement the first persistent cache slice only for active Jira views. Use maintained
+`modernc.org/sqlite` through `database/sql`; do not build a custom storage engine. Keep detail,
+comments, transitions, metadata, and expanded children persistence for later slices. The store must
+be disposable, credential-free, namespace-aware, and safe to ignore if unavailable.
+
+### Persistent Active View Cache Review
+
+- Added `internal/cache.Store` backed by SQLite through `modernc.org/sqlite`.
+- Stored active-view issue rows as JSON payloads keyed by Jira namespace and normalized JQL.
+- Stored `SyncedAt` and `FreshTill` timestamps for cross-session freshness decisions.
+- Opened the real app cache under `os.UserCacheDir()/jira-tui/cache.sqlite`; cache open failures do
+  not block app startup.
+- Hydrated active views from the persistent store into the existing hot `ttlcache` layer.
+- Persisted successful active-view Jira search results back to SQLite.
+- Left detail/comment persistence, metadata persistence, and cache cleanup for later slices.
+- Verified with `go test ./internal/cache -count=1`, `go test ./internal/tui -count=1`,
+  `go test ./... -count=1`, and `make check`.
+
 ## Comments Cache Record Unification
 
 - [x] Add retained comment cache records using the shared Jira cache record helper.
