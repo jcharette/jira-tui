@@ -75,6 +75,7 @@ func (m Model) startDetailRequestForSelected() (Model, tea.Cmd) {
 		return m, nil
 	}
 	var cmds []tea.Cmd
+	m.hydrateIssueDetail(selected.Key)
 	if _, ok := m.details[selected.Key]; ok && m.isIssueDetailFresh(selected.Key) {
 		m.recordDiagnosticEvent(diagnosticKindCache, "issue_detail", "hit", selected.Key)
 		m.detailLoading = false
@@ -94,6 +95,7 @@ func (m Model) startDetailRequestForSelected() (Model, tea.Cmd) {
 		cmds = append(cmds, m.submitIssueDetail(m.activeDetailRequestID, selected.Key))
 	}
 
+	m.hydrateIssueComments(selected.Key)
 	if _, ok := m.comments[selected.Key]; ok && m.isIssueCommentsFresh(selected.Key) {
 		m.commentsLoading = false
 		m.commentsErr = nil

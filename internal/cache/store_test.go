@@ -108,6 +108,104 @@ func TestStoreKeepsActiveViewsIsolatedByNamespace(t *testing.T) {
 	}
 }
 
+func TestStorePersistsIssueDetailRecords(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(filepath.Join(t.TempDir(), "cache.sqlite"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+
+	syncedAt := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	record := IssueDetailRecord{
+		Namespace: "https://example.atlassian.net",
+		IssueKey:  "ABC-1",
+		Detail:    jira.IssueDetail{Issue: jira.Issue{Key: "ABC-1", Summary: "Cached detail"}, Description: "Stored description"},
+		SyncedAt:  syncedAt,
+		FreshTill: syncedAt.Add(time.Minute),
+	}
+	if err := store.PutIssueDetail(ctx, record); err != nil {
+		t.Fatalf("PutIssueDetail() error = %v", err)
+	}
+
+	got, ok, err := store.GetIssueDetail(ctx, record.Namespace, record.IssueKey)
+	if err != nil {
+		t.Fatalf("GetIssueDetail() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("expected issue detail record")
+	}
+	if got.Detail.Key != "ABC-1" || got.Detail.Description != "Stored description" {
+		t.Fatalf("Detail = %#v", got.Detail)
+	}
+	if !got.SyncedAt.Equal(record.SyncedAt) || !got.FreshTill.Equal(record.FreshTill) {
+		t.Fatalf("timestamps = %s/%s", got.SyncedAt, got.FreshTill)
+	}
+}
+
+func TestStorePersistsIssueCommentsRecords(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(filepath.Join(t.TempDir(), "cache.sqlite"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+
+	syncedAt := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	record := IssueCommentsRecord{
+		Namespace:  "https://example.atlassian.net",
+		IssueKey:   "ABC-1",
+		MaxResults: 10,
+		Comments:   []jira.Comment{{ID: "10001", Body: "Stored comment"}},
+		SyncedAt:   syncedAt,
+		FreshTill:  syncedAt.Add(time.Minute),
+	}
+	if err := store.PutIssueComments(ctx, record); err != nil {
+		t.Fatalf("PutIssueComments() error = %v", err)
+	}
+
+	got, ok, err := store.GetIssueComments(ctx, record.Namespace, record.IssueKey, record.MaxResults)
+	if err != nil {
+		t.Fatalf("GetIssueComments() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("expected issue comments record")
+	}
+	if len(got.Comments) != 1 || got.Comments[0].ID != "10001" || got.Comments[0].Body != "Stored comment" {
+		t.Fatalf("Comments = %#v", got.Comments)
+	}
+	if !got.SyncedAt.Equal(record.SyncedAt) || !got.FreshTill.Equal(record.FreshTill) {
+		t.Fatalf("timestamps = %s/%s", got.SyncedAt, got.FreshTill)
+	}
+}
+
+func TestStoreInvalidatesIssueComments(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(filepath.Join(t.TempDir(), "cache.sqlite"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+
+	record := IssueCommentsRecord{
+		Namespace:  "https://example.atlassian.net",
+		IssueKey:   "ABC-1",
+		MaxResults: 10,
+		Comments:   []jira.Comment{{ID: "10001"}},
+		SyncedAt:   time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC),
+		FreshTill:  time.Date(2026, 6, 16, 10, 1, 0, 0, time.UTC),
+	}
+	if err := store.PutIssueComments(ctx, record); err != nil {
+		t.Fatalf("PutIssueComments() error = %v", err)
+	}
+	if err := store.DeleteIssueComments(ctx, record.Namespace, record.IssueKey); err != nil {
+		t.Fatalf("DeleteIssueComments() error = %v", err)
+	}
+	if _, ok, err := store.GetIssueComments(ctx, record.Namespace, record.IssueKey, record.MaxResults); err != nil || ok {
+		t.Fatalf("deleted comments ok=%v err=%v", ok, err)
+	}
+}
+
 func TestDefaultPathUsesAppCacheFile(t *testing.T) {
 	path, err := DefaultPath()
 	if err != nil {

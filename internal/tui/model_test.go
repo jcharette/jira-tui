@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/jon/jira-tui/internal/cache"
 	"github.com/jon/jira-tui/internal/claude"
 	"github.com/jon/jira-tui/internal/jira"
 	"github.com/jon/jira-tui/internal/worker"
@@ -347,6 +348,103 @@ func TestStaleCachedCommentsStayVisibleWhileRefreshing(t *testing.T) {
 	}
 	if next.comments["ABC-1"][0].Body != "Stale comment" {
 		t.Fatalf("stale comments should remain visible, comments = %#v", next.comments["ABC-1"])
+	}
+}
+
+func TestPersistentDetailAndCommentsHydrateOnDetailOpen(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	store := newFakeActiveViewStore()
+	store.detail = cache.IssueDetailRecord{
+		Namespace: "https://example.atlassian.net",
+		IssueKey:  "ABC-1",
+		Detail:    jira.IssueDetail{Issue: jira.Issue{Key: "ABC-1"}, Description: "Persistent detail"},
+		SyncedAt:  now.Add(-10 * time.Second),
+		FreshTill: now.Add(time.Minute),
+	}
+	store.comments = cache.IssueCommentsRecord{
+		Namespace:  "https://example.atlassian.net",
+		IssueKey:   "ABC-1",
+		MaxResults: maxComments,
+		Comments:   []jira.Comment{{ID: "10001", Body: "Persistent comment"}},
+		SyncedAt:   now.Add(-10 * time.Second),
+		FreshTill:  now.Add(time.Minute),
+	}
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithActiveViewStore(store, "https://example.atlassian.net"),
+	)
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.loading = false
+	model.issues = []jira.Issue{{Key: "ABC-1"}}
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("fresh persistent detail/comments should not submit background work")
+	}
+	if next.detailLoading || next.commentsLoading {
+		t.Fatalf("detailLoading=%v commentsLoading=%v", next.detailLoading, next.commentsLoading)
+	}
+	if next.details["ABC-1"].Description != "Persistent detail" {
+		t.Fatalf("detail = %#v", next.details["ABC-1"])
+	}
+	if len(next.comments["ABC-1"]) != 1 || next.comments["ABC-1"][0].Body != "Persistent comment" {
+		t.Fatalf("comments = %#v", next.comments["ABC-1"])
+	}
+}
+
+func TestSearchDetailAndCommentsPersistToStore(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	store := newFakeActiveViewStore()
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithActiveViewStore(store, "https://example.atlassian.net"),
+	)
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.loading = false
+	model.issues = []jira.Issue{{Key: "ABC-1"}}
+	model.activeDetailRequestID = 7
+	model.detailRequestKey = "ABC-1"
+	model.activeCommentsReqID = 8
+	model.commentsRequestKey = "ABC-1"
+
+	updated, _ := model.Update(workerResultMsg{result: worker.Result{
+		ID:   7,
+		Kind: worker.KindGetIssue,
+		GetIssue: &worker.GetIssueResult{
+			Key:      "ABC-1",
+			Detail:   jira.IssueDetail{Issue: jira.Issue{Key: "ABC-1"}, Description: "Store detail"},
+			SyncedAt: now,
+		},
+	}})
+	next := updated.(Model)
+	updated, _ = next.Update(workerResultMsg{result: worker.Result{
+		ID:   8,
+		Kind: worker.KindGetComments,
+		GetComments: &worker.GetCommentsResult{
+			Key:      "ABC-1",
+			Comments: []jira.Comment{{ID: "10001", Body: "Store comment"}},
+			SyncedAt: now,
+		},
+	}})
+	next = updated.(Model)
+
+	if store.putDetail.IssueKey != "ABC-1" || store.putDetail.Detail.Description != "Store detail" {
+		t.Fatalf("putDetail = %#v", store.putDetail)
+	}
+	if store.putComments.IssueKey != "ABC-1" || len(store.putComments.Comments) != 1 || store.putComments.Comments[0].Body != "Store comment" {
+		t.Fatalf("putComments = %#v", store.putComments)
+	}
+	if !store.putDetail.FreshTill.Equal(now.Add(issueDetailCacheTTL)) {
+		t.Fatalf("detail FreshTill = %s", store.putDetail.FreshTill)
+	}
+	if !store.putComments.FreshTill.Equal(now.Add(issueCommentsCacheTTL)) {
+		t.Fatalf("comments FreshTill = %s", store.putComments.FreshTill)
 	}
 }
 

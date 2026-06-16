@@ -408,6 +408,7 @@ func (m *Model) cacheIssueDetail(key string, detail jira.IssueDetail, syncedAt t
 	}
 	m.details[key] = detail
 	m.detailCache.Set(key, newJiraCacheRecord(detail, syncedAt, issueDetailCacheTTL), ttlcache.DefaultTTL)
+	m.persistIssueDetail(key, detail, syncedAt)
 }
 
 func (m Model) handleAddCommentResult(result worker.Result) (Model, tea.Cmd) {
@@ -528,6 +529,7 @@ func (m *Model) cacheIssueComments(key string, comments []jira.Comment, syncedAt
 	copied := append([]jira.Comment(nil), comments...)
 	m.comments[key] = copied
 	m.commentsCache.Set(key, newJiraCacheRecord(copied, syncedAt, issueCommentsCacheTTL), ttlcache.DefaultTTL)
+	m.persistIssueComments(key, copied, syncedAt)
 }
 
 func (m *Model) invalidateIssueComments(key string) {
@@ -541,4 +543,5 @@ func (m *Model) invalidateIssueComments(key string) {
 	if m.commentsCache != nil {
 		m.commentsCache.Delete(key)
 	}
+	m.deletePersistentIssueComments(key)
 }

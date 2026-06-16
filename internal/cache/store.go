@@ -29,6 +29,23 @@ type ActiveViewRecord struct {
 	FreshTill time.Time
 }
 
+type IssueDetailRecord struct {
+	Namespace string
+	IssueKey  string
+	Detail    jira.IssueDetail
+	SyncedAt  time.Time
+	FreshTill time.Time
+}
+
+type IssueCommentsRecord struct {
+	Namespace  string
+	IssueKey   string
+	MaxResults int
+	Comments   []jira.Comment
+	SyncedAt   time.Time
+	FreshTill  time.Time
+}
+
 func DefaultPath() (string, error) {
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
@@ -134,6 +151,145 @@ WHERE namespace = ? AND cache_key = ?
 	}, true, nil
 }
 
+func (s *Store) PutIssueDetail(ctx context.Context, record IssueDetailRecord) error {
+	if s == nil || s.db == nil {
+		return errors.New("cache store is closed")
+	}
+	record.Namespace = strings.TrimSpace(record.Namespace)
+	record.IssueKey = strings.TrimSpace(record.IssueKey)
+	if record.Namespace == "" || record.IssueKey == "" {
+		return errors.New("issue detail namespace and issue key are required")
+	}
+	payload, err := json.Marshal(record.Detail)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `
+INSERT INTO issue_details(namespace, issue_key, detail_json, synced_at_unix_nano, fresh_till_unix_nano, updated_at_unix_nano)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT(namespace, issue_key) DO UPDATE SET
+	detail_json = excluded.detail_json,
+	synced_at_unix_nano = excluded.synced_at_unix_nano,
+	fresh_till_unix_nano = excluded.fresh_till_unix_nano,
+	updated_at_unix_nano = excluded.updated_at_unix_nano
+`, record.Namespace, record.IssueKey, string(payload), record.SyncedAt.UnixNano(), record.FreshTill.UnixNano(), time.Now().UnixNano())
+	return err
+}
+
+func (s *Store) GetIssueDetail(ctx context.Context, namespace string, issueKey string) (IssueDetailRecord, bool, error) {
+	if s == nil || s.db == nil {
+		return IssueDetailRecord{}, false, errors.New("cache store is closed")
+	}
+	namespace = strings.TrimSpace(namespace)
+	issueKey = strings.TrimSpace(issueKey)
+	if namespace == "" || issueKey == "" {
+		return IssueDetailRecord{}, false, nil
+	}
+	var payload string
+	var syncedAtUnixNano int64
+	var freshTillUnixNano int64
+	err := s.db.QueryRowContext(ctx, `
+SELECT detail_json, synced_at_unix_nano, fresh_till_unix_nano
+FROM issue_details
+WHERE namespace = ? AND issue_key = ?
+`, namespace, issueKey).Scan(&payload, &syncedAtUnixNano, &freshTillUnixNano)
+	if errors.Is(err, sql.ErrNoRows) {
+		return IssueDetailRecord{}, false, nil
+	}
+	if err != nil {
+		return IssueDetailRecord{}, false, err
+	}
+	var detail jira.IssueDetail
+	if err := json.Unmarshal([]byte(payload), &detail); err != nil {
+		return IssueDetailRecord{}, false, fmt.Errorf("decode issue detail cache: %w", err)
+	}
+	return IssueDetailRecord{
+		Namespace: namespace,
+		IssueKey:  issueKey,
+		Detail:    detail,
+		SyncedAt:  time.Unix(0, syncedAtUnixNano),
+		FreshTill: time.Unix(0, freshTillUnixNano),
+	}, true, nil
+}
+
+func (s *Store) PutIssueComments(ctx context.Context, record IssueCommentsRecord) error {
+	if s == nil || s.db == nil {
+		return errors.New("cache store is closed")
+	}
+	record.Namespace = strings.TrimSpace(record.Namespace)
+	record.IssueKey = strings.TrimSpace(record.IssueKey)
+	if record.Namespace == "" || record.IssueKey == "" || record.MaxResults <= 0 {
+		return errors.New("issue comments namespace, issue key, and max results are required")
+	}
+	payload, err := json.Marshal(record.Comments)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `
+INSERT INTO issue_comments(namespace, issue_key, max_results, comments_json, synced_at_unix_nano, fresh_till_unix_nano, updated_at_unix_nano)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(namespace, issue_key, max_results) DO UPDATE SET
+	comments_json = excluded.comments_json,
+	synced_at_unix_nano = excluded.synced_at_unix_nano,
+	fresh_till_unix_nano = excluded.fresh_till_unix_nano,
+	updated_at_unix_nano = excluded.updated_at_unix_nano
+`, record.Namespace, record.IssueKey, record.MaxResults, string(payload), record.SyncedAt.UnixNano(), record.FreshTill.UnixNano(), time.Now().UnixNano())
+	return err
+}
+
+func (s *Store) GetIssueComments(ctx context.Context, namespace string, issueKey string, maxResults int) (IssueCommentsRecord, bool, error) {
+	if s == nil || s.db == nil {
+		return IssueCommentsRecord{}, false, errors.New("cache store is closed")
+	}
+	namespace = strings.TrimSpace(namespace)
+	issueKey = strings.TrimSpace(issueKey)
+	if namespace == "" || issueKey == "" || maxResults <= 0 {
+		return IssueCommentsRecord{}, false, nil
+	}
+	var payload string
+	var syncedAtUnixNano int64
+	var freshTillUnixNano int64
+	err := s.db.QueryRowContext(ctx, `
+SELECT comments_json, synced_at_unix_nano, fresh_till_unix_nano
+FROM issue_comments
+WHERE namespace = ? AND issue_key = ? AND max_results = ?
+`, namespace, issueKey, maxResults).Scan(&payload, &syncedAtUnixNano, &freshTillUnixNano)
+	if errors.Is(err, sql.ErrNoRows) {
+		return IssueCommentsRecord{}, false, nil
+	}
+	if err != nil {
+		return IssueCommentsRecord{}, false, err
+	}
+	var comments []jira.Comment
+	if err := json.Unmarshal([]byte(payload), &comments); err != nil {
+		return IssueCommentsRecord{}, false, fmt.Errorf("decode issue comments cache: %w", err)
+	}
+	return IssueCommentsRecord{
+		Namespace:  namespace,
+		IssueKey:   issueKey,
+		MaxResults: maxResults,
+		Comments:   comments,
+		SyncedAt:   time.Unix(0, syncedAtUnixNano),
+		FreshTill:  time.Unix(0, freshTillUnixNano),
+	}, true, nil
+}
+
+func (s *Store) DeleteIssueComments(ctx context.Context, namespace string, issueKey string) error {
+	if s == nil || s.db == nil {
+		return errors.New("cache store is closed")
+	}
+	namespace = strings.TrimSpace(namespace)
+	issueKey = strings.TrimSpace(issueKey)
+	if namespace == "" || issueKey == "" {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `
+DELETE FROM issue_comments
+WHERE namespace = ? AND issue_key = ?
+`, namespace, issueKey)
+	return err
+}
+
 func (s *Store) migrate(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, `PRAGMA user_version = `+fmt.Sprint(schemaVersion)); err != nil {
 		return err
@@ -149,6 +305,29 @@ CREATE TABLE IF NOT EXISTS active_views (
 	PRIMARY KEY(namespace, cache_key)
 );
 CREATE INDEX IF NOT EXISTS active_views_updated_at_idx ON active_views(updated_at_unix_nano);
+
+CREATE TABLE IF NOT EXISTS issue_details (
+	namespace TEXT NOT NULL,
+	issue_key TEXT NOT NULL,
+	detail_json TEXT NOT NULL,
+	synced_at_unix_nano INTEGER NOT NULL,
+	fresh_till_unix_nano INTEGER NOT NULL,
+	updated_at_unix_nano INTEGER NOT NULL,
+	PRIMARY KEY(namespace, issue_key)
+);
+CREATE INDEX IF NOT EXISTS issue_details_updated_at_idx ON issue_details(updated_at_unix_nano);
+
+CREATE TABLE IF NOT EXISTS issue_comments (
+	namespace TEXT NOT NULL,
+	issue_key TEXT NOT NULL,
+	max_results INTEGER NOT NULL,
+	comments_json TEXT NOT NULL,
+	synced_at_unix_nano INTEGER NOT NULL,
+	fresh_till_unix_nano INTEGER NOT NULL,
+	updated_at_unix_nano INTEGER NOT NULL,
+	PRIMARY KEY(namespace, issue_key, max_results)
+);
+CREATE INDEX IF NOT EXISTS issue_comments_updated_at_idx ON issue_comments(updated_at_unix_nano);
 `)
 	return err
 }

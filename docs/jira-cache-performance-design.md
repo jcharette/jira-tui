@@ -185,10 +185,12 @@ create metadata, and expanded children remain pending.
 - Persist active view issue rows and selected detail/comment records with schema versioning and
   per-site namespacing.
 
-Status: partially implemented for active Jira views. The app now opens a private SQLite cache under
-the user's cache directory with `modernc.org/sqlite`, hydrates active view rows by Jira base URL and
-normalized JQL, and writes successful active view searches back to disk. Detail/comment persistence,
-metadata persistence, and cache cleanup policies remain pending.
+Status: partially implemented for active Jira views, issue detail, and comments. The app now opens a
+private SQLite cache under the user's cache directory with `modernc.org/sqlite`, hydrates active
+view rows by Jira base URL and normalized JQL, hydrates issue detail/comments by issue key, and
+writes successful active view/detail/comment reads back to disk. Comment writes invalidate persisted
+comments. Metadata persistence, expanded children persistence, and cache cleanup policies remain
+pending.
 
 ## Non-Goals For The First Slice
 

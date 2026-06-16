@@ -13,6 +13,11 @@ import (
 type activeViewStore interface {
 	GetActiveView(context.Context, string, string) (cache.ActiveViewRecord, bool, error)
 	PutActiveView(context.Context, cache.ActiveViewRecord) error
+	GetIssueDetail(context.Context, string, string) (cache.IssueDetailRecord, bool, error)
+	PutIssueDetail(context.Context, cache.IssueDetailRecord) error
+	GetIssueComments(context.Context, string, string, int) (cache.IssueCommentsRecord, bool, error)
+	PutIssueComments(context.Context, cache.IssueCommentsRecord) error
+	DeleteIssueComments(context.Context, string, string) error
 }
 
 type issueViewCacheRecord struct {
@@ -124,4 +129,105 @@ func (m Model) persistActiveIssueView(jql string, record issueViewCacheRecord) {
 		SyncedAt:  record.SyncedAt,
 		FreshTill: record.FreshTill,
 	})
+}
+
+func (m *Model) hydrateIssueDetail(key string) {
+	if _, ok := m.cachedIssueDetail(key); ok {
+		return
+	}
+	if m.activeViewStore == nil || strings.TrimSpace(m.activeViewNamespace) == "" {
+		return
+	}
+	record, ok, err := m.activeViewStore.GetIssueDetail(context.Background(), m.activeViewNamespace, strings.TrimSpace(key))
+	if err != nil || !ok {
+		return
+	}
+	m.cacheIssueDetailRecord(record)
+}
+
+func (m *Model) hydrateIssueComments(key string) {
+	if _, ok := m.cachedIssueComments(key); ok {
+		return
+	}
+	if m.activeViewStore == nil || strings.TrimSpace(m.activeViewNamespace) == "" {
+		return
+	}
+	record, ok, err := m.activeViewStore.GetIssueComments(context.Background(), m.activeViewNamespace, strings.TrimSpace(key), maxComments)
+	if err != nil || !ok {
+		return
+	}
+	m.cacheIssueCommentsRecord(record)
+}
+
+func (m *Model) cacheIssueDetailRecord(record cache.IssueDetailRecord) {
+	key := strings.TrimSpace(record.IssueKey)
+	if m.detailCache == nil || key == "" {
+		return
+	}
+	if m.details == nil {
+		m.details = make(map[string]jira.IssueDetail)
+	}
+	m.details[key] = record.Detail
+	m.detailCache.Set(key, jiraCacheRecord[jira.IssueDetail]{
+		Value:     record.Detail,
+		SyncedAt:  record.SyncedAt,
+		FreshTill: record.FreshTill,
+	}, ttlcache.DefaultTTL)
+}
+
+func (m *Model) cacheIssueCommentsRecord(record cache.IssueCommentsRecord) {
+	key := strings.TrimSpace(record.IssueKey)
+	if m.commentsCache == nil || key == "" {
+		return
+	}
+	if m.comments == nil {
+		m.comments = make(map[string][]jira.Comment)
+	}
+	copied := append([]jira.Comment(nil), record.Comments...)
+	m.comments[key] = copied
+	m.commentsCache.Set(key, jiraCacheRecord[[]jira.Comment]{
+		Value:     copied,
+		SyncedAt:  record.SyncedAt,
+		FreshTill: record.FreshTill,
+	}, ttlcache.DefaultTTL)
+}
+
+func (m Model) persistIssueDetail(key string, detail jira.IssueDetail, syncedAt time.Time) {
+	if m.activeViewStore == nil || strings.TrimSpace(m.activeViewNamespace) == "" {
+		return
+	}
+	if syncedAt.IsZero() {
+		syncedAt = m.currentTime()
+	}
+	_ = m.activeViewStore.PutIssueDetail(context.Background(), cache.IssueDetailRecord{
+		Namespace: m.activeViewNamespace,
+		IssueKey:  strings.TrimSpace(key),
+		Detail:    detail,
+		SyncedAt:  syncedAt,
+		FreshTill: syncedAt.Add(issueDetailCacheTTL),
+	})
+}
+
+func (m Model) persistIssueComments(key string, comments []jira.Comment, syncedAt time.Time) {
+	if m.activeViewStore == nil || strings.TrimSpace(m.activeViewNamespace) == "" {
+		return
+	}
+	if syncedAt.IsZero() {
+		syncedAt = m.currentTime()
+	}
+	_ = m.activeViewStore.PutIssueComments(context.Background(), cache.IssueCommentsRecord{
+		Namespace:  m.activeViewNamespace,
+		IssueKey:   strings.TrimSpace(key),
+		MaxResults: maxComments,
+		Comments:   append([]jira.Comment(nil), comments...),
+		SyncedAt:   syncedAt,
+		FreshTill:  syncedAt.Add(issueCommentsCacheTTL),
+	})
+}
+
+func (m Model) deletePersistentIssueComments(key string) {
+	if m.activeViewStore == nil || strings.TrimSpace(m.activeViewNamespace) == "" {
+		return
+	}
+	_ = m.activeViewStore.DeleteIssueComments(context.Background(), m.activeViewNamespace, strings.TrimSpace(key))
 }

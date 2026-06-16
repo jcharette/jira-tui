@@ -1,5 +1,37 @@
 # Task Plan
 
+## Persistent Detail And Comment Cache
+
+- [x] Add SQLite records for issue detail and comments using `modernc.org/sqlite`.
+- [x] Key records by Jira namespace and issue key, with comment records also storing max results.
+- [x] Store payload JSON plus `SyncedAt` and `FreshTill` timestamps.
+- [x] Hydrate detail/comments from the persistent store when opening a selected issue.
+- [x] Persist successful detail/comment Jira reads back to SQLite.
+- [x] Invalidate persistent comments after comment writes.
+- [x] Keep `ttlcache` as the hot cache layer and existing maps as render sources.
+- [x] Add focused store and TUI persistence tests.
+- [x] Update cache design/backlog/changelog notes.
+- [x] Run final verification with `go test ./internal/cache -count=1`,
+  `go test ./internal/tui -count=1`, `go test ./... -count=1`, and `make check`.
+
+### Persistent Detail And Comment Cache Scope
+
+Extend the SQLite persistent cache to issue detail and comments only. Keep transitions, edit/create
+metadata, expanded children, and cleanup policy for later slices. Continue using the existing hot
+`ttlcache` records and render maps; SQLite is only the durable read model behind them.
+
+### Persistent Detail And Comment Cache Review
+
+- Added SQLite tables and store methods for issue detail and comments.
+- Keyed detail by namespace and issue key; keyed comments by namespace, issue key, and max result
+  count.
+- Hydrated persistent detail/comments into the existing hot cache records before opening detail.
+- Persisted successful detail/comment worker reads back to SQLite.
+- Invalidated persistent comments after user comment creation and shared retained invalidation path.
+- Kept `ttlcache` and current render maps as the hot/read path.
+- Verified with `go test ./internal/cache -count=1`, `go test ./internal/tui -count=1`,
+  `go test ./... -count=1`, and `make check`.
+
 ## Persistent Active View Cache
 
 - [x] Add a SQLite-backed cache store using `modernc.org/sqlite`.

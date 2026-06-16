@@ -1120,8 +1120,13 @@ func TestSubmitIssueSearchReturnsFailedResultFromPool(t *testing.T) {
 }
 
 type fakeActiveViewStore struct {
-	record cache.ActiveViewRecord
-	put    cache.ActiveViewRecord
+	record          cache.ActiveViewRecord
+	put             cache.ActiveViewRecord
+	detail          cache.IssueDetailRecord
+	putDetail       cache.IssueDetailRecord
+	comments        cache.IssueCommentsRecord
+	putComments     cache.IssueCommentsRecord
+	deletedComments string
 }
 
 func newFakeActiveViewStore() *fakeActiveViewStore {
@@ -1137,5 +1142,34 @@ func (f *fakeActiveViewStore) GetActiveView(_ context.Context, namespace string,
 
 func (f *fakeActiveViewStore) PutActiveView(_ context.Context, record cache.ActiveViewRecord) error {
 	f.put = record
+	return nil
+}
+
+func (f *fakeActiveViewStore) GetIssueDetail(_ context.Context, namespace string, issueKey string) (cache.IssueDetailRecord, bool, error) {
+	if f.detail.Namespace == namespace && f.detail.IssueKey == issueKey {
+		return f.detail, true, nil
+	}
+	return cache.IssueDetailRecord{}, false, nil
+}
+
+func (f *fakeActiveViewStore) PutIssueDetail(_ context.Context, record cache.IssueDetailRecord) error {
+	f.putDetail = record
+	return nil
+}
+
+func (f *fakeActiveViewStore) GetIssueComments(_ context.Context, namespace string, issueKey string, maxResults int) (cache.IssueCommentsRecord, bool, error) {
+	if f.comments.Namespace == namespace && f.comments.IssueKey == issueKey && f.comments.MaxResults == maxResults {
+		return f.comments, true, nil
+	}
+	return cache.IssueCommentsRecord{}, false, nil
+}
+
+func (f *fakeActiveViewStore) PutIssueComments(_ context.Context, record cache.IssueCommentsRecord) error {
+	f.putComments = record
+	return nil
+}
+
+func (f *fakeActiveViewStore) DeleteIssueComments(_ context.Context, _ string, issueKey string) error {
+	f.deletedComments = issueKey
 	return nil
 }

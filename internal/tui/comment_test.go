@@ -10,10 +10,11 @@ import (
 )
 
 func TestCommentComposerConfirmsAndPostsComment(t *testing.T) {
+	store := newFakeActiveViewStore()
 	model := NewModel(&fakeIssueSearcher{
 		addedComment: jira.Comment{ID: "10002", Author: "Current User", Body: "Please review"},
 		comments:     []jira.Comment{{ID: "10002", Author: "Current User", Body: "Please review"}},
-	}, "project = ABC")
+	}, "project = ABC", WithActiveViewStore(store, "https://example.atlassian.net"))
 	defer model.workers.Stop()
 	model.loading = false
 	model.mode = modeDetail
@@ -81,6 +82,9 @@ func TestCommentComposerConfirmsAndPostsComment(t *testing.T) {
 	}
 	if _, ok := next.cachedIssueComments("ABC-1"); ok {
 		t.Fatal("expected retained comment cache to be invalidated")
+	}
+	if store.deletedComments != "ABC-1" {
+		t.Fatalf("deleted persistent comments = %q", store.deletedComments)
 	}
 }
 
