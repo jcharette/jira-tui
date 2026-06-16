@@ -100,8 +100,6 @@ func NewTheme(cfg config.Theme) Theme {
 		CodeBlock: lipgloss.NewStyle().
 			Foreground(text).
 			Background(lipgloss.Color("#0B1220")).
-			Border(lipgloss.NormalBorder(), false, false, false, true).
-			BorderForeground(muted).
 			Padding(0, 1),
 		CommentBlock: lipgloss.NewStyle().
 			Foreground(text).

@@ -1,0 +1,10 @@
+The failure was reproduced with:
+
+```
+Error: missing required variable
+
+  on main.tf line 12, in module "service":
+  12: domain_name = var.domain_name
+```
+
+Related context: [https://example.test/card-1](https://example.test/card-1)

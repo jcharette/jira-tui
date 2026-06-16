@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "type": "doc",
+  "content": [
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "Due "
+        },
+        {
+          "type": "date",
+          "attrs": {
+            "timestamp": "1767139200000"
+          }
+        },
+        {
+          "type": "text",
+          "text": " "
+        },
+        {
+          "type": "emoji",
+          "attrs": {
+            "shortName": ":white_check_mark:"
+          }
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "inlineCard",
+          "attrs": {
+            "url": "https://example.test/card"
+          }
+        }
+      ]
+    },
+    {
+      "type": "blockCard",
+      "attrs": {
+        "url": "https://example.test/block"
+      }
+    },
+    {
+      "type": "expand",
+      "attrs": {
+        "title": "More context"
+      },
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Hidden details"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

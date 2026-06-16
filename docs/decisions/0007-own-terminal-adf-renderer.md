@@ -4,7 +4,7 @@ Date: 2026-06-13
 
 ## Status
 
-Accepted
+Superseded by [0008](0008-wrap-adf-to-markdown-converter.md)
 
 ## Context
 

@@ -200,6 +200,7 @@ type Model struct {
 	createSubmitDescription            string
 	createDynamicValues                map[string]string
 	createDynamicSelections            map[string]int
+	createDynamicFilters               map[string]string
 	createSubmitFields                 []jira.CreateIssueFieldValue
 	detailViewport                     viewport.Model
 	detailViewportReady                bool
@@ -3365,21 +3366,38 @@ func (m Model) renderCreateDynamicField(field jira.CreateField, width int) strin
 		if len(field.AllowedValues) == 0 {
 			return m.detailEmptyState("No Jira options available.", width)
 		}
-		selected := clamp(m.createDynamicSelections[createFieldValueKey(field)], 0, len(field.AllowedValues)-1)
-		start, end := boundedSelectionWindow(len(field.AllowedValues), selected, createPickerMaxRows)
+		key := createFieldValueKey(field)
+		filter := m.createDynamicFilters[key]
+		matches := filteredCreateFieldOptionIndexes(field.AllowedValues, filter)
+		if len(matches) == 0 {
+			return strings.Join([]string{
+				m.theme.Muted.Render("Filter: " + filter),
+				m.detailEmptyState("No Jira options matched.", width),
+			}, "\n")
+		}
+		selected := m.createDynamicSelections[key]
+		matchPosition := createOptionMatchPosition(matches, selected)
+		if matchPosition < 0 {
+			matchPosition = 0
+		}
+		start, end := boundedSelectionWindow(len(matches), matchPosition, createPickerMaxRows)
 		var lines []string
+		if strings.TrimSpace(filter) != "" {
+			lines = append(lines, m.theme.Muted.Render("Filter: "+filter))
+		}
 		for index := start; index < end; index++ {
-			option := field.AllowedValues[index]
+			optionIndex := matches[index]
+			option := field.AllowedValues[optionIndex]
 			marker := " "
 			style := m.theme.Text
-			if index == selected {
+			if optionIndex == selected {
 				marker = ">"
 				style = m.theme.Selected
 			}
 			lines = append(lines, style.Render(marker+" "+displayValue(option.Name, option.ID)))
 		}
-		if len(field.AllowedValues) > end-start {
-			lines = append(lines, m.theme.Muted.Render(fmt.Sprintf("Options %d-%d of %d", start+1, end, len(field.AllowedValues))))
+		if len(matches) > end-start {
+			lines = append(lines, m.theme.Muted.Render(fmt.Sprintf("Options %d-%d of %d", start+1, end, len(matches))))
 		}
 		return strings.Join(lines, "\n")
 	}
@@ -3394,8 +3412,8 @@ func (m Model) renderCreateDynamicFieldSummary(field jira.CreateField, width int
 	label := displayValue(field.Name, field.ID)
 	value := ""
 	if createFieldUsesPicker(field) {
-		if len(field.AllowedValues) > 0 {
-			selected := clamp(m.createDynamicSelections[createFieldValueKey(field)], 0, len(field.AllowedValues)-1)
+		selected := m.createDynamicSelections[createFieldValueKey(field)]
+		if selected >= 0 && selected < len(field.AllowedValues) {
 			value = displayValue(field.AllowedValues[selected].Name, field.AllowedValues[selected].ID)
 		}
 	} else {
@@ -6191,6 +6209,16 @@ func (m Model) updateCreateIssue(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.detailNotice = ""
 		return m, nil
 	}
+	if msg.String() == "esc" {
+		if field, ok := m.focusedCreateDynamicField(); ok && createFieldUsesPicker(field) {
+			key := createFieldValueKey(field)
+			if strings.TrimSpace(m.createDynamicFilters[key]) != "" {
+				m.clearCreateDynamicFilter(field)
+				m.detailNotice = ""
+				return m, nil
+			}
+		}
+	}
 	switch msg.String() {
 	case "esc":
 		m.resetCreateIssueState()
@@ -6274,6 +6302,16 @@ func (m Model) updateCreateIssue(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, nil
 		case "down", "j":
 			m.moveCreateDynamicSelection(field, 1)
+			return m, nil
+		case "backspace", "ctrl+h":
+			m.backspaceCreateDynamicFilter(field)
+			return m, nil
+		case "enter":
+			m.clearCreateDynamicFilter(field)
+			return m, nil
+		}
+		if len(msg.String()) == 1 {
+			m.appendCreateDynamicFilter(field, msg.String())
 			return m, nil
 		}
 	}
@@ -6444,10 +6482,12 @@ func (m *Model) beginCreateForm() {
 	m.createDescriptionEditorReady = true
 	m.createDynamicValues = map[string]string{}
 	m.createDynamicSelections = map[string]int{}
+	m.createDynamicFilters = map[string]string{}
 	for _, field := range supportedCreateFields(m.createFields) {
 		key := createFieldValueKey(field)
 		m.createDynamicValues[key] = ""
-		m.createDynamicSelections[key] = 0
+		m.createDynamicSelections[key] = defaultCreateFieldSelection(field)
+		m.createDynamicFilters[key] = ""
 	}
 	m.detailNotice = ""
 }
@@ -6545,7 +6585,53 @@ func (m *Model) moveCreateDynamicSelection(field jira.CreateField, delta int) {
 		return
 	}
 	key := createFieldValueKey(field)
-	m.createDynamicSelections[key] = clamp(m.createDynamicSelections[key]+delta, 0, len(field.AllowedValues)-1)
+	matches := filteredCreateFieldOptionIndexes(field.AllowedValues, m.createDynamicFilters[key])
+	if len(matches) == 0 {
+		return
+	}
+	position := createOptionMatchPosition(matches, m.createDynamicSelections[key])
+	if position < 0 {
+		position = 0
+	} else {
+		position = clamp(position+delta, 0, len(matches)-1)
+	}
+	m.createDynamicSelections[key] = matches[position]
+}
+
+func (m *Model) appendCreateDynamicFilter(field jira.CreateField, value string) {
+	key := createFieldValueKey(field)
+	if m.createDynamicFilters == nil {
+		m.createDynamicFilters = map[string]string{}
+	}
+	m.createDynamicFilters[key] += value
+	m.selectFirstFilteredCreateOption(field)
+}
+
+func (m *Model) backspaceCreateDynamicFilter(field jira.CreateField) {
+	key := createFieldValueKey(field)
+	value := []rune(m.createDynamicFilters[key])
+	if len(value) == 0 {
+		return
+	}
+	m.createDynamicFilters[key] = string(value[:len(value)-1])
+	m.selectFirstFilteredCreateOption(field)
+}
+
+func (m *Model) clearCreateDynamicFilter(field jira.CreateField) {
+	if m.createDynamicFilters == nil {
+		return
+	}
+	m.createDynamicFilters[createFieldValueKey(field)] = ""
+}
+
+func (m *Model) selectFirstFilteredCreateOption(field jira.CreateField) {
+	key := createFieldValueKey(field)
+	matches := filteredCreateFieldOptionIndexes(field.AllowedValues, m.createDynamicFilters[key])
+	if len(matches) == 0 {
+		m.createDynamicSelections[key] = -1
+		return
+	}
+	m.createDynamicSelections[key] = matches[0]
 }
 
 func (m *Model) setCreateDynamicValue(field jira.CreateField, value string) {
@@ -6617,7 +6703,14 @@ func (m Model) createIssueFieldValues() ([]jira.CreateIssueFieldValue, error) {
 				}
 				continue
 			}
-			value.Option = field.AllowedValues[clamp(m.createDynamicSelections[key], 0, len(field.AllowedValues)-1)]
+			selected := m.createDynamicSelections[key]
+			if selected < 0 || selected >= len(field.AllowedValues) {
+				if field.Required {
+					return nil, fmt.Errorf("%s cannot be empty.", displayValue(field.Name, value.FieldID))
+				}
+				continue
+			}
+			value.Option = field.AllowedValues[selected]
 		} else {
 			value.Text = strings.TrimSpace(m.createDynamicValues[key])
 			if field.Required && value.Text == "" {
@@ -6768,6 +6861,9 @@ func (m Model) buildCreateIssueDraftPrompt(request string) string {
 	b.WriteString("Issue Type: <one of the Available Jira Issue Types, or Unknown if not enough context>\n")
 	b.WriteString("Summary: <one concise summary>\n")
 	b.WriteString("Description: <full ticket description text>\n")
+	if components := createComponentsField(m.createFields); len(components.AllowedValues) > 0 {
+		b.WriteString("Components: <one of the Available Components, or Unknown if not enough context>\n")
+	}
 	b.WriteString("Do not edit files, create branches, run git commands, call Jira, or make external changes.\n")
 	b.WriteString("Do not mention assumptions without flagging them as Open Questions.\n")
 	b.WriteString("Focus on creating a clear, ready-to-use ticket. If scope is unclear, include questions in the Description under Open Questions.\n\n")
@@ -6783,6 +6879,18 @@ func (m Model) buildCreateIssueDraftPrompt(request string) string {
 		b.WriteString("\n\nAvailable Jira Issue Types:\n")
 		for _, issueType := range m.createIssueTypes {
 			name := strings.TrimSpace(displayValue(issueType.Name, issueType.ID))
+			if name == "" {
+				continue
+			}
+			b.WriteString("- ")
+			b.WriteString(name)
+			b.WriteString("\n")
+		}
+	}
+	if components := createComponentsField(m.createFields); len(components.AllowedValues) > 0 {
+		b.WriteString("\n\nAvailable Components:\n")
+		for _, option := range components.AllowedValues {
+			name := strings.TrimSpace(displayValue(option.Name, option.ID))
 			if name == "" {
 				continue
 			}
@@ -7096,6 +7204,7 @@ func (m *Model) resetCreateIssueState() {
 	m.createSubmitDescription = ""
 	m.createDynamicValues = nil
 	m.createDynamicSelections = nil
+	m.createDynamicFilters = nil
 	m.createSubmitFields = nil
 	m.createAIPromptOpen = false
 	m.createAIPrompt = ""
@@ -7518,16 +7627,13 @@ func (m Model) renderCodeBlockLines(lines []string, width int) string {
 		return ""
 	}
 	blockWidth := max(12, width)
-	contentWidth := max(1, blockWidth-4)
-	rule := "+" + strings.Repeat("-", blockWidth-2) + "+"
-	rendered := make([]string, 0, len(lines)+2)
-	rendered = append(rendered, m.theme.Muted.Render(rule))
+	contentWidth := max(1, blockWidth-2)
+	rendered := make([]string, 0, len(lines))
 	for _, line := range lines {
 		line = truncate(line, contentWidth)
 		padded := line + strings.Repeat(" ", contentWidth-len(line))
-		rendered = append(rendered, m.theme.Muted.Render("| ")+m.theme.CodeBlock.Width(contentWidth).Render(padded)+m.theme.Muted.Render(" |"))
+		rendered = append(rendered, m.theme.CodeBlock.Width(contentWidth).Render(padded))
 	}
-	rendered = append(rendered, m.theme.Muted.Render(rule))
 	return strings.Join(rendered, "\n")
 }
 
@@ -10322,7 +10428,10 @@ func supportedCreateField(field jira.CreateField) bool {
 func isBuiltInCreateTextField(field jira.CreateField) bool {
 	id := strings.ToLower(strings.TrimSpace(displayValue(field.ID, field.Key)))
 	system := strings.ToLower(strings.TrimSpace(field.SchemaSystem))
-	return id == "summary" || system == "summary" || id == "description" || system == "description"
+	return id == "summary" || system == "summary" ||
+		id == "description" || system == "description" ||
+		id == "project" || system == "project" ||
+		id == "issuetype" || system == "issuetype"
 }
 
 func createFieldUsesPicker(field jira.CreateField) bool {
@@ -10333,6 +10442,55 @@ func createFieldUsesPicker(field jira.CreateField) bool {
 
 func createFieldValueKey(field jira.CreateField) string {
 	return displayValue(field.ID, displayValue(field.Key, field.Name))
+}
+
+func defaultCreateFieldSelection(field jira.CreateField) int {
+	if !createFieldUsesPicker(field) || len(field.AllowedValues) == 0 {
+		return -1
+	}
+	id := strings.ToLower(strings.TrimSpace(displayValue(field.ID, field.Key)))
+	system := strings.ToLower(strings.TrimSpace(field.SchemaSystem))
+	if field.Required || id == "priority" || system == "priority" {
+		return 0
+	}
+	return -1
+}
+
+func filteredCreateFieldOptionIndexes(options []jira.FieldOption, filter string) []int {
+	filter = normalizeCreateDraftFieldName(filter)
+	indexes := make([]int, 0, len(options))
+	for index, option := range options {
+		if filter == "" {
+			indexes = append(indexes, index)
+			continue
+		}
+		name := normalizeCreateDraftFieldName(option.Name)
+		id := normalizeCreateDraftFieldName(option.ID)
+		if strings.Contains(name, filter) || strings.Contains(id, filter) {
+			indexes = append(indexes, index)
+		}
+	}
+	return indexes
+}
+
+func createOptionMatchPosition(matches []int, selected int) int {
+	for index, match := range matches {
+		if match == selected {
+			return index
+		}
+	}
+	return -1
+}
+
+func createComponentsField(fields []jira.CreateField) jira.CreateField {
+	for _, field := range supportedCreateFields(fields) {
+		id := strings.ToLower(strings.TrimSpace(displayValue(field.ID, field.Key)))
+		system := strings.ToLower(strings.TrimSpace(field.SchemaSystem))
+		if id == "components" || system == "components" {
+			return field
+		}
+	}
+	return jira.CreateField{}
 }
 
 func boundedSelectionWindow(total int, selected int, limit int) (int, int) {

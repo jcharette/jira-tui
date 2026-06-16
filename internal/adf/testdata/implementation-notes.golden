@@ -1,0 +1,16 @@
+## Implementation Notes
+
+Ask @Jane Doe to run `make check` and review [docs](https://example.test/docs).
+
+```
+go test ./internal/adf
+```
+
+> [!WARNING]
+> [Status: BLOCKED] waiting on API response.
+
+[table]
+| Field | Value                    |
+|-------|--------------------------|
+| Path  | `internal/adf/render.go` |
+[/table]

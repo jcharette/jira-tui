@@ -107,3 +107,7 @@ make release VERSION=0.1.0
 Planning, backlog, release notes, and decisions live in [docs/README.md](docs/README.md).
 The project working agreement in [docs/working-agreement.md](docs/working-agreement.md) makes
 doc updates part of the definition of done.
+
+## License
+
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE).

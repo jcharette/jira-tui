@@ -186,7 +186,10 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   renders Summary and Description editors plus supported metadata-backed fields, and submits
   creation through the worker pool. Supported extra create fields include Priority, Labels,
   Components, simple string/text/number fields, and single-select option fields with Jira-provided
-  allowed values. Unsupported required Jira fields are surfaced as blocking warnings before submit.
+  allowed values. Option-backed create fields support typeahead filtering while focused, and
+  optional picker fields start unselected so Jira does not receive accidental first-option values.
+  Metadata-owned Project and Issue Type required fields are satisfied by the selected project/type;
+  unsupported required Jira fields are surfaced as blocking warnings before submit.
   If Jira returns zero creatable issue types, the modal reports that empty metadata response and
   keeps `ctrl+d` diagnostics available. Issue type and field discovery use go-atlassian's paged
   create metadata mapping endpoints first, then fall back to the expanded create metadata endpoint
@@ -369,9 +372,13 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   description with `d`, comments with `m`, hierarchy with `h`, and links with `l`.
 - Focused ticket detail supports selected issue actions: `o` opens the Jira issue URL, `c` copies
   the issue key, and `y` copies the issue URL when Links is not focused.
-- Jira ADF descriptions are rendered through `internal/adf`, which handles readable terminal output
-  for links, mentions, inline code, code blocks, lists, blockquotes, panels/statuses, hard breaks,
-  and simple tables.
+- Jira ADF descriptions and comments are rendered through `internal/adf`. The renderer wraps a
+  maintained ADF-to-Markdown converter for text-oriented blocks, normalizes the output for the TUI,
+  and keeps the app's custom `[table]` marker path for Jira tables. Renderer fixtures include
+  sanitized real-shaped Jira description and comment payloads under `internal/adf/testdata`, and the
+  dev-only `cmd/adf-fixture` helper can sanitize raw ADF JSON or capture selected issue/comment ADF
+  through the existing Jira config. Rich ticket text renders fenced code blocks as compact
+  foreground/background-highlighted lines instead of ASCII bordered blocks.
 - Focused ticket detail extracts embedded URLs, bare domains, `mailto:` links, and plain email
   addresses through `internal/linkdetect` into a Links section; `l` jumps to and focuses that
   section, `j`/`k` selects links, `o`/`enter` opens the selected link, and `y` copies it.

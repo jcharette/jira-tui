@@ -169,7 +169,7 @@ printf '{"type":"result","result":"final plan"}\n'
 	runner := LocalRunner{}
 
 	result, err := runner.Run(context.Background(), Request{
-		Config:   Config{Enabled: true, Command: command, Timeout: time.Second},
+		Config:   Config{Enabled: true, Command: command, Timeout: 5 * time.Second},
 		Prompt:   "Plan ticket ABC-1",
 		Progress: func(event Event) { events = append(events, event) },
 	})

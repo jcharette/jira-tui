@@ -232,7 +232,7 @@ func TestGetIssueFetchesAndParsesDetail(t *testing.T) {
 	if detail.Key != "ABC-123" {
 		t.Fatalf("Key = %q", detail.Key)
 	}
-	if detail.Description != "First line.\nSecond line." {
+	if detail.Description != "First line.\n\nSecond line." {
 		t.Fatalf("Description = %q", detail.Description)
 	}
 	if detail.Reporter != "Reporter Person" {
@@ -255,6 +255,44 @@ func TestGetIssueFetchesAndParsesDetail(t *testing.T) {
 	}
 	if !detail.Updated.Equal(time.Time(updated)) {
 		t.Fatalf("Updated = %s", detail.Updated)
+	}
+}
+
+func TestGetIssueDescriptionADFReturnsRawDescription(t *testing.T) {
+	description := &model.CommentNodeScheme{
+		Type: "doc",
+		Content: []*model.CommentNodeScheme{
+			{
+				Type: "paragraph",
+				Content: []*model.CommentNodeScheme{
+					{Type: "text", Text: "Raw description."},
+				},
+			},
+		},
+	}
+	issue := &fakeIssueService{
+		response: &model.IssueScheme{
+			Key: "ABC-123",
+			Fields: &model.IssueFieldsScheme{
+				Description: description,
+			},
+		},
+	}
+	client := &Client{issue: issue}
+
+	got, err := client.GetIssueDescriptionADF(context.Background(), "ABC-123")
+	if err != nil {
+		t.Fatalf("GetIssueDescriptionADF() error = %v", err)
+	}
+
+	if issue.key != "ABC-123" {
+		t.Fatalf("key = %q", issue.key)
+	}
+	if !equalStrings(issue.fields, []string{"description"}) {
+		t.Fatalf("fields = %#v", issue.fields)
+	}
+	if got != description {
+		t.Fatalf("raw description pointer changed: got %#v want %#v", got, description)
 	}
 }
 
@@ -1015,7 +1053,7 @@ func TestUpdateDescriptionSendsADFDescriptionOnly(t *testing.T) {
 	if issue.updatePayload == nil || issue.updatePayload.Fields == nil || issue.updatePayload.Fields.Description == nil {
 		t.Fatal("expected ADF description update payload")
 	}
-	if got := adf.Render(issue.updatePayload.Fields.Description); got != "Problem\nAcceptance Criteria\n- Works" {
+	if got := adf.Render(issue.updatePayload.Fields.Description); got != "Problem\n\nAcceptance Criteria\n- Works" {
 		t.Fatalf("Description = %q", got)
 	}
 	if issue.updatePayload.Fields.Summary != "" {
@@ -1212,6 +1250,44 @@ func TestGetCommentsFetchesAndParsesADFComments(t *testing.T) {
 	}
 	if got[0].Created.IsZero() {
 		t.Fatal("expected Created to parse")
+	}
+}
+
+func TestGetCommentADFReturnsRawCommentBody(t *testing.T) {
+	body := &model.CommentNodeScheme{
+		Type: "doc",
+		Content: []*model.CommentNodeScheme{
+			{
+				Type: "paragraph",
+				Content: []*model.CommentNodeScheme{
+					{Type: "text", Text: "Raw comment."},
+				},
+			},
+		},
+	}
+	comments := &fakeCommentService{
+		response: &model.IssueCommentPageScheme{
+			Comments: []*model.IssueCommentScheme{
+				{ID: "10001", Body: &model.CommentNodeScheme{Type: "paragraph"}},
+				{ID: "10002", Body: body},
+			},
+		},
+	}
+	client := &Client{comment: comments}
+
+	got, err := client.GetCommentADF(context.Background(), "ABC-123", "10002")
+	if err != nil {
+		t.Fatalf("GetCommentADF() error = %v", err)
+	}
+
+	if comments.key != "ABC-123" {
+		t.Fatalf("key = %q", comments.key)
+	}
+	if comments.maxResults != 100 {
+		t.Fatalf("maxResults = %d", comments.maxResults)
+	}
+	if got != body {
+		t.Fatalf("raw comment pointer changed: got %#v want %#v", got, body)
 	}
 }
 

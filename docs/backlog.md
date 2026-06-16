@@ -10,15 +10,15 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
 
 - Follow [working-agreement.md](working-agreement.md) for every future code/doc change.
 - Use [roadmap.md](roadmap.md) as the milestone source of truth.
+- Next major initiative: audit hand-rolled TUI rendering and input components for replacement with
+  maintained Bubble Tea, Bubbles, Lip Gloss, or compatible public libraries before extending custom
+  UI code. Prioritize code paths where custom rendering/input handling has already caused bugs or
+  unnecessary complexity.
 - Keep ticket detail rendering as the priority before new workflow features: handle Jira ADF links,
   mentions, inline code, code blocks, lists, blockquotes, panels/statuses, and tables clearly in the
   terminal.
-- Add ADF fixture coverage from real Jira descriptions/comments, especially tables with long cell
-  values, nested lists, links, mentions, and code-heavy implementation notes.
 - Continue rich comment composition support with Jira mentions and formatting controls on top of
   the bounded multi-line comment editor and detected-link/ADF-link support.
-- Audit hand-rolled TUI rendering and input components for replacement with maintained Bubble Tea,
-  Bubbles, Lip Gloss, or public libraries built on those packages before extending custom code.
 - Add tests around TUI navigation and rendering.
 - Audit key bindings across every active context so commands stay clear: keep conventional
   navigation aliases, but remove redundant semantic paths where two unrelated keys do the same

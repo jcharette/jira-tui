@@ -4303,6 +4303,111 @@ func TestCreateDraftPromptCanRunBeforeIssueTypeSelection(t *testing.T) {
 	}
 }
 
+func TestCreateDraftPromptIncludesAvailableComponents(t *testing.T) {
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, DraftTicket: true, Timeout: time.Second}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
+	)
+	defer model.workers.Stop()
+	model.createProjectKey = "DEVOPS"
+	model.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Story"}
+	model.createFields = []jira.CreateField{
+		{ID: "components", Name: "Components", SchemaSystem: "components", AllowedValues: []jira.FieldOption{
+			{ID: "101", Name: "csp-adapter"},
+			{ID: "102", Name: "csp-gateway"},
+		}},
+	}
+
+	prompt := model.buildCreateIssueDraftPrompt("Audit DNS domain usage.")
+
+	for _, want := range []string{"Available Components:", "- csp-adapter", "- csp-gateway", "Components: <one of the Available Components"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q in:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "- made-up-component") {
+		t.Fatalf("prompt should only include Jira-returned components:\n%s", prompt)
+	}
+}
+
+func TestCreateDraftComponentRecommendationSelectsMatchingJiraComponent(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.createOpen = true
+	model.createProjectKey = "DEVOPS"
+	model.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Story"}
+	model.createFields = []jira.CreateField{
+		{ID: "summary", Name: "Summary", SchemaSystem: "summary", SchemaType: "string"},
+		{ID: "description", Name: "Description", SchemaSystem: "description", SchemaType: "string"},
+		{ID: "components", Name: "Components", SchemaSystem: "components", AllowedValues: []jira.FieldOption{
+			{ID: "101", Name: "csp-adapter"},
+			{ID: "102", Name: "csp-gateway"},
+		}},
+	}
+	model.beginCreateForm()
+	model.activeCreateAIPromptReqID = 8
+	model.createAIPromptLoading = true
+
+	updated, _ := model.Update(createAIPromptResultMsg{
+		id: 8,
+		text: strings.Join([]string{
+			"Issue Type: Story",
+			"Summary: Audit DNS domains",
+			"Description: Make Terraform modules domain agnostic.",
+			"",
+			"Components",
+			"csp-gateway",
+		}, "\n"),
+	})
+	next := updated.(Model)
+
+	key := createFieldValueKey(model.createFields[2])
+	if next.createDynamicSelections[key] != 1 {
+		t.Fatalf("component selection = %d", next.createDynamicSelections[key])
+	}
+}
+
+func TestCreateDraftUnknownComponentDoesNotSelectRandomComponent(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.createOpen = true
+	model.createProjectKey = "DEVOPS"
+	model.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Story"}
+	model.createFields = []jira.CreateField{
+		{ID: "summary", Name: "Summary", SchemaSystem: "summary", SchemaType: "string"},
+		{ID: "description", Name: "Description", SchemaSystem: "description", SchemaType: "string"},
+		{ID: "components", Name: "Components", SchemaSystem: "components", AllowedValues: []jira.FieldOption{
+			{ID: "101", Name: "csp-adapter"},
+			{ID: "102", Name: "csp-gateway"},
+		}},
+	}
+	model.beginCreateForm()
+	model.activeCreateAIPromptReqID = 9
+	model.createAIPromptLoading = true
+
+	updated, _ := model.Update(createAIPromptResultMsg{
+		id: 9,
+		text: strings.Join([]string{
+			"Issue Type: Story",
+			"Summary: Audit DNS domains",
+			"Description: Make Terraform modules domain agnostic.",
+			"",
+			"Components",
+			"unknown-service",
+		}, "\n"),
+	})
+	next := updated.(Model)
+
+	key := createFieldValueKey(model.createFields[2])
+	if next.createDynamicSelections[key] != -1 {
+		t.Fatalf("component selection = %d; should remain unselected", next.createDynamicSelections[key])
+	}
+}
+
 func TestCreateDraftPromptLeavesTypeSelectionWhenRecommendationUnsupported(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()
@@ -4336,6 +4441,93 @@ func TestCreateDraftPromptLeavesTypeSelectionWhenRecommendationUnsupported(t *te
 	}
 	if !strings.Contains(next.detailNotice, "Select an issue type") {
 		t.Fatalf("detailNotice = %q", next.detailNotice)
+	}
+}
+
+func TestCreateComponentPickerFiltersAndSelectsWithTypeahead(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = DEVOPS")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 120
+	model.height = 45
+	model.createOpen = true
+	model.createProjectKey = "DEVOPS"
+	model.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Story"}
+	model.createFields = []jira.CreateField{
+		{ID: "summary", Name: "Summary", SchemaSystem: "summary", SchemaType: "string"},
+		{ID: "description", Name: "Description", SchemaSystem: "description", SchemaType: "string"},
+		{ID: "components", Name: "Components", SchemaSystem: "components", AllowedValues: []jira.FieldOption{
+			{ID: "101", Name: "csp-adapter"},
+			{ID: "102", Name: "csp-report"},
+			{ID: "103", Name: "csp-gateway"},
+		}},
+	}
+	model.beginCreateForm()
+	model.createFieldFocus = model.createDynamicFieldFocusIndex(0)
+
+	for _, key := range []string{"g", "a", "t"} {
+		updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: key, Code: []rune(key)[0]}))
+		model = updated.(Model)
+	}
+
+	fieldKey := createFieldValueKey(model.createFields[2])
+	if model.createDynamicFilters[fieldKey] != "gat" {
+		t.Fatalf("filter = %q", model.createDynamicFilters[fieldKey])
+	}
+	view := model.render()
+	if !strings.Contains(view, "Filter: gat") || !strings.Contains(view, "csp-gateway") {
+		t.Fatalf("expected filtered gateway view:\n%s", view)
+	}
+	if strings.Contains(view, "csp-adapter") || strings.Contains(view, "csp-report") {
+		t.Fatalf("filter should hide non-matches:\n%s", view)
+	}
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	model = updated.(Model)
+	if model.createDynamicSelections[fieldKey] != 2 {
+		t.Fatalf("component selection = %d", model.createDynamicSelections[fieldKey])
+	}
+	if model.createDynamicFilters[fieldKey] != "" {
+		t.Fatalf("filter should clear after enter, got %q", model.createDynamicFilters[fieldKey])
+	}
+}
+
+func TestCreateComponentPickerBackspaceAndEscEditFilter(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = DEVOPS")
+	defer model.workers.Stop()
+	model.loading = false
+	model.createOpen = true
+	model.createProjectKey = "DEVOPS"
+	model.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Story"}
+	model.createFields = []jira.CreateField{
+		{ID: "summary", Name: "Summary", SchemaSystem: "summary", SchemaType: "string"},
+		{ID: "description", Name: "Description", SchemaSystem: "description", SchemaType: "string"},
+		{ID: "components", Name: "Components", SchemaSystem: "components", AllowedValues: []jira.FieldOption{
+			{ID: "101", Name: "csp-adapter"},
+			{ID: "102", Name: "csp-gateway"},
+		}},
+	}
+	model.beginCreateForm()
+	model.createFieldFocus = model.createDynamicFieldFocusIndex(0)
+	fieldKey := createFieldValueKey(model.createFields[2])
+
+	for _, key := range []string{"g", "a"} {
+		updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: key, Code: []rune(key)[0]}))
+		model = updated.(Model)
+	}
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "backspace", Code: tea.KeyBackspace}))
+	model = updated.(Model)
+	if model.createDynamicFilters[fieldKey] != "g" {
+		t.Fatalf("filter after backspace = %q", model.createDynamicFilters[fieldKey])
+	}
+
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "esc", Code: tea.KeyEsc}))
+	model = updated.(Model)
+	if model.createDynamicFilters[fieldKey] != "" {
+		t.Fatalf("filter after esc = %q", model.createDynamicFilters[fieldKey])
+	}
+	if !model.createOpen {
+		t.Fatal("esc should clear filter before closing create modal")
 	}
 }
 
@@ -4675,6 +4867,21 @@ func TestParseCreateIssueOpenQuestionsExtractsActionableQuestions(t *testing.T) 
 	}
 	if questions[1].Question != "Is this for staging only or production too?" {
 		t.Fatalf("question[1] = %#v", questions[1])
+	}
+}
+
+func TestCreateIssueIgnoresMetadataProjectAndIssueTypeRequiredFields(t *testing.T) {
+	fields := []jira.CreateField{
+		{ID: "project", Name: "Project", Required: true, SchemaSystem: "project", SchemaType: "project"},
+		{ID: "issuetype", Name: "Issue Type", Required: true, SchemaSystem: "issuetype", SchemaType: "issuetype"},
+		{ID: "summary", Name: "Summary", Required: true, SchemaSystem: "summary", SchemaType: "string"},
+	}
+
+	if unsupported := unsupportedRequiredCreateFields(fields); len(unsupported) != 0 {
+		t.Fatalf("unsupported = %#v", unsupported)
+	}
+	if supported := supportedCreateFields(fields); len(supported) != 0 {
+		t.Fatalf("supported = %#v", supported)
 	}
 }
 
@@ -5351,7 +5558,7 @@ func TestCreateFormBoundsLongPickerOptions(t *testing.T) {
 		model = updated.(Model)
 	}
 	view = model.render()
-	for _, want := range []string{"component-18", "Options 15-20 of 30"} {
+	for _, want := range []string{"component-17", "Options 14-19 of 30"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("moving through long picker did not keep %q visible in:\n%s", want, view)
 		}
@@ -5431,8 +5638,10 @@ func TestRenderRichDescriptionFormatsCodeBlock(t *testing.T) {
 	if !strings.Contains(rendered, "{\"Sid\":\"DenyS3Deletes\"}") {
 		t.Fatalf("rendered = %q", rendered)
 	}
-	if !strings.Contains(rendered, "+--------------------------------------+") {
-		t.Fatalf("expected block styling, rendered = %q", rendered)
+	for _, unwanted := range []string{"+--------------------------------------+", "| {\"Sid\":\"DenyS3Deletes\"}", "│"} {
+		if strings.Contains(rendered, unwanted) {
+			t.Fatalf("expected compact code styling without ASCII borders, rendered = %q", rendered)
+		}
 	}
 }
 
@@ -5448,8 +5657,13 @@ func TestRenderRichDescriptionDoesNotLeaveExtraBlankLinesBeforeCodeBlock(t *test
 	if strings.Contains(rendered, "|                                      |") {
 		t.Fatalf("expected leading/trailing blank code lines to be trimmed, rendered = %q", rendered)
 	}
-	if !strings.Contains(rendered, "The failure is:\n\n+--------------------------------------+") {
+	if !strings.Contains(rendered, "The failure is:\n\n") || strings.Contains(rendered, "\n\n\n") {
 		t.Fatalf("expected one separator before code block, rendered = %q", rendered)
+	}
+	for _, unwanted := range []string{"+--------------------------------------+", "| Error: missing resource", "│"} {
+		if strings.Contains(rendered, unwanted) {
+			t.Fatalf("expected compact code styling without ASCII borders, rendered = %q", rendered)
+		}
 	}
 }
 

@@ -1,0 +1,23 @@
+## Rollout Notes
+
+Ask @User 1 to review [runbook](https://example.test/link-1).
+
+- Update Terraform modules
+
+  - Replace hardcoded domain names
+  - Run `make check`
+- Capture rollout notes
+
+> [!WARNING]
+> [Status: BLOCKED] Waiting on DNS cutover.
+
+```
+terraform plan -out=tfplan
+go test ./...
+```
+
+[table]
+| Field    | Value                                    |
+|----------|------------------------------------------|
+| Evidence | See ticket <https://example.test/link-2> |
+[/table]

@@ -1,5 +1,108 @@
 # Task Plan
 
+## ADF Completion With Real Fixtures And Compact Code Blocks
+
+- [x] Add tests that rich code blocks render without ASCII border rows or side borders.
+- [x] Add tests that code block blank-line trimming preserves one separator before a block.
+- [x] Implement compact styled code-block rendering in the TUI rich-body renderer.
+- [x] Add sanitized ADF fixture helper tests for mentions, links, cards, account IDs, and deterministic output.
+- [x] Implement sanitized ADF fixture helper.
+- [x] Add raw ADF description/comment Jira client access for dev fixture capture.
+- [x] Add a dev-only ADF fixture capture/sanitize command.
+- [x] Add real/sanitized description and comment JSON/golden fixtures.
+- [x] Update docs/changelog/lessons/backlog, including promoting hand-rolled TUI component audit as the next major initiative.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+
+### ADF Completion With Real Fixtures And Compact Code Blocks Scope
+
+Complete the ADF renderer work by adding a repeatable dev-only sanitized fixture workflow, offline
+golden tests for real-shaped Jira payloads, and compact TUI rendering for code blocks. Keep
+`internal/adf.Render` as plain text/Markdown-like output and keep normal tests free of live Jira
+dependencies.
+
+### ADF Completion With Real Fixtures And Compact Code Blocks Review
+
+- Added sanitized real-shaped Jira ADF description and comment fixtures under `internal/adf/testdata`
+  and included them in the offline golden fixture suite.
+- Added `internal/adf/fixture` to sanitize raw ADF nodes by replacing private account identifiers,
+  mention names/emails, and URLs with stable placeholders while preserving rendering-relevant node
+  structure.
+- Added `cmd/adf-fixture` as a dev-only helper that can sanitize a local raw ADF JSON file or fetch a
+  selected issue description/comment ADF through the existing Jira config, then write a sanitized
+  fixture.
+- Added raw ADF Jira client accessors for descriptions and selected comments so fixture capture does
+  not depend on already-rendered display strings.
+- Replaced ASCII bordered code blocks in rich TUI text with compact foreground/background-styled
+  code lines, preserving trimming and width fitting while using less screen space.
+- Promoted the hand-rolled TUI rendering/input component audit as the next major backlog initiative.
+
+## Create Ticket Component Typeahead And AI Guessing
+
+- [x] Add tests that create-ticket AI prompts include only Jira-returned Components.
+- [x] Add tests that an AI `Components:` recommendation selects a matching Jira component.
+- [x] Add tests that unknown AI component recommendations do not select a random component.
+- [x] Add tests that typing in a focused Components picker filters options and `enter` selects from filtered results.
+- [x] Add tests that `backspace` edits and `esc` clears a picker filter.
+- [x] Add tests that Jira metadata `Project` and `Issue Type` required fields do not block create.
+- [x] Implement create-picker filter state, rendering, movement, selection, and clearing.
+- [x] Add Components to the create-ticket AI prompt and reuse existing AI field application.
+- [x] Update docs/changelog/lessons as needed.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+
+### Create Ticket Component Typeahead And AI Guessing Scope
+
+Use Jira create metadata as the source of truth. Add generic typeahead behavior for option-backed
+create fields, but keep AI guessing scoped to Components by listing Available Components in the
+create-ticket prompt and applying only exact/fuzzy matches against Jira-returned options.
+
+### Create Ticket Component Typeahead And AI Guessing Review
+
+- Create-field pickers now support inline typeahead filtering while focused; typed characters narrow
+  Jira-provided options, `backspace` edits the filter, `esc` clears the filter before closing, and
+  `enter` selects the current filtered option.
+- Optional picker-backed fields, including Components, now start unselected so Jira does not receive
+  a random first option. Required picker fields and Priority still keep a safe default selection.
+- Claude create-ticket prompts now include an `Available Components` section from Jira create
+  metadata and ask for `Components` only from that list.
+- Matching AI `Components` recommendations are applied through the existing Jira option matching;
+  unknown component names leave the field unselected instead of picking a fallback.
+- Jira metadata-required `Project` and `Issue Type` fields are treated as built-in create context,
+  so they no longer show as unsupported required fields after the user has already selected the
+  project and issue type.
+
+## ADF Renderer Library Spike
+
+- [x] Add fixture/golden tests that capture realistic Jira ADF descriptions/comments before changing production rendering.
+- [x] Evaluate maintained Go ADF conversion options and terminal Markdown renderer options against the fixture needs.
+- [x] Decide whether to extend the current renderer, wrap a library, or split off a second spike.
+- [x] If keeping the current renderer, add the smallest production changes needed to pass the new fixture tests.
+- [x] Update docs/changelog/backlog as needed.
+- [x] Run focused ADF tests and broader verification if production code changes.
+
+### ADF Renderer Library Spike Scope
+
+Keep this slice renderer-only. Preserve `internal/adf.Render(node) string` as the app boundary and
+avoid ticket-detail TUI layout changes. The first deliverable is evidence: realistic fixture
+coverage plus a dependency decision. A terminal Markdown renderer is useful only after ADF has been
+converted; it does not replace ADF traversal by itself.
+
+### ADF Renderer Library Spike Review
+
+- Found `github.com/rgonek/jira-adf-converter` as a viable Go ADF-to-Markdown converter.
+- Kept `internal/adf.Render(node) string` as the stable app boundary.
+- Switched non-table ADF blocks to the maintained converter and normalized Markdown for current TUI
+  compatibility.
+- Kept the existing custom table renderer for Jira tables because the candidate converter mishandled
+  some all-`tableCell` and rich-cell table shapes already covered by local tests.
+- Added realistic fixtures for Jira descriptions and extended ADF nodes including headings, links,
+  mentions, code blocks, panels/statuses, dates, cards, expands, and app-compatible table output.
+- Added JSON fixture/golden files under `internal/adf/testdata` so future renderer changes can be
+  checked against Jira-shaped payloads instead of only Go constructor fixtures.
+- Added long-table and nested-list fixture coverage for code-heavy rollout notes, multiline table
+  cells, links, mentions, and long acceptance-criteria text.
+- Left media nodes out of the solved scope because the converter's default external-media fallback
+  is not useful enough without a dedicated media hook.
+
 ## Create Ticket Open Questions Loop
 
 - [x] Add tests that AI create drafts parse `Open Questions` separately from Description.

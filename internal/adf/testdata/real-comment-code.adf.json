@@ -1,0 +1,41 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "The failure was reproduced with:"
+        }
+      ]
+    },
+    {
+      "type": "codeBlock",
+      "attrs": {
+        "language": "text"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Error: missing required variable\n\n  on main.tf line 12, in module \"service\":\n  12: domain_name = var.domain_name"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "Related context: "
+        },
+        {
+          "type": "inlineCard",
+          "attrs": {
+            "url": "https://example.test/card-1"
+          }
+        }
+      ]
+    }
+  ]
+}

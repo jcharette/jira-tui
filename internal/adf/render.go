@@ -1,11 +1,16 @@
 package adf
 
 import (
+	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	model "github.com/ctreminiom/go-atlassian/v2/pkg/infra/models"
+	"github.com/rgonek/jira-adf-converter/converter"
 )
+
+var mailtoMarkdownPattern = regexp.MustCompile(`\[([^\]]+)\]\(mailto:([^)]+)\)`)
 
 // Render turns Jira ADF into terminal-friendly plain text. It intentionally
 // preserves structure over exact styling because the TUI owns final colors.
@@ -13,9 +18,141 @@ func Render(node *model.CommentNodeScheme) string {
 	if node == nil {
 		return ""
 	}
+	if rendered, err := renderMarkdown(node); err == nil && strings.TrimSpace(rendered) != "" {
+		return rendered
+	}
+	return renderLegacy(node)
+}
+
+func renderMarkdown(node *model.CommentNodeScheme) (string, error) {
+	if node.Type == "doc" {
+		blocks := make([]string, 0, len(node.Content))
+		var chunk []*model.CommentNodeScheme
+		flushChunk := func() error {
+			if len(chunk) == 0 {
+				return nil
+			}
+			text, err := renderMarkdownDoc(chunk)
+			if err != nil {
+				return err
+			}
+			if strings.TrimSpace(text) != "" {
+				blocks = append(blocks, text)
+			}
+			chunk = nil
+			return nil
+		}
+		for _, child := range node.Content {
+			if child == nil {
+				continue
+			}
+			if child.Type == "table" {
+				if err := flushChunk(); err != nil {
+					return "", err
+				}
+				if text := strings.TrimSpace(renderLegacy(child)); text != "" {
+					blocks = append(blocks, text)
+				}
+				continue
+			}
+			chunk = append(chunk, child)
+		}
+		if err := flushChunk(); err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(strings.Join(blocks, "\n\n")), nil
+	}
+	return renderMarkdownBlock(node)
+}
+
+func renderMarkdownDoc(content []*model.CommentNodeScheme) (string, error) {
+	return renderMarkdownBlock(&model.CommentNodeScheme{
+		Type:    "doc",
+		Content: content,
+	})
+}
+
+func renderMarkdownBlock(node *model.CommentNodeScheme) (string, error) {
+	if node.Type == "table" {
+		return renderLegacy(node), nil
+	}
+	payload, err := json.Marshal(node)
+	if err != nil {
+		return "", err
+	}
+	conv, err := converter.New(converter.Config{
+		MentionStyle: converter.MentionText,
+		ExpandStyle:  converter.ExpandBlockquote,
+		TableMode:    converter.TablePipe,
+	})
+	if err != nil {
+		return "", err
+	}
+	result, err := conv.Convert(payload)
+	if err != nil {
+		return "", err
+	}
+	return normalizeMarkdown(result.Markdown), nil
+}
+
+func renderLegacy(node *model.CommentNodeScheme) string {
 	var blocks []string
 	collectBlocks(node, &blocks)
 	return strings.TrimSpace(strings.Join(blocks, "\n"))
+}
+
+func normalizeMarkdown(value string) string {
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	value = strings.ReplaceAll(value, "\r", "\n")
+	value = strings.ReplaceAll(value, "\\\n", "\n")
+	value = mailtoMarkdownPattern.ReplaceAllStringFunc(value, func(match string) string {
+		parts := mailtoMarkdownPattern.FindStringSubmatch(match)
+		if len(parts) == 3 && strings.EqualFold(strings.TrimSpace(parts[1]), strings.TrimSpace(parts[2])) {
+			return parts[1]
+		}
+		return match
+	})
+
+	lines := strings.Split(value, "\n")
+	normalized := make([]string, 0, len(lines))
+	for index := 0; index < len(lines); {
+		line := strings.TrimRight(lines[index], " ")
+		if strings.HasPrefix(strings.TrimSpace(line), "```") && strings.TrimSpace(line) != "```" {
+			normalized = append(normalized, "```")
+			index++
+			continue
+		}
+		if index+1 < len(lines) && isMarkdownTableRow(line) && isTableSeparatorLine(lines[index+1]) {
+			normalized = append(normalized, "[table]")
+			for index < len(lines) && isMarkdownTableRow(lines[index]) {
+				normalized = append(normalized, strings.TrimSpace(lines[index]))
+				index++
+			}
+			normalized = append(normalized, "[/table]")
+			continue
+		}
+		normalized = append(normalized, line)
+		index++
+	}
+	return strings.TrimSpace(strings.Join(normalized, "\n"))
+}
+
+func isMarkdownTableRow(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return strings.HasPrefix(trimmed, "|") && strings.HasSuffix(trimmed, "|") && strings.Count(trimmed, "|") >= 2
+}
+
+func isTableSeparatorLine(line string) bool {
+	trimmed := strings.Trim(line, "| ")
+	if trimmed == "" {
+		return false
+	}
+	for _, r := range trimmed {
+		if r != '-' && r != ':' && r != '|' && r != ' ' {
+			return false
+		}
+	}
+	return strings.Contains(trimmed, "-")
 }
 
 func collectBlocks(node *model.CommentNodeScheme, blocks *[]string) {

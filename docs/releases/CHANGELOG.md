@@ -4,6 +4,13 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Wrapped Jira ADF rendering with a maintained ADF-to-Markdown converter for richer descriptions
+  and comments while preserving the existing fitted table path.
+- Added sanitized real-shaped Jira ADF fixtures, a dev-only ADF fixture capture/sanitize helper, and
+  compact code block rendering without ASCII border rows in rich ticket text.
+- Added typeahead filtering for Jira create-ticket option fields, Claude-assisted Component
+  recommendations from Jira metadata, and fixed create blocking on metadata-owned Project/Issue
+  Type required fields.
 - Added an interactive Open Questions panel to Claude-assisted ticket creation so users can answer
   draft blockers locally and feed those answers into the next AI refinement prompt.
 - Widened create-ticket dialogs, made Summary/Description editing roomier, and simplified

@@ -87,6 +87,9 @@
   and keep detailed stream content in Diagnostics and final result/error views.
 - AI result rendering needs Markdown-aware handling for common structures. Pipe tables should route
   through the fitted table renderer instead of being wrapped as ordinary prose.
+- Code blocks in dense TUI text should use foreground/background styling and padding instead of
+  ASCII border rows. Borders spend vertical space and make code-heavy Jira descriptions feel noisier
+  than necessary.
 - Future AI/code workflows need ticket-to-local-workspace mapping. A ticket should be able to map to
   one or more local repository folders so Claude can receive the right repo context without guessing
   from the process working directory.
@@ -136,6 +139,12 @@
 - AI-generated create drafts should preserve named sections beyond Summary/Description and apply
   them conservatively to supported Jira create fields after metadata loads. Only map values through
   actual Jira field names/options returned by Jira; never invent presets.
+- Jira create metadata can mark `project` and `issuetype` as required even though the create flow
+  already owns those values. Treat metadata-owned Project and Issue Type as built-in context, not as
+  unsupported user-fillable fields that block submit.
+- Optional create-ticket pickers must not default to Jira's first allowed value. Start optional
+  option fields unselected and require either user selection or a Jira-metadata-matched AI
+  recommendation before submitting them.
 - In create-ticket forms, keep the authoring surface primary. Summary/Description and AI draft
   actions should appear before Jira metadata, while unfocused dropdown-backed metadata fields should
   collapse to compact `Field: value` rows and expand only when focused.

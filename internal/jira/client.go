@@ -272,6 +272,22 @@ func (c *Client) GetIssue(ctx context.Context, key string) (IssueDetail, error) 
 	return c.parseIssueDetail(raw), nil
 }
 
+func (c *Client) GetIssueDescriptionADF(ctx context.Context, key string) (*model.CommentNodeScheme, error) {
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+	raw, _, err := c.issue.Get(ctx, key, []string{"description"}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("get jira issue description ADF %s: %w", key, err)
+	}
+	if raw == nil || raw.Fields == nil || raw.Fields.Description == nil {
+		return nil, fmt.Errorf("get jira issue description ADF %s: empty description", key)
+	}
+	return raw.Fields.Description, nil
+}
+
 func (c *Client) GetTransitions(ctx context.Context, key string) ([]Transition, error) {
 	if c.requestTimeout > 0 {
 		var cancel context.CancelFunc
@@ -646,6 +662,33 @@ func (c *Client) GetComments(ctx context.Context, key string, maxResults int) ([
 		comments = append(comments, parseComment(raw))
 	}
 	return comments, nil
+}
+
+func (c *Client) GetCommentADF(ctx context.Context, key string, commentID string) (*model.CommentNodeScheme, error) {
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+	if c.comment == nil {
+		return nil, fmt.Errorf("get jira comment ADF %s/%s: comment service unavailable", key, commentID)
+	}
+	response, _, err := c.comment.Gets(ctx, key, "-created", nil, 0, 100)
+	if err != nil {
+		return nil, fmt.Errorf("get jira comment ADF %s/%s: %w", key, commentID, err)
+	}
+	if response == nil {
+		return nil, fmt.Errorf("get jira comment ADF %s/%s: empty response", key, commentID)
+	}
+	for _, raw := range response.Comments {
+		if raw != nil && raw.ID == commentID {
+			if raw.Body == nil {
+				return nil, fmt.Errorf("get jira comment ADF %s/%s: empty body", key, commentID)
+			}
+			return raw.Body, nil
+		}
+	}
+	return nil, fmt.Errorf("get jira comment ADF %s/%s: comment not found", key, commentID)
 }
 
 func (c *Client) AddComment(ctx context.Context, key string, body string, mentions []Mention) (Comment, error) {

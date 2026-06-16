@@ -1,6 +1,6 @@
 module github.com/jon/jira-tui
 
-go 1.25.0
+go 1.25.5
 
 require (
 	charm.land/bubbles/v2 v2.1.0
@@ -10,6 +10,7 @@ require (
 	github.com/ctreminiom/go-atlassian/v2 v2.12.0
 	github.com/jellydator/ttlcache/v3 v3.4.0
 	github.com/panjf2000/ants/v2 v2.12.1
+	github.com/rgonek/jira-adf-converter v1.0.0
 	github.com/spf13/cobra v1.10.2
 	github.com/tidwall/gjson v1.18.0
 	mvdan.cc/xurls/v2 v2.6.0
