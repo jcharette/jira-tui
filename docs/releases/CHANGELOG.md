@@ -4,6 +4,8 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Replaced marker-only issue detail freshness with retained detail cache records using the existing
+  `ttlcache` dependency, preserving stale-visible detail refresh behavior.
 - Added worker scheduler stats to Diagnostics so the overlay shows queue running, pending,
   coalesced, and capacity counts even before activity events exist.
 - Added worker request priority and duplicate-read coalescing around the existing `ants` pool so

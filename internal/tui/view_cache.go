@@ -34,11 +34,7 @@ func (m Model) cachedActiveIssueView(jql string) (issueViewCacheRecord, bool) {
 }
 
 func (m Model) activeIssueViewCacheFresh(record issueViewCacheRecord) bool {
-	now := time.Now()
-	if m.now != nil {
-		now = m.now()
-	}
-	return !record.FreshTill.IsZero() && now.Before(record.FreshTill)
+	return !record.FreshTill.IsZero() && m.currentTime().Before(record.FreshTill)
 }
 
 func (m *Model) cacheActiveIssueView(jql string, issues []jira.Issue, syncedAt time.Time) {

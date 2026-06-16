@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/jellydator/ttlcache/v3"
@@ -376,27 +377,37 @@ func (m Model) handleDetailResult(result worker.Result) Model {
 		m.detailErr = worker.ErrInvalidRequest
 		return m
 	}
-	if m.details == nil {
-		m.details = make(map[string]jira.IssueDetail)
-	}
-	m.details[result.GetIssue.Key] = result.GetIssue.Detail
-	m.markIssueDetailFresh(result.GetIssue.Key)
+	m.cacheIssueDetail(result.GetIssue.Key, result.GetIssue.Detail, result.GetIssue.SyncedAt)
 	m.detailErr = nil
 	return m
 }
 
 func (m Model) isIssueDetailFresh(key string) bool {
-	if m.detailFreshnessCache == nil || strings.TrimSpace(key) == "" {
-		return false
-	}
-	return m.detailFreshnessCache.Get(key) != nil
+	record, ok := m.cachedIssueDetail(key)
+	return ok && record.Fresh(m.currentTime())
 }
 
-func (m Model) markIssueDetailFresh(key string) {
-	if m.detailFreshnessCache == nil || strings.TrimSpace(key) == "" {
+func (m Model) cachedIssueDetail(key string) (jiraCacheRecord[jira.IssueDetail], bool) {
+	if m.detailCache == nil || strings.TrimSpace(key) == "" {
+		return jiraCacheRecord[jira.IssueDetail]{}, false
+	}
+	item := m.detailCache.Get(strings.TrimSpace(key))
+	if item == nil {
+		return jiraCacheRecord[jira.IssueDetail]{}, false
+	}
+	return item.Value(), true
+}
+
+func (m *Model) cacheIssueDetail(key string, detail jira.IssueDetail, syncedAt time.Time) {
+	key = strings.TrimSpace(key)
+	if m.detailCache == nil || key == "" {
 		return
 	}
-	m.detailFreshnessCache.Set(key, struct{}{}, ttlcache.DefaultTTL)
+	if m.details == nil {
+		m.details = make(map[string]jira.IssueDetail)
+	}
+	m.details[key] = detail
+	m.detailCache.Set(key, newJiraCacheRecord(detail, syncedAt, issueDetailCacheTTL), ttlcache.DefaultTTL)
 }
 
 func (m Model) handleAddCommentResult(result worker.Result) (Model, tea.Cmd) {

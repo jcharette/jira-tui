@@ -1,5 +1,35 @@
 # Task Plan
 
+## Detail Cache Record Unification
+
+- [x] Add a generic Jira cache record helper for value, sync time, and freshness window.
+- [x] Replace the marker-only issue detail freshness cache with a retained detail cache record.
+- [x] Keep the existing `details` map as the current render/read path while detail freshness moves
+  to the shared record semantics.
+- [x] Preserve fresh-hit, stale-while-refresh, and stale-visible behavior for issue detail.
+- [x] Add focused cache-record and detail-cache tests.
+- [x] Update cache design/backlog/changelog notes.
+- [x] Run final verification with `go test ./internal/tui -count=1`, `go test ./... -count=1`,
+  and `make check`.
+
+### Detail Cache Record Unification Scope
+
+Implement the first cache-unification slice behind ticket detail only. Use the existing maintained
+`ttlcache` dependency for retained records; do not migrate comments, transitions, edit metadata, or
+create metadata in this commit. The goal is to replace a marker-only freshness cache with a reusable
+record shape that later read caches can share.
+
+### Detail Cache Record Unification Review
+
+- Added generic `jiraCacheRecord[T]` freshness semantics for retained Jira read records.
+- Replaced the marker-only issue detail freshness cache with a `ttlcache`-retained detail record.
+- Kept `details` as the current render path while storing the same detail value in the retained
+  record for freshness checks.
+- Preserved fresh detail hits, stale-while-refresh behavior, and stale detail visibility.
+- Left comments, transitions, edit metadata, create metadata, and expanded children for follow-up
+  cache-unification slices.
+- Verified with `go test ./internal/tui -count=1`, `go test ./... -count=1`, and `make check`.
+
 ## Worker Diagnostics Queue Summary
 
 - [x] Expose worker scheduler stats from the existing worker pool.

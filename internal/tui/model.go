@@ -20,24 +20,25 @@ import (
 )
 
 const (
-	maxIssues                   = 50
-	maxComments                 = 10
-	userSearchCacheTTL          = 2 * time.Minute
-	issueDetailCacheTTL         = 45 * time.Second
-	activeViewCacheTTL          = 90 * time.Second
-	activeViewCacheRetentionTTL = 30 * time.Minute
-	initialRequestID            = 1
-	defaultRequestTimeout       = 20 * time.Second
-	defaultWorkerCount          = 2
-	defaultQueueSize            = 16
-	minUsefulIssueRows          = 8
-	appChromeRows               = 6
-	panelFrameRows              = 4
-	detailHeaderRows            = 6
-	issueTreeRootGutter         = 2
-	issueTreeMaxGutter          = 12
-	issueTypeColumnWidth        = 2
-	createPickerMaxRows         = 6
+	maxIssues                    = 50
+	maxComments                  = 10
+	userSearchCacheTTL           = 2 * time.Minute
+	issueDetailCacheTTL          = 45 * time.Second
+	issueDetailCacheRetentionTTL = 15 * time.Minute
+	activeViewCacheTTL           = 90 * time.Second
+	activeViewCacheRetentionTTL  = 30 * time.Minute
+	initialRequestID             = 1
+	defaultRequestTimeout        = 20 * time.Second
+	defaultWorkerCount           = 2
+	defaultQueueSize             = 16
+	minUsefulIssueRows           = 8
+	appChromeRows                = 6
+	panelFrameRows               = 4
+	detailHeaderRows             = 6
+	issueTreeRootGutter          = 2
+	issueTreeMaxGutter           = 12
+	issueTypeColumnWidth         = 2
+	createPickerMaxRows          = 6
 )
 
 const (
@@ -200,7 +201,7 @@ type Model struct {
 	activeViewCache *ttlcache.Cache[string, issueViewCacheRecord]
 
 	details                     map[string]jira.IssueDetail
-	detailFreshnessCache        *ttlcache.Cache[string, struct{}]
+	detailCache                 *ttlcache.Cache[string, jiraCacheRecord[jira.IssueDetail]]
 	detailLoading               bool
 	detailErr                   error
 	detailRequestKey            string
@@ -378,25 +379,25 @@ type linkActionMsg struct {
 
 func NewModel(client worker.JiraClient, jql string, options ...Option) Model {
 	model := Model{
-		jql:                  jql,
-		loading:              true,
-		requestTimeout:       defaultRequestTimeout,
-		workerCount:          defaultWorkerCount,
-		queueSize:            defaultQueueSize,
-		nextRequestID:        initialRequestID,
-		activeRequestID:      initialRequestID,
-		theme:                ui.NewTheme(config.DefaultTheme()),
-		symbolMode:           symbolModeAuto,
-		details:              make(map[string]jira.IssueDetail),
-		activeViewCache:      newIssueViewCache(),
-		detailFreshnessCache: ttlcache.New[string, struct{}](ttlcache.WithTTL[string, struct{}](issueDetailCacheTTL)),
-		comments:             make(map[string][]jira.Comment),
-		transitions:          make(map[string][]jira.Transition),
-		editMetadata:         make(map[string]jira.EditMetadata),
-		detailSectionOffset:  make(map[string]int),
-		userSearchCache:      ttlcache.New[string, []jira.User](ttlcache.WithTTL[string, []jira.User](userSearchCacheTTL)),
-		claudeRunner:         claude.LocalRunner{},
-		now:                  time.Now,
+		jql:                 jql,
+		loading:             true,
+		requestTimeout:      defaultRequestTimeout,
+		workerCount:         defaultWorkerCount,
+		queueSize:           defaultQueueSize,
+		nextRequestID:       initialRequestID,
+		activeRequestID:     initialRequestID,
+		theme:               ui.NewTheme(config.DefaultTheme()),
+		symbolMode:          symbolModeAuto,
+		details:             make(map[string]jira.IssueDetail),
+		activeViewCache:     newIssueViewCache(),
+		detailCache:         newJiraCache[jira.IssueDetail](issueDetailCacheRetentionTTL),
+		comments:            make(map[string][]jira.Comment),
+		transitions:         make(map[string][]jira.Transition),
+		editMetadata:        make(map[string]jira.EditMetadata),
+		detailSectionOffset: make(map[string]int),
+		userSearchCache:     ttlcache.New[string, []jira.User](ttlcache.WithTTL[string, []jira.User](userSearchCacheTTL)),
+		claudeRunner:        claude.LocalRunner{},
+		now:                 time.Now,
 	}
 	for _, option := range options {
 		option(&model)

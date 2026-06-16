@@ -150,15 +150,14 @@ func TestDiagnosticsEventsAreBounded(t *testing.T) {
 }
 
 func TestDiagnosticsRecordsDetailCacheDecisions(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
 	model.loading = false
 	model.issues = []jira.Issue{{Key: "ABC-1"}}
-	model.details = map[string]jira.IssueDetail{
-		"ABC-1": {Issue: jira.Issue{Key: "ABC-1"}, Description: "Cached detail"},
-	}
+	model.cacheIssueDetail("ABC-1", jira.IssueDetail{Issue: jira.Issue{Key: "ABC-1"}, Description: "Cached detail"}, now)
 	model.comments = map[string][]jira.Comment{"ABC-1": {}}
-	model.markIssueDetailFresh("ABC-1")
 
 	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
 	fresh := updated.(Model)
@@ -167,7 +166,7 @@ func TestDiagnosticsRecordsDetailCacheDecisions(t *testing.T) {
 		t.Fatalf("fresh cache events = %#v", fresh.diagnosticsEvents)
 	}
 
-	model.detailFreshnessCache.Delete("ABC-1")
+	model.now = func() time.Time { return now.Add(issueDetailCacheTTL) }
 	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
 	stale := updated.(Model)
 

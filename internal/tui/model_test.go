@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
@@ -248,15 +249,14 @@ func TestLoadedDetailIgnoresStaleSelection(t *testing.T) {
 }
 
 func TestFreshCachedDetailSkipsDetailRefresh(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
 	model.loading = false
 	model.issues = []jira.Issue{{Key: "ABC-1"}}
-	model.details = map[string]jira.IssueDetail{
-		"ABC-1": {Issue: jira.Issue{Key: "ABC-1"}, Description: "Cached detail"},
-	}
+	model.cacheIssueDetail("ABC-1", jira.IssueDetail{Issue: jira.Issue{Key: "ABC-1"}, Description: "Cached detail"}, now)
 	model.comments = map[string][]jira.Comment{"ABC-1": {}}
-	model.markIssueDetailFresh("ABC-1")
 
 	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
 	next := updated.(Model)
@@ -273,13 +273,13 @@ func TestFreshCachedDetailSkipsDetailRefresh(t *testing.T) {
 }
 
 func TestStaleCachedDetailStartsBackgroundRefresh(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
 	model.loading = false
 	model.issues = []jira.Issue{{Key: "ABC-1"}}
-	model.details = map[string]jira.IssueDetail{
-		"ABC-1": {Issue: jira.Issue{Key: "ABC-1"}, Description: "Stale detail"},
-	}
+	model.cacheIssueDetail("ABC-1", jira.IssueDetail{Issue: jira.Issue{Key: "ABC-1"}, Description: "Stale detail"}, now.Add(-2*issueDetailCacheTTL))
 	model.comments = map[string][]jira.Comment{"ABC-1": {}}
 
 	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
@@ -296,6 +296,26 @@ func TestStaleCachedDetailStartsBackgroundRefresh(t *testing.T) {
 	}
 	if next.details["ABC-1"].Description != "Stale detail" {
 		t.Fatalf("stale detail should remain visible, details = %#v", next.details["ABC-1"])
+	}
+}
+
+func TestIssueDetailCacheRecordStoresFreshness(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+
+	model.cacheIssueDetail("ABC-1", jira.IssueDetail{Issue: jira.Issue{Key: "ABC-1"}, Description: "Cached detail"}, now)
+
+	if !model.isIssueDetailFresh("ABC-1") {
+		t.Fatal("detail should be fresh immediately after caching")
+	}
+	if model.details["ABC-1"].Description != "Cached detail" {
+		t.Fatalf("details map = %#v", model.details["ABC-1"])
+	}
+	model.now = func() time.Time { return now.Add(issueDetailCacheTTL) }
+	if model.isIssueDetailFresh("ABC-1") {
+		t.Fatal("detail should be stale at the freshness boundary")
 	}
 }
 

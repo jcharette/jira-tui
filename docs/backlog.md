@@ -38,7 +38,8 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
 - Continue [jira-cache-performance-design.md](jira-cache-performance-design.md) with cache
   unification and diagnostics: move detail/comments/transitions/metadata/expanded children behind
   the same cache record semantics, patch or invalidate affected records after writes, and expose
-  queue/cache events in Diagnostics.
+  queue/cache events in Diagnostics. Issue detail now uses retained cache records; comments,
+  transitions, metadata, and expanded children still need the same treatment.
 - Add a generic in-memory TTL cache policy around Jira reads using maintained library support where
   possible: cache typeahead/metadata/detail/view data with per-data TTLs, refresh important entries
   asynchronously on expiry or view timers, use bounded background workers/threads where helpful,
