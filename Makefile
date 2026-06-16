@@ -1,7 +1,8 @@
 APP_NAME := jira
 MAIN_PKG := ./cmd/jira-tui
-TMP_BUILD := /private/tmp/$(APP_NAME)-check
-GOCACHE := /private/tmp/$(APP_NAME)-go-build-cache
+TMPDIR ?= /tmp
+TMP_BUILD := $(TMPDIR)/$(APP_NAME)-check
+GOCACHE := $(TMPDIR)/$(APP_NAME)-go-build-cache
 GOFLAGS := -buildvcs=false
 BIN_DIR := bin
 BIN := $(BIN_DIR)/$(APP_NAME)
