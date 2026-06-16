@@ -10,6 +10,31 @@ import (
 )
 
 func (m Model) startRefresh() (Model, tea.Cmd) {
+	return m.startRefreshWithCache(false)
+}
+
+func (m Model) startCachedRefresh() (Model, tea.Cmd) {
+	return m.startRefreshWithCache(true)
+}
+
+func (m Model) startRefreshWithCache(useCache bool) (Model, tea.Cmd) {
+	if useCache {
+		if record, ok := m.cachedActiveIssueView(m.jql); ok {
+			fresh := m.activeIssueViewCacheFresh(record)
+			m.applyActiveIssueView(record, !fresh)
+			if fresh {
+				m.recordDiagnosticEvent(diagnosticKindCache, "active_view", "hit", m.activeViewName())
+				return m, nil
+			}
+			m.recordDiagnosticEvent(diagnosticKindCache, "active_view", "stale", m.activeViewName())
+		} else {
+			m.recordDiagnosticEvent(diagnosticKindCache, "active_view", "miss", m.activeViewName())
+		}
+	} else if record, ok := m.cachedActiveIssueView(m.jql); ok {
+		fresh := m.activeIssueViewCacheFresh(record)
+		m.applyActiveIssueView(record, !fresh)
+		m.recordDiagnosticEvent(diagnosticKindCache, "active_view", "refresh", m.activeViewName())
+	}
 	m.nextRequestID++
 	m.activeRequestID = m.nextRequestID
 	m.expandLoading = false
@@ -54,10 +79,11 @@ func (m Model) switchView(delta int) (Model, tea.Cmd) {
 	m.mode = modeTable
 	m.loading = true
 	m.refreshing = false
+	m.viewStale = false
 	m.expandLoading = false
 	m.expandRequestKey = ""
 	m.detailNotice = ""
-	return m.startRefresh()
+	return m.startCachedRefresh()
 }
 
 func (m *Model) mergeExpandedIssues(children []jira.Issue) int {

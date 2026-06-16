@@ -143,6 +143,11 @@ Expose enough state to make freshness understandable:
 - Add tests for fresh hit, stale hit with background refresh, failed refresh preserving stale data,
   and selection preservation after refreshed rows arrive.
 
+Status: implemented in `internal/tui/view_cache.go` using `ttlcache` for retained active-view
+records. Freshness is visible in the header, stale cached rows render before refresh, failed
+refreshes preserve stale rows, and explicit user refresh still submits a foreground Jira refresh
+even when cached data is fresh.
+
 ### Slice 2: Scheduler priority and coalescing
 
 - Add priority metadata to worker requests or introduce a scheduler in front of `worker.Pool`.

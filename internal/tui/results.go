@@ -335,16 +335,24 @@ func (m Model) handleSearchResult(result worker.Result) (Model, tea.Cmd) {
 	m.refreshing = false
 	if result.Err != nil {
 		m.err = result.Err
+		if len(m.issues) > 0 {
+			m.viewStale = true
+		}
 		return m, nil
 	}
 	if result.SearchIssues == nil {
 		m.err = worker.ErrInvalidRequest
+		if len(m.issues) > 0 {
+			m.viewStale = true
+		}
 		return m, nil
 	}
 
 	m.err = nil
 	m.replaceIssues(result.SearchIssues.Issues)
 	m.lastSynced = result.SearchIssues.SyncedAt
+	m.viewStale = false
+	m.cacheActiveIssueView(m.jql, m.issues, result.SearchIssues.SyncedAt)
 	return m.startDetailRequestForSelected()
 }
 

@@ -24,19 +24,27 @@ func (m Model) renderHeader(layout browserLayout) string {
 		status = "refreshing"
 	}
 
-	synced := "not synced"
-	if !m.lastSynced.IsZero() {
-		synced = "synced " + m.lastSynced.Format("15:04:05")
-	}
-
 	left := m.theme.Header.Render("Jira") + " " + m.theme.Subtitle.Render(status) + " " + m.theme.Selected.Render(m.activeViewName())
-	right := m.theme.Muted.Render(fmt.Sprintf("%d issues  %s", len(m.issues), synced))
+	right := m.theme.Muted.Render(fmt.Sprintf("%d issues  %s", len(m.issues), m.viewFreshnessLabel()))
 	rightColumn := lipgloss.PlaceHorizontal(
 		max(0, layout.contentWidth-lipgloss.Width(left)-1),
 		lipgloss.Right,
 		right,
 	)
 	return lipgloss.NewStyle().Width(layout.contentWidth).Render(left + " " + rightColumn)
+}
+
+func (m Model) viewFreshnessLabel() string {
+	if m.lastSynced.IsZero() {
+		return "not synced"
+	}
+	prefix := "synced "
+	if m.err != nil && len(m.issues) > 0 {
+		prefix = "refresh failed "
+	} else if m.viewStale {
+		prefix = "stale "
+	}
+	return prefix + m.lastSynced.Format("15:04:05")
 }
 
 func (m Model) renderQuery(layout browserLayout) string {

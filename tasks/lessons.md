@@ -175,3 +175,6 @@
 - Watch file and package boundaries before they become cleanup projects. In Go, prefer proactive
   same-package file splits when one file starts owning multiple workflows; do not wait for a
   10,000-line file before asking whether the current boundary is still maintainable.
+- For caching, queues, and other infrastructure primitives, reach for maintained third-party
+  libraries already in the project or a vetted dependency before writing local data-structure code.
+  Only hand-roll the small adapter/glue around app-specific policy.

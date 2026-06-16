@@ -20,22 +20,24 @@ import (
 )
 
 const (
-	maxIssues             = 50
-	maxComments           = 10
-	userSearchCacheTTL    = 2 * time.Minute
-	issueDetailCacheTTL   = 45 * time.Second
-	initialRequestID      = 1
-	defaultRequestTimeout = 20 * time.Second
-	defaultWorkerCount    = 2
-	defaultQueueSize      = 16
-	minUsefulIssueRows    = 8
-	appChromeRows         = 6
-	panelFrameRows        = 4
-	detailHeaderRows      = 6
-	issueTreeRootGutter   = 2
-	issueTreeMaxGutter    = 12
-	issueTypeColumnWidth  = 2
-	createPickerMaxRows   = 6
+	maxIssues                   = 50
+	maxComments                 = 10
+	userSearchCacheTTL          = 2 * time.Minute
+	issueDetailCacheTTL         = 45 * time.Second
+	activeViewCacheTTL          = 90 * time.Second
+	activeViewCacheRetentionTTL = 30 * time.Minute
+	initialRequestID            = 1
+	defaultRequestTimeout       = 20 * time.Second
+	defaultWorkerCount          = 2
+	defaultQueueSize            = 16
+	minUsefulIssueRows          = 8
+	appChromeRows               = 6
+	panelFrameRows              = 4
+	detailHeaderRows            = 6
+	issueTreeRootGutter         = 2
+	issueTreeMaxGutter          = 12
+	issueTypeColumnWidth        = 2
+	createPickerMaxRows         = 6
 )
 
 const (
@@ -190,10 +192,12 @@ type Model struct {
 	activeCreateAIPromptReqID          int
 	now                                func() time.Time
 
-	loading    bool
-	refreshing bool
-	err        error
-	lastSynced time.Time
+	loading         bool
+	refreshing      bool
+	viewStale       bool
+	err             error
+	lastSynced      time.Time
+	activeViewCache *ttlcache.Cache[string, issueViewCacheRecord]
 
 	details                     map[string]jira.IssueDetail
 	detailFreshnessCache        *ttlcache.Cache[string, struct{}]
@@ -384,6 +388,7 @@ func NewModel(client worker.JiraClient, jql string, options ...Option) Model {
 		theme:                ui.NewTheme(config.DefaultTheme()),
 		symbolMode:           symbolModeAuto,
 		details:              make(map[string]jira.IssueDetail),
+		activeViewCache:      newIssueViewCache(),
 		detailFreshnessCache: ttlcache.New[string, struct{}](ttlcache.WithTTL[string, struct{}](issueDetailCacheTTL)),
 		comments:             make(map[string][]jira.Comment),
 		transitions:          make(map[string][]jira.Transition),
@@ -422,7 +427,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case refreshTickMsg:
 		var cmd tea.Cmd
 		if !m.loading && !m.refreshing {
-			m, cmd = m.startRefresh()
+			m, cmd = m.startCachedRefresh()
 		}
 		return m, tea.Batch(cmd, m.scheduleRefresh())
 	case workerResultMsg:

@@ -1,5 +1,35 @@
 # Task Plan
 
+## Active View Cache Implementation
+
+- [x] Add `ttlcache`-backed active-view cache records to the TUI model.
+- [x] Render fresh cached views without submitting a Jira search.
+- [x] Render stale cached views immediately and refresh in the background.
+- [x] Preserve stale cached rows when refresh fails.
+- [x] Show active-view freshness in the header.
+- [x] Keep manual refresh as a real Jira refresh even when a fresh cached view exists.
+- [x] Add focused tests for fresh hit, stale hit, failed-refresh preservation, selection behavior,
+  manual refresh bypass, and visible freshness labels.
+- [x] Run final verification with `go test ./internal/tui -count=1`, `go test ./... -count=1`, and
+  `make check`.
+
+### Active View Cache Implementation Scope
+
+Implement slice 1 from the cache design: an in-memory active-view read model only. Do not introduce
+disk persistence or rewrite the worker pool yet. Use the existing maintained `ttlcache` dependency
+for cache retention, with app policy deciding whether a retained record is fresh or stale.
+
+### Active View Cache Implementation Review
+
+- Added `internal/tui/view_cache.go` as the active-view cache adapter.
+- Cached successful active JQL search results by normalized JQL.
+- Added stale-while-refresh behavior for cached active views.
+- Preserved stale rows and freshness labels when refresh fails.
+- Added header labels for `synced`, `stale`, and `refresh failed`.
+- Kept explicit user refresh on the foreground Jira path instead of letting a fresh cache hit turn it
+  into a no-op.
+- Verified with `go test ./internal/tui -count=1`, `go test ./... -count=1`, and `make check`.
+
 ## Jira Cache And Background Refresh Design
 
 - [x] Inspect current Jira read/write flow, worker pool, refresh behavior, and existing caches.

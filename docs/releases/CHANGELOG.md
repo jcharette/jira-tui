@@ -4,6 +4,9 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Added an in-memory active-view cache using `ttlcache` so fresh Jira views render without a new
+  search, stale views render immediately while refreshing, and failed refreshes preserve stale rows
+  with visible freshness state.
 - Added a Jira cache/background refresh design for responsive large views, freshness labels,
   priority classes, stale-while-refresh behavior, write invalidation, diagnostics, and future
   persistent cache constraints.

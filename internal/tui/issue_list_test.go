@@ -78,6 +78,124 @@ func TestLoadedIssuesPreserveSelectedIssue(t *testing.T) {
 	}
 }
 
+func TestSwitchViewUsesFreshCachedIssueViewWithoutRefresh(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.Local)
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithViews([]config.IssueView{
+			{Name: "Assigned", JQL: "assignee = currentUser()"},
+			{Name: "Sprint", JQL: "sprint in openSprints()"},
+		}, "Assigned"),
+	)
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.loading = false
+	model.cacheActiveIssueView("sprint in openSprints()", []jira.Issue{{Key: "ABC-9", Summary: "Cached sprint"}}, now.Add(-10*time.Second))
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "]", Code: ']'}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("fresh cached view should not submit a refresh command")
+	}
+	if next.loading || next.refreshing || next.viewStale {
+		t.Fatalf("loading=%v refreshing=%v viewStale=%v", next.loading, next.refreshing, next.viewStale)
+	}
+	if len(next.issues) != 1 || next.issues[0].Key != "ABC-9" {
+		t.Fatalf("issues = %#v", next.issues)
+	}
+}
+
+func TestManualRefreshBypassesFreshCachedIssueView(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.Local)
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.loading = false
+	model.issues = []jira.Issue{{Key: "ABC-1"}}
+	model.cacheActiveIssueView("project = ABC", []jira.Issue{{Key: "ABC-1"}}, now.Add(-10*time.Second))
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "r", Code: 'r'}))
+	next := updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("manual refresh should submit a Jira refresh even when cache is fresh")
+	}
+	if !next.refreshing {
+		t.Fatal("manual refresh should mark the view as refreshing")
+	}
+	if next.activeRequestID != initialRequestID+1 {
+		t.Fatalf("activeRequestID = %d", next.activeRequestID)
+	}
+}
+
+func TestSwitchViewUsesStaleCachedIssueViewAndRefreshes(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.Local)
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithViews([]config.IssueView{
+			{Name: "Assigned", JQL: "assignee = currentUser()"},
+			{Name: "Sprint", JQL: "sprint in openSprints()"},
+		}, "Assigned"),
+	)
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.loading = false
+	model.cacheActiveIssueView("sprint in openSprints()", []jira.Issue{{Key: "ABC-9", Summary: "Cached sprint"}}, now.Add(-2*activeViewCacheTTL))
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "]", Code: ']'}))
+	next := updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("stale cached view should submit a refresh command")
+	}
+	if next.loading {
+		t.Fatal("stale cached view should render immediately instead of showing initial loading")
+	}
+	if !next.refreshing || !next.viewStale {
+		t.Fatalf("refreshing=%v viewStale=%v", next.refreshing, next.viewStale)
+	}
+	if len(next.issues) != 1 || next.issues[0].Key != "ABC-9" {
+		t.Fatalf("issues = %#v", next.issues)
+	}
+}
+
+func TestRefreshFailurePreservesStaleCachedIssueView(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.Local)
+	refreshErr := errors.New("jira unavailable")
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.loading = false
+	model.refreshing = true
+	model.viewStale = true
+	model.activeRequestID = 2
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Cached"}}
+	model.cacheActiveIssueView("project = ABC", model.issues, now.Add(-2*activeViewCacheTTL))
+
+	updated, _ := model.Update(workerResultMsg{result: worker.Result{
+		ID:   2,
+		Kind: worker.KindSearchIssues,
+		Err:  refreshErr,
+	}})
+	next := updated.(Model)
+
+	if next.loading || next.refreshing {
+		t.Fatalf("loading=%v refreshing=%v", next.loading, next.refreshing)
+	}
+	if !next.viewStale {
+		t.Fatal("failed refresh should keep stale state visible")
+	}
+	if !errors.Is(next.err, refreshErr) {
+		t.Fatalf("err = %v", next.err)
+	}
+	if len(next.issues) != 1 || next.issues[0].Key != "ABC-1" {
+		t.Fatalf("issues = %#v", next.issues)
+	}
+}
+
 func TestOrderIssuesPlacesChildrenAfterParent(t *testing.T) {
 	ordered := orderIssues([]jira.Issue{
 		{Key: "ABC-2", ParentKey: "ABC-1"},
@@ -526,6 +644,28 @@ func TestHeaderUsesAvailableWidth(t *testing.T) {
 	}
 	if lipgloss.Width(header) != model.browserLayout(model.width).contentWidth {
 		t.Fatalf("header width = %d, want %d, header = %q", lipgloss.Width(header), model.browserLayout(model.width).contentWidth, header)
+	}
+}
+
+func TestHeaderShowsStaleAndFailedRefreshFreshness(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 110
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1"}}
+	model.lastSynced = time.Date(2026, 6, 16, 10, 15, 0, 0, time.Local)
+	model.viewStale = true
+
+	header := model.renderHeader(model.browserLayout(model.width))
+	if !strings.Contains(header, "stale 10:15:00") {
+		t.Fatalf("header = %q", header)
+	}
+
+	model.err = errors.New("jira unavailable")
+	header = model.renderHeader(model.browserLayout(model.width))
+	if !strings.Contains(header, "refresh failed 10:15:00") {
+		t.Fatalf("header = %q", header)
 	}
 }
 
