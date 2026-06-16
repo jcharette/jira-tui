@@ -1,5 +1,36 @@
 # Task Plan
 
+## Persistent Expanded Children Cache
+
+- [x] Add retained hot-cache records for explicit expanded children by parent key and expand mode.
+- [x] Add SQLite records for expanded children keyed by Jira namespace, parent key, and expand mode.
+- [x] Use fresh cached expanded children to merge hierarchy rows without submitting Jira work.
+- [x] Treat stale or missing expanded children as a normal Jira refresh.
+- [x] Persist successful expanded-child Jira reads back to SQLite.
+- [x] Add focused store and TUI persistence tests.
+- [x] Update cache design/backlog/changelog notes.
+- [x] Run final verification with `go test ./internal/cache -count=1`,
+  `go test ./internal/tui -count=1`, `go test ./... -count=1`, and `make check`.
+
+### Persistent Expanded Children Cache Scope
+
+Extend the existing hot-cache plus SQLite pattern to explicit hierarchy expansion only: `open
+children` and `all children` requests for a selected parent. Do not change broad issue search child
+lookup or prefetch behavior in this slice. Fresh cached child rows can merge immediately; stale
+records should submit Jira work rather than silently changing the visible hierarchy.
+
+### Persistent Expanded Children Cache Review
+
+- Added retained hot-cache records for explicit expanded children keyed by parent key and expand
+  mode.
+- Added SQLite tables and store methods for expanded child issue rows.
+- Hydrated fresh persisted expanded children before submitting explicit hierarchy expansion work.
+- Persisted successful expanded-child worker reads back to SQLite.
+- Verified focused red/green coverage for store round-trips, fresh expanded-child hydration, and
+  expanded-child result persistence.
+- Verified with `go test ./internal/cache -count=1`, `go test ./internal/tui -count=1`,
+  `go test ./... -count=1`, and `make check`.
+
 ## Persistent Create Metadata Cache
 
 - [x] Add retained hot-cache records for create issue types and create fields.

@@ -35,6 +35,8 @@ const (
 	createIssueTypesCacheRetentionTTL  = 30 * time.Minute
 	createFieldsCacheTTL               = 5 * time.Minute
 	createFieldsCacheRetentionTTL      = 30 * time.Minute
+	expandedChildrenCacheTTL           = 90 * time.Second
+	expandedChildrenCacheRetentionTTL  = 15 * time.Minute
 	activeViewCacheTTL                 = 90 * time.Second
 	activeViewCacheRetentionTTL        = 30 * time.Minute
 	initialRequestID                   = 1
@@ -256,6 +258,7 @@ type Model struct {
 	expandLoading               bool
 	expandRequestKey            string
 	expandMode                  worker.ExpandMode
+	expandedChildrenCache       *ttlcache.Cache[string, jiraCacheRecord[[]jira.Issue]]
 	transitions                 map[string][]jira.Transition
 	transitionsCache            *ttlcache.Cache[string, jiraCacheRecord[[]jira.Transition]]
 	transitionLoading           bool
@@ -423,6 +426,7 @@ func NewModel(client worker.JiraClient, jql string, options ...Option) Model {
 		editMetadataCache:     newJiraCache[jira.EditMetadata](issueEditMetadataCacheRetentionTTL),
 		createIssueTypesCache: newJiraCache[[]jira.CreateIssueType](createIssueTypesCacheRetentionTTL),
 		createFieldsCache:     newJiraCache[[]jira.CreateField](createFieldsCacheRetentionTTL),
+		expandedChildrenCache: newJiraCache[[]jira.Issue](expandedChildrenCacheRetentionTTL),
 		detailSectionOffset:   make(map[string]int),
 		userSearchCache:       ttlcache.New[string, []jira.User](ttlcache.WithTTL[string, []jira.User](userSearchCacheTTL)),
 		claudeRunner:          claude.LocalRunner{},

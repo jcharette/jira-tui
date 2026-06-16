@@ -4,6 +4,8 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Extended the SQLite persistent cache to explicit expanded child issue reads used by hierarchy
+  expansion.
 - Extended the SQLite persistent cache to create issue type and create field metadata used by the
   create ticket flow.
 - Extended the SQLite persistent cache to status transitions and edit metadata used by summary and

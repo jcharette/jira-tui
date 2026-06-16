@@ -362,6 +362,44 @@ func TestStorePersistsCreateFieldsRecords(t *testing.T) {
 	}
 }
 
+func TestStorePersistsExpandedChildrenRecords(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(filepath.Join(t.TempDir(), "cache.sqlite"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+
+	syncedAt := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	record := ExpandedChildrenRecord{
+		Namespace: "https://example.atlassian.net",
+		ParentKey: "ABC-1",
+		Mode:      "open",
+		Issues: []jira.Issue{
+			{Key: "ABC-2", Summary: "Cached child", ParentKey: "ABC-1"},
+		},
+		SyncedAt:  syncedAt,
+		FreshTill: syncedAt.Add(time.Minute),
+	}
+	if err := store.PutExpandedChildren(ctx, record); err != nil {
+		t.Fatalf("PutExpandedChildren() error = %v", err)
+	}
+
+	got, ok, err := store.GetExpandedChildren(ctx, record.Namespace, record.ParentKey, record.Mode)
+	if err != nil {
+		t.Fatalf("GetExpandedChildren() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("expected expanded children record")
+	}
+	if len(got.Issues) != 1 || got.Issues[0].Key != "ABC-2" || got.Issues[0].Summary != "Cached child" {
+		t.Fatalf("Issues = %#v", got.Issues)
+	}
+	if !got.SyncedAt.Equal(record.SyncedAt) || !got.FreshTill.Equal(record.FreshTill) {
+		t.Fatalf("timestamps = %s/%s", got.SyncedAt, got.FreshTill)
+	}
+}
+
 func TestDefaultPathUsesAppCacheFile(t *testing.T) {
 	path, err := DefaultPath()
 	if err != nil {

@@ -79,6 +79,15 @@ type CreateFieldsRecord struct {
 	FreshTill   time.Time
 }
 
+type ExpandedChildrenRecord struct {
+	Namespace string
+	ParentKey string
+	Mode      string
+	Issues    []jira.Issue
+	SyncedAt  time.Time
+	FreshTill time.Time
+}
+
 func DefaultPath() (string, error) {
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
@@ -570,6 +579,70 @@ WHERE namespace = ? AND project_key = ? AND issue_type_id = ?
 	}, true, nil
 }
 
+func (s *Store) PutExpandedChildren(ctx context.Context, record ExpandedChildrenRecord) error {
+	if s == nil || s.db == nil {
+		return errors.New("cache store is closed")
+	}
+	record.Namespace = strings.TrimSpace(record.Namespace)
+	record.ParentKey = strings.TrimSpace(record.ParentKey)
+	record.Mode = strings.TrimSpace(record.Mode)
+	if record.Namespace == "" || record.ParentKey == "" || record.Mode == "" {
+		return errors.New("expanded children namespace, parent key, and mode are required")
+	}
+	payload, err := json.Marshal(record.Issues)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `
+INSERT INTO expanded_children(namespace, parent_key, mode, issues_json, synced_at_unix_nano, fresh_till_unix_nano, updated_at_unix_nano)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(namespace, parent_key, mode) DO UPDATE SET
+	issues_json = excluded.issues_json,
+	synced_at_unix_nano = excluded.synced_at_unix_nano,
+	fresh_till_unix_nano = excluded.fresh_till_unix_nano,
+	updated_at_unix_nano = excluded.updated_at_unix_nano
+`, record.Namespace, record.ParentKey, record.Mode, string(payload), record.SyncedAt.UnixNano(), record.FreshTill.UnixNano(), time.Now().UnixNano())
+	return err
+}
+
+func (s *Store) GetExpandedChildren(ctx context.Context, namespace string, parentKey string, mode string) (ExpandedChildrenRecord, bool, error) {
+	if s == nil || s.db == nil {
+		return ExpandedChildrenRecord{}, false, errors.New("cache store is closed")
+	}
+	namespace = strings.TrimSpace(namespace)
+	parentKey = strings.TrimSpace(parentKey)
+	mode = strings.TrimSpace(mode)
+	if namespace == "" || parentKey == "" || mode == "" {
+		return ExpandedChildrenRecord{}, false, nil
+	}
+	var payload string
+	var syncedAtUnixNano int64
+	var freshTillUnixNano int64
+	err := s.db.QueryRowContext(ctx, `
+SELECT issues_json, synced_at_unix_nano, fresh_till_unix_nano
+FROM expanded_children
+WHERE namespace = ? AND parent_key = ? AND mode = ?
+`, namespace, parentKey, mode).Scan(&payload, &syncedAtUnixNano, &freshTillUnixNano)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ExpandedChildrenRecord{}, false, nil
+	}
+	if err != nil {
+		return ExpandedChildrenRecord{}, false, err
+	}
+	var issues []jira.Issue
+	if err := json.Unmarshal([]byte(payload), &issues); err != nil {
+		return ExpandedChildrenRecord{}, false, fmt.Errorf("decode expanded children cache: %w", err)
+	}
+	return ExpandedChildrenRecord{
+		Namespace: namespace,
+		ParentKey: parentKey,
+		Mode:      mode,
+		Issues:    issues,
+		SyncedAt:  time.Unix(0, syncedAtUnixNano),
+		FreshTill: time.Unix(0, freshTillUnixNano),
+	}, true, nil
+}
+
 func (s *Store) migrate(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, `PRAGMA user_version = `+fmt.Sprint(schemaVersion)); err != nil {
 		return err
@@ -653,6 +726,18 @@ CREATE TABLE IF NOT EXISTS create_fields (
 	PRIMARY KEY(namespace, project_key, issue_type_id)
 );
 CREATE INDEX IF NOT EXISTS create_fields_updated_at_idx ON create_fields(updated_at_unix_nano);
+
+CREATE TABLE IF NOT EXISTS expanded_children (
+	namespace TEXT NOT NULL,
+	parent_key TEXT NOT NULL,
+	mode TEXT NOT NULL,
+	issues_json TEXT NOT NULL,
+	synced_at_unix_nano INTEGER NOT NULL,
+	fresh_till_unix_nano INTEGER NOT NULL,
+	updated_at_unix_nano INTEGER NOT NULL,
+	PRIMARY KEY(namespace, parent_key, mode)
+);
+CREATE INDEX IF NOT EXISTS expanded_children_updated_at_idx ON expanded_children(updated_at_unix_nano);
 `)
 	return err
 }

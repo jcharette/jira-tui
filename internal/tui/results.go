@@ -314,6 +314,7 @@ func (m Model) handleExpandIssuesResult(result worker.Result) Model {
 	if result.ExpandIssues.ParentKey != m.expandRequestKey || result.ExpandIssues.Mode != m.expandMode {
 		return m
 	}
+	m.cacheExpandedChildren(result.ExpandIssues.ParentKey, result.ExpandIssues.Mode, result.ExpandIssues.Issues, result.ExpandIssues.SyncedAt)
 	added := m.mergeExpandedIssues(result.ExpandIssues.Issues)
 	label := "open children"
 	if result.ExpandIssues.Mode == worker.ExpandModeAll {

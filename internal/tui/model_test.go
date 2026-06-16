@@ -176,6 +176,93 @@ func TestExpandSelectedIssueLoadsOpenChildren(t *testing.T) {
 	}
 }
 
+func TestExpandSelectedIssueUsesFreshPersistentChildren(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.Local)
+	store := newFakeActiveViewStore()
+	store.expandedChildren = cache.ExpandedChildrenRecord{
+		Namespace: "https://example.atlassian.net",
+		ParentKey: "ABC-1",
+		Mode:      string(worker.ExpandModeOpen),
+		Issues: []jira.Issue{
+			{Key: "ABC-2", Summary: "Cached child", Status: "To Do", IssueType: "Task", ParentKey: "ABC-1"},
+		},
+		SyncedAt:  now.Add(-10 * time.Second),
+		FreshTill: now.Add(time.Minute),
+	}
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithActiveViewStore(store, "https://example.atlassian.net"),
+	)
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.loading = false
+	model.width = 120
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Parent", IssueType: "Story"}}
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "x", Code: 'x'}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("fresh persistent expanded children should not submit Jira work")
+	}
+	if next.expandLoading {
+		t.Fatal("fresh persistent expanded children should not show loading")
+	}
+	if len(next.issues) != 2 || next.issues[1].Key != "ABC-2" {
+		t.Fatalf("issues = %#v", next.issues)
+	}
+	if !strings.Contains(next.detailNotice, "Loaded 1 open children") {
+		t.Fatalf("detailNotice = %q", next.detailNotice)
+	}
+}
+
+func TestExpandIssuesResultPersistsChildren(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.Local)
+	store := newFakeActiveViewStore()
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithActiveViewStore(store, "https://example.atlassian.net"),
+	)
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.loading = false
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Parent", IssueType: "Story"}}
+	model.activeExpandReqID = 12
+	model.expandRequestKey = "ABC-1"
+	model.expandMode = worker.ExpandModeOpen
+	model.expandLoading = true
+
+	updated, _ := model.Update(workerResultMsg{result: worker.Result{
+		ID:   12,
+		Kind: worker.KindExpandIssues,
+		ExpandIssues: &worker.ExpandIssuesResult{
+			ParentKey: "ABC-1",
+			Mode:      worker.ExpandModeOpen,
+			Issues: []jira.Issue{
+				{Key: "ABC-2", Summary: "Child", Status: "To Do", IssueType: "Task", ParentKey: "ABC-1"},
+			},
+			SyncedAt: now,
+		},
+	}})
+	next := updated.(Model)
+
+	if next.expandLoading {
+		t.Fatal("expected expand loading to clear")
+	}
+	if store.putExpandedChildren.Namespace != "https://example.atlassian.net" || store.putExpandedChildren.ParentKey != "ABC-1" || store.putExpandedChildren.Mode != string(worker.ExpandModeOpen) {
+		t.Fatalf("putExpandedChildren = %#v", store.putExpandedChildren)
+	}
+	if len(store.putExpandedChildren.Issues) != 1 || store.putExpandedChildren.Issues[0].Key != "ABC-2" {
+		t.Fatalf("persisted children = %#v", store.putExpandedChildren.Issues)
+	}
+	if !store.putExpandedChildren.SyncedAt.Equal(now) || !store.putExpandedChildren.FreshTill.Equal(now.Add(expandedChildrenCacheTTL)) {
+		t.Fatalf("timestamps = %s/%s", store.putExpandedChildren.SyncedAt, store.putExpandedChildren.FreshTill)
+	}
+}
+
 func TestExpandSelectedIssueLoadsAllChildren(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()

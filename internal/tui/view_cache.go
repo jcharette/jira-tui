@@ -8,6 +8,7 @@ import (
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/jon/jira-tui/internal/cache"
 	"github.com/jon/jira-tui/internal/jira"
+	"github.com/jon/jira-tui/internal/worker"
 )
 
 type activeViewStore interface {
@@ -26,6 +27,8 @@ type activeViewStore interface {
 	PutCreateIssueTypes(context.Context, cache.CreateIssueTypesRecord) error
 	GetCreateFields(context.Context, string, string, string) (cache.CreateFieldsRecord, bool, error)
 	PutCreateFields(context.Context, cache.CreateFieldsRecord) error
+	GetExpandedChildren(context.Context, string, string, string) (cache.ExpandedChildrenRecord, bool, error)
+	PutExpandedChildren(context.Context, cache.ExpandedChildrenRecord) error
 }
 
 type issueViewCacheRecord struct {
@@ -555,4 +558,86 @@ func createFieldsCacheKey(projectKey string, issueTypeID string) string {
 		return ""
 	}
 	return projectKey + "\x00" + issueTypeID
+}
+
+func (m *Model) hydrateExpandedChildren(parentKey string, mode worker.ExpandMode) {
+	if _, ok := m.cachedExpandedChildren(parentKey, mode); ok {
+		return
+	}
+	if m.activeViewStore == nil || strings.TrimSpace(m.activeViewNamespace) == "" {
+		return
+	}
+	record, ok, err := m.activeViewStore.GetExpandedChildren(context.Background(), m.activeViewNamespace, strings.TrimSpace(parentKey), string(mode))
+	if err != nil || !ok {
+		return
+	}
+	m.cacheExpandedChildrenRecord(record)
+}
+
+func (m Model) isExpandedChildrenFresh(parentKey string, mode worker.ExpandMode) bool {
+	record, ok := m.cachedExpandedChildren(parentKey, mode)
+	return ok && record.Fresh(m.currentTime())
+}
+
+func (m Model) cachedExpandedChildren(parentKey string, mode worker.ExpandMode) (jiraCacheRecord[[]jira.Issue], bool) {
+	key := expandedChildrenCacheKey(parentKey, mode)
+	if m.expandedChildrenCache == nil || key == "" {
+		return jiraCacheRecord[[]jira.Issue]{}, false
+	}
+	item := m.expandedChildrenCache.Get(key)
+	if item == nil {
+		return jiraCacheRecord[[]jira.Issue]{}, false
+	}
+	return item.Value(), true
+}
+
+func (m *Model) cacheExpandedChildren(parentKey string, mode worker.ExpandMode, issues []jira.Issue, syncedAt time.Time) {
+	key := expandedChildrenCacheKey(parentKey, mode)
+	if key == "" {
+		return
+	}
+	copied := append([]jira.Issue(nil), issues...)
+	if m.expandedChildrenCache != nil {
+		m.expandedChildrenCache.Set(key, newJiraCacheRecord(copied, syncedAt, expandedChildrenCacheTTL), ttlcache.DefaultTTL)
+	}
+	m.persistExpandedChildren(parentKey, mode, copied, syncedAt)
+}
+
+func (m *Model) cacheExpandedChildrenRecord(record cache.ExpandedChildrenRecord) {
+	key := expandedChildrenCacheKey(record.ParentKey, worker.ExpandMode(record.Mode))
+	if key == "" || m.expandedChildrenCache == nil {
+		return
+	}
+	copied := append([]jira.Issue(nil), record.Issues...)
+	m.expandedChildrenCache.Set(key, jiraCacheRecord[[]jira.Issue]{
+		Value:     copied,
+		SyncedAt:  record.SyncedAt,
+		FreshTill: record.FreshTill,
+	}, ttlcache.DefaultTTL)
+}
+
+func (m Model) persistExpandedChildren(parentKey string, mode worker.ExpandMode, issues []jira.Issue, syncedAt time.Time) {
+	if m.activeViewStore == nil || strings.TrimSpace(m.activeViewNamespace) == "" {
+		return
+	}
+	if syncedAt.IsZero() {
+		syncedAt = m.currentTime()
+	}
+	_ = m.activeViewStore.PutExpandedChildren(context.Background(), cache.ExpandedChildrenRecord{
+		Namespace: m.activeViewNamespace,
+		ParentKey: strings.TrimSpace(parentKey),
+		Mode:      string(mode),
+		Issues:    append([]jira.Issue(nil), issues...),
+		SyncedAt:  syncedAt,
+		FreshTill: syncedAt.Add(expandedChildrenCacheTTL),
+	})
+}
+
+func expandedChildrenCacheKey(parentKey string, mode worker.ExpandMode) string {
+	parentKey = strings.TrimSpace(parentKey)
+	mode = worker.ExpandMode(strings.TrimSpace(string(mode)))
+	if parentKey == "" || mode == "" {
+		return ""
+	}
+	return parentKey + "\x00" + string(mode)
 }

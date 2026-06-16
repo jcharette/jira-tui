@@ -2,6 +2,7 @@ package tui
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -53,15 +54,26 @@ func (m Model) startExpandSelectedIssue(mode worker.ExpandMode) (Model, tea.Cmd)
 		m.detailNotice = "No issue selected."
 		return m, nil
 	}
+	label := "open children"
+	if mode == worker.ExpandModeAll {
+		label = "all children"
+	}
+	m.hydrateExpandedChildren(issue.Key, mode)
+	if record, cached := m.cachedExpandedChildren(issue.Key, mode); cached && record.Fresh(m.currentTime()) {
+		added := m.mergeExpandedIssues(record.Value)
+		if added == 0 {
+			m.detailNotice = "No new " + label + " found for " + issue.Key + "."
+			return m, nil
+		}
+		m.detailNotice = "Loaded " + strconv.Itoa(added) + " " + label + " for " + issue.Key + "."
+		m.ensureSelectionVisible(m.currentLayoutRows())
+		return m, nil
+	}
 	m.nextRequestID++
 	m.activeExpandReqID = m.nextRequestID
 	m.expandRequestKey = issue.Key
 	m.expandMode = mode
 	m.expandLoading = true
-	label := "open children"
-	if mode == worker.ExpandModeAll {
-		label = "all children"
-	}
 	m.detailNotice = "Loading " + label + " for " + issue.Key + "."
 	return m, m.submitExpandIssues(m.activeExpandReqID, issue.Key, mode)
 }

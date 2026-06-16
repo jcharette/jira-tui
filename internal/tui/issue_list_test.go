@@ -1135,6 +1135,8 @@ type fakeActiveViewStore struct {
 	putCreateIssueTypes cache.CreateIssueTypesRecord
 	createFields        cache.CreateFieldsRecord
 	putCreateFields     cache.CreateFieldsRecord
+	expandedChildren    cache.ExpandedChildrenRecord
+	putExpandedChildren cache.ExpandedChildrenRecord
 }
 
 func newFakeActiveViewStore() *fakeActiveViewStore {
@@ -1227,5 +1229,17 @@ func (f *fakeActiveViewStore) GetCreateFields(_ context.Context, namespace strin
 
 func (f *fakeActiveViewStore) PutCreateFields(_ context.Context, record cache.CreateFieldsRecord) error {
 	f.putCreateFields = record
+	return nil
+}
+
+func (f *fakeActiveViewStore) GetExpandedChildren(_ context.Context, namespace string, parentKey string, mode string) (cache.ExpandedChildrenRecord, bool, error) {
+	if f.expandedChildren.Namespace == namespace && f.expandedChildren.ParentKey == parentKey && f.expandedChildren.Mode == mode {
+		return f.expandedChildren, true, nil
+	}
+	return cache.ExpandedChildrenRecord{}, false, nil
+}
+
+func (f *fakeActiveViewStore) PutExpandedChildren(_ context.Context, record cache.ExpandedChildrenRecord) error {
+	f.putExpandedChildren = record
 	return nil
 }
