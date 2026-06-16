@@ -1,5 +1,35 @@
 # Task Plan
 
+## Persistent Transition And Edit Metadata Cache
+
+- [x] Add retained hot-cache records for transitions and edit metadata.
+- [x] Add SQLite records for transitions and edit metadata keyed by Jira namespace and issue key.
+- [x] Hydrate fresh persisted transitions before loading the status picker.
+- [x] Hydrate fresh persisted edit metadata before summary/priority editors.
+- [x] Persist successful transition and edit metadata Jira reads back to SQLite.
+- [x] Add focused store and TUI persistence tests.
+- [x] Update cache design/backlog/changelog notes.
+- [x] Run final verification with `go test ./internal/cache -count=1`,
+  `go test ./internal/tui -count=1`, `go test ./... -count=1`, and `make check`.
+
+### Persistent Transition And Edit Metadata Cache Scope
+
+Extend the existing hot-cache plus SQLite pattern to transition options and edit metadata only.
+Keep create metadata, expanded children, cache cleanup, and detailed cache diagnostics for later
+slices. Treat stale edit metadata as needing refresh before rendering editors, because Jira field
+constraints can change by status or permissions.
+
+### Persistent Transition And Edit Metadata Cache Review
+
+- Added retained hot-cache records for status transitions and edit metadata.
+- Added SQLite tables and store methods for transitions and edit metadata.
+- Hydrated fresh persisted transitions before rendering the status picker.
+- Hydrated fresh persisted edit metadata before summary and priority editors.
+- Persisted successful transition and edit metadata worker reads back to SQLite.
+- Preserved existing plain-map test/setup behavior when no hot cache record exists.
+- Verified with `go test ./internal/cache -count=1`, `go test ./internal/tui -count=1`,
+  `go test ./... -count=1`, and `make check`.
+
 ## Persistent Detail And Comment Cache
 
 - [x] Add SQLite records for issue detail and comments using `modernc.org/sqlite`.

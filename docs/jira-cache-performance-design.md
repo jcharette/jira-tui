@@ -173,10 +173,10 @@ diagnostics enhancements if the compact snapshot is not enough in practice.
 - Add diagnostics for queue depth, coalesced reads, dropped background jobs, and cache refresh
   failures.
 
-Status: partially implemented for issue detail and comments. Detail freshness and comments now use
-retained cache records with value, sync time, and freshness boundary backed by `ttlcache`, while the
-existing detail/comment maps continue to serve current rendering paths. Transitions, edit metadata,
-create metadata, and expanded children remain pending.
+Status: partially implemented for issue detail, comments, transitions, and edit metadata. These
+reads now use retained cache records with value, sync time, and freshness boundary backed by
+`ttlcache`, while the existing maps continue to serve current rendering paths. Create metadata and
+expanded children remain pending.
 
 ### Slice 4: Optional persistent cache
 
@@ -185,12 +185,12 @@ create metadata, and expanded children remain pending.
 - Persist active view issue rows and selected detail/comment records with schema versioning and
   per-site namespacing.
 
-Status: partially implemented for active Jira views, issue detail, and comments. The app now opens a
-private SQLite cache under the user's cache directory with `modernc.org/sqlite`, hydrates active
-view rows by Jira base URL and normalized JQL, hydrates issue detail/comments by issue key, and
-writes successful active view/detail/comment reads back to disk. Comment writes invalidate persisted
-comments. Metadata persistence, expanded children persistence, and cache cleanup policies remain
-pending.
+Status: partially implemented for active Jira views, issue detail, comments, transitions, and edit
+metadata. The app now opens a private SQLite cache under the user's cache directory with
+`modernc.org/sqlite`, hydrates active view rows by Jira base URL and normalized JQL, hydrates
+ticket-detail reads by issue key, and writes successful active view/detail/comment/transition/edit
+metadata reads back to disk. Comment writes invalidate persisted comments. Create metadata
+persistence, expanded children persistence, and cache cleanup policies remain pending.
 
 ## Non-Goals For The First Slice
 

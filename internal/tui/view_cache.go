@@ -18,6 +18,10 @@ type activeViewStore interface {
 	GetIssueComments(context.Context, string, string, int) (cache.IssueCommentsRecord, bool, error)
 	PutIssueComments(context.Context, cache.IssueCommentsRecord) error
 	DeleteIssueComments(context.Context, string, string) error
+	GetIssueTransitions(context.Context, string, string) (cache.IssueTransitionsRecord, bool, error)
+	PutIssueTransitions(context.Context, cache.IssueTransitionsRecord) error
+	GetIssueEditMetadata(context.Context, string, string) (cache.IssueEditMetadataRecord, bool, error)
+	PutIssueEditMetadata(context.Context, cache.IssueEditMetadataRecord) error
 }
 
 type issueViewCacheRecord struct {
@@ -230,4 +234,156 @@ func (m Model) deletePersistentIssueComments(key string) {
 		return
 	}
 	_ = m.activeViewStore.DeleteIssueComments(context.Background(), m.activeViewNamespace, strings.TrimSpace(key))
+}
+
+func (m *Model) hydrateIssueTransitions(key string) {
+	if _, ok := m.cachedIssueTransitions(key); ok {
+		return
+	}
+	if m.activeViewStore == nil || strings.TrimSpace(m.activeViewNamespace) == "" {
+		return
+	}
+	record, ok, err := m.activeViewStore.GetIssueTransitions(context.Background(), m.activeViewNamespace, strings.TrimSpace(key))
+	if err != nil || !ok {
+		return
+	}
+	m.cacheIssueTransitionsRecord(record)
+}
+
+func (m *Model) hydrateIssueEditMetadata(key string) {
+	if _, ok := m.cachedIssueEditMetadata(key); ok {
+		return
+	}
+	if m.activeViewStore == nil || strings.TrimSpace(m.activeViewNamespace) == "" {
+		return
+	}
+	record, ok, err := m.activeViewStore.GetIssueEditMetadata(context.Background(), m.activeViewNamespace, strings.TrimSpace(key))
+	if err != nil || !ok {
+		return
+	}
+	m.cacheIssueEditMetadataRecord(record)
+}
+
+func (m Model) isIssueTransitionsFresh(key string) bool {
+	record, ok := m.cachedIssueTransitions(key)
+	return ok && record.Fresh(m.currentTime())
+}
+
+func (m Model) cachedIssueTransitions(key string) (jiraCacheRecord[[]jira.Transition], bool) {
+	if m.transitionsCache == nil || strings.TrimSpace(key) == "" {
+		return jiraCacheRecord[[]jira.Transition]{}, false
+	}
+	item := m.transitionsCache.Get(strings.TrimSpace(key))
+	if item == nil {
+		return jiraCacheRecord[[]jira.Transition]{}, false
+	}
+	return item.Value(), true
+}
+
+func (m *Model) cacheIssueTransitions(key string, transitions []jira.Transition, syncedAt time.Time) {
+	key = strings.TrimSpace(key)
+	if m.transitionsCache == nil || key == "" {
+		return
+	}
+	if m.transitions == nil {
+		m.transitions = make(map[string][]jira.Transition)
+	}
+	copied := append([]jira.Transition(nil), transitions...)
+	m.transitions[key] = copied
+	m.transitionsCache.Set(key, newJiraCacheRecord(copied, syncedAt, issueTransitionsCacheTTL), ttlcache.DefaultTTL)
+	m.persistIssueTransitions(key, copied, syncedAt)
+}
+
+func (m *Model) cacheIssueTransitionsRecord(record cache.IssueTransitionsRecord) {
+	key := strings.TrimSpace(record.IssueKey)
+	if m.transitionsCache == nil || key == "" {
+		return
+	}
+	if m.transitions == nil {
+		m.transitions = make(map[string][]jira.Transition)
+	}
+	copied := append([]jira.Transition(nil), record.Transitions...)
+	m.transitions[key] = copied
+	m.transitionsCache.Set(key, jiraCacheRecord[[]jira.Transition]{
+		Value:     copied,
+		SyncedAt:  record.SyncedAt,
+		FreshTill: record.FreshTill,
+	}, ttlcache.DefaultTTL)
+}
+
+func (m Model) isIssueEditMetadataFresh(key string) bool {
+	record, ok := m.cachedIssueEditMetadata(key)
+	return ok && record.Fresh(m.currentTime())
+}
+
+func (m Model) cachedIssueEditMetadata(key string) (jiraCacheRecord[jira.EditMetadata], bool) {
+	if m.editMetadataCache == nil || strings.TrimSpace(key) == "" {
+		return jiraCacheRecord[jira.EditMetadata]{}, false
+	}
+	item := m.editMetadataCache.Get(strings.TrimSpace(key))
+	if item == nil {
+		return jiraCacheRecord[jira.EditMetadata]{}, false
+	}
+	return item.Value(), true
+}
+
+func (m *Model) cacheIssueEditMetadata(key string, metadata jira.EditMetadata, syncedAt time.Time) {
+	key = strings.TrimSpace(key)
+	if m.editMetadataCache == nil || key == "" {
+		return
+	}
+	if m.editMetadata == nil {
+		m.editMetadata = make(map[string]jira.EditMetadata)
+	}
+	m.editMetadata[key] = metadata
+	m.editMetadataCache.Set(key, newJiraCacheRecord(metadata, syncedAt, issueEditMetadataCacheTTL), ttlcache.DefaultTTL)
+	m.persistIssueEditMetadata(key, metadata, syncedAt)
+}
+
+func (m *Model) cacheIssueEditMetadataRecord(record cache.IssueEditMetadataRecord) {
+	key := strings.TrimSpace(record.IssueKey)
+	if m.editMetadataCache == nil || key == "" {
+		return
+	}
+	if m.editMetadata == nil {
+		m.editMetadata = make(map[string]jira.EditMetadata)
+	}
+	m.editMetadata[key] = record.Metadata
+	m.editMetadataCache.Set(key, jiraCacheRecord[jira.EditMetadata]{
+		Value:     record.Metadata,
+		SyncedAt:  record.SyncedAt,
+		FreshTill: record.FreshTill,
+	}, ttlcache.DefaultTTL)
+}
+
+func (m Model) persistIssueTransitions(key string, transitions []jira.Transition, syncedAt time.Time) {
+	if m.activeViewStore == nil || strings.TrimSpace(m.activeViewNamespace) == "" {
+		return
+	}
+	if syncedAt.IsZero() {
+		syncedAt = m.currentTime()
+	}
+	_ = m.activeViewStore.PutIssueTransitions(context.Background(), cache.IssueTransitionsRecord{
+		Namespace:   m.activeViewNamespace,
+		IssueKey:    strings.TrimSpace(key),
+		Transitions: append([]jira.Transition(nil), transitions...),
+		SyncedAt:    syncedAt,
+		FreshTill:   syncedAt.Add(issueTransitionsCacheTTL),
+	})
+}
+
+func (m Model) persistIssueEditMetadata(key string, metadata jira.EditMetadata, syncedAt time.Time) {
+	if m.activeViewStore == nil || strings.TrimSpace(m.activeViewNamespace) == "" {
+		return
+	}
+	if syncedAt.IsZero() {
+		syncedAt = m.currentTime()
+	}
+	_ = m.activeViewStore.PutIssueEditMetadata(context.Background(), cache.IssueEditMetadataRecord{
+		Namespace: m.activeViewNamespace,
+		IssueKey:  strings.TrimSpace(key),
+		Metadata:  metadata,
+		SyncedAt:  syncedAt,
+		FreshTill: syncedAt.Add(issueEditMetadataCacheTTL),
+	})
 }

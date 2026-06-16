@@ -148,7 +148,7 @@ func (m Model) handleEditMetadataResult(result worker.Result) Model {
 	if m.editMetadata == nil {
 		m.editMetadata = make(map[string]jira.EditMetadata)
 	}
-	m.editMetadata[result.GetEditMetadata.Key] = result.GetEditMetadata.Metadata
+	m.cacheIssueEditMetadata(result.GetEditMetadata.Key, result.GetEditMetadata.Metadata, result.GetEditMetadata.SyncedAt)
 	if isPriorityRequest {
 		m.priorityMetadataErr = nil
 		return m.beginPriorityEditing(result.GetEditMetadata.Metadata)
@@ -262,7 +262,7 @@ func (m Model) handleGetTransitionsResult(result worker.Result) Model {
 	if m.transitions == nil {
 		m.transitions = make(map[string][]jira.Transition)
 	}
-	m.transitions[result.GetTransitions.Key] = result.GetTransitions.Transitions
+	m.cacheIssueTransitions(result.GetTransitions.Key, result.GetTransitions.Transitions, result.GetTransitions.SyncedAt)
 	m.selectedTransition = clamp(m.selectedTransition, 0, max(0, len(result.GetTransitions.Transitions)-1))
 	m.transitionFocus = len(result.GetTransitions.Transitions) > 0
 	m.transitionErr = nil

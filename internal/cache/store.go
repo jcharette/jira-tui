@@ -46,6 +46,22 @@ type IssueCommentsRecord struct {
 	FreshTill  time.Time
 }
 
+type IssueTransitionsRecord struct {
+	Namespace   string
+	IssueKey    string
+	Transitions []jira.Transition
+	SyncedAt    time.Time
+	FreshTill   time.Time
+}
+
+type IssueEditMetadataRecord struct {
+	Namespace string
+	IssueKey  string
+	Metadata  jira.EditMetadata
+	SyncedAt  time.Time
+	FreshTill time.Time
+}
+
 func DefaultPath() (string, error) {
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
@@ -290,6 +306,128 @@ WHERE namespace = ? AND issue_key = ?
 	return err
 }
 
+func (s *Store) PutIssueTransitions(ctx context.Context, record IssueTransitionsRecord) error {
+	if s == nil || s.db == nil {
+		return errors.New("cache store is closed")
+	}
+	record.Namespace = strings.TrimSpace(record.Namespace)
+	record.IssueKey = strings.TrimSpace(record.IssueKey)
+	if record.Namespace == "" || record.IssueKey == "" {
+		return errors.New("issue transitions namespace and issue key are required")
+	}
+	payload, err := json.Marshal(record.Transitions)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `
+INSERT INTO issue_transitions(namespace, issue_key, transitions_json, synced_at_unix_nano, fresh_till_unix_nano, updated_at_unix_nano)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT(namespace, issue_key) DO UPDATE SET
+	transitions_json = excluded.transitions_json,
+	synced_at_unix_nano = excluded.synced_at_unix_nano,
+	fresh_till_unix_nano = excluded.fresh_till_unix_nano,
+	updated_at_unix_nano = excluded.updated_at_unix_nano
+`, record.Namespace, record.IssueKey, string(payload), record.SyncedAt.UnixNano(), record.FreshTill.UnixNano(), time.Now().UnixNano())
+	return err
+}
+
+func (s *Store) GetIssueTransitions(ctx context.Context, namespace string, issueKey string) (IssueTransitionsRecord, bool, error) {
+	if s == nil || s.db == nil {
+		return IssueTransitionsRecord{}, false, errors.New("cache store is closed")
+	}
+	namespace = strings.TrimSpace(namespace)
+	issueKey = strings.TrimSpace(issueKey)
+	if namespace == "" || issueKey == "" {
+		return IssueTransitionsRecord{}, false, nil
+	}
+	var payload string
+	var syncedAtUnixNano int64
+	var freshTillUnixNano int64
+	err := s.db.QueryRowContext(ctx, `
+SELECT transitions_json, synced_at_unix_nano, fresh_till_unix_nano
+FROM issue_transitions
+WHERE namespace = ? AND issue_key = ?
+`, namespace, issueKey).Scan(&payload, &syncedAtUnixNano, &freshTillUnixNano)
+	if errors.Is(err, sql.ErrNoRows) {
+		return IssueTransitionsRecord{}, false, nil
+	}
+	if err != nil {
+		return IssueTransitionsRecord{}, false, err
+	}
+	var transitions []jira.Transition
+	if err := json.Unmarshal([]byte(payload), &transitions); err != nil {
+		return IssueTransitionsRecord{}, false, fmt.Errorf("decode issue transitions cache: %w", err)
+	}
+	return IssueTransitionsRecord{
+		Namespace:   namespace,
+		IssueKey:    issueKey,
+		Transitions: transitions,
+		SyncedAt:    time.Unix(0, syncedAtUnixNano),
+		FreshTill:   time.Unix(0, freshTillUnixNano),
+	}, true, nil
+}
+
+func (s *Store) PutIssueEditMetadata(ctx context.Context, record IssueEditMetadataRecord) error {
+	if s == nil || s.db == nil {
+		return errors.New("cache store is closed")
+	}
+	record.Namespace = strings.TrimSpace(record.Namespace)
+	record.IssueKey = strings.TrimSpace(record.IssueKey)
+	if record.Namespace == "" || record.IssueKey == "" {
+		return errors.New("issue edit metadata namespace and issue key are required")
+	}
+	payload, err := json.Marshal(record.Metadata)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `
+INSERT INTO issue_edit_metadata(namespace, issue_key, metadata_json, synced_at_unix_nano, fresh_till_unix_nano, updated_at_unix_nano)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT(namespace, issue_key) DO UPDATE SET
+	metadata_json = excluded.metadata_json,
+	synced_at_unix_nano = excluded.synced_at_unix_nano,
+	fresh_till_unix_nano = excluded.fresh_till_unix_nano,
+	updated_at_unix_nano = excluded.updated_at_unix_nano
+`, record.Namespace, record.IssueKey, string(payload), record.SyncedAt.UnixNano(), record.FreshTill.UnixNano(), time.Now().UnixNano())
+	return err
+}
+
+func (s *Store) GetIssueEditMetadata(ctx context.Context, namespace string, issueKey string) (IssueEditMetadataRecord, bool, error) {
+	if s == nil || s.db == nil {
+		return IssueEditMetadataRecord{}, false, errors.New("cache store is closed")
+	}
+	namespace = strings.TrimSpace(namespace)
+	issueKey = strings.TrimSpace(issueKey)
+	if namespace == "" || issueKey == "" {
+		return IssueEditMetadataRecord{}, false, nil
+	}
+	var payload string
+	var syncedAtUnixNano int64
+	var freshTillUnixNano int64
+	err := s.db.QueryRowContext(ctx, `
+SELECT metadata_json, synced_at_unix_nano, fresh_till_unix_nano
+FROM issue_edit_metadata
+WHERE namespace = ? AND issue_key = ?
+`, namespace, issueKey).Scan(&payload, &syncedAtUnixNano, &freshTillUnixNano)
+	if errors.Is(err, sql.ErrNoRows) {
+		return IssueEditMetadataRecord{}, false, nil
+	}
+	if err != nil {
+		return IssueEditMetadataRecord{}, false, err
+	}
+	var metadata jira.EditMetadata
+	if err := json.Unmarshal([]byte(payload), &metadata); err != nil {
+		return IssueEditMetadataRecord{}, false, fmt.Errorf("decode issue edit metadata cache: %w", err)
+	}
+	return IssueEditMetadataRecord{
+		Namespace: namespace,
+		IssueKey:  issueKey,
+		Metadata:  metadata,
+		SyncedAt:  time.Unix(0, syncedAtUnixNano),
+		FreshTill: time.Unix(0, freshTillUnixNano),
+	}, true, nil
+}
+
 func (s *Store) migrate(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, `PRAGMA user_version = `+fmt.Sprint(schemaVersion)); err != nil {
 		return err
@@ -328,6 +466,28 @@ CREATE TABLE IF NOT EXISTS issue_comments (
 	PRIMARY KEY(namespace, issue_key, max_results)
 );
 CREATE INDEX IF NOT EXISTS issue_comments_updated_at_idx ON issue_comments(updated_at_unix_nano);
+
+CREATE TABLE IF NOT EXISTS issue_transitions (
+	namespace TEXT NOT NULL,
+	issue_key TEXT NOT NULL,
+	transitions_json TEXT NOT NULL,
+	synced_at_unix_nano INTEGER NOT NULL,
+	fresh_till_unix_nano INTEGER NOT NULL,
+	updated_at_unix_nano INTEGER NOT NULL,
+	PRIMARY KEY(namespace, issue_key)
+);
+CREATE INDEX IF NOT EXISTS issue_transitions_updated_at_idx ON issue_transitions(updated_at_unix_nano);
+
+CREATE TABLE IF NOT EXISTS issue_edit_metadata (
+	namespace TEXT NOT NULL,
+	issue_key TEXT NOT NULL,
+	metadata_json TEXT NOT NULL,
+	synced_at_unix_nano INTEGER NOT NULL,
+	fresh_till_unix_nano INTEGER NOT NULL,
+	updated_at_unix_nano INTEGER NOT NULL,
+	PRIMARY KEY(namespace, issue_key)
+);
+CREATE INDEX IF NOT EXISTS issue_edit_metadata_updated_at_idx ON issue_edit_metadata(updated_at_unix_nano);
 `)
 	return err
 }

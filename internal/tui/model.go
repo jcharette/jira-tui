@@ -20,27 +20,31 @@ import (
 )
 
 const (
-	maxIssues                      = 50
-	maxComments                    = 10
-	userSearchCacheTTL             = 2 * time.Minute
-	issueDetailCacheTTL            = 45 * time.Second
-	issueDetailCacheRetentionTTL   = 15 * time.Minute
-	issueCommentsCacheTTL          = 90 * time.Second
-	issueCommentsCacheRetentionTTL = 15 * time.Minute
-	activeViewCacheTTL             = 90 * time.Second
-	activeViewCacheRetentionTTL    = 30 * time.Minute
-	initialRequestID               = 1
-	defaultRequestTimeout          = 20 * time.Second
-	defaultWorkerCount             = 2
-	defaultQueueSize               = 16
-	minUsefulIssueRows             = 8
-	appChromeRows                  = 6
-	panelFrameRows                 = 4
-	detailHeaderRows               = 6
-	issueTreeRootGutter            = 2
-	issueTreeMaxGutter             = 12
-	issueTypeColumnWidth           = 2
-	createPickerMaxRows            = 6
+	maxIssues                          = 50
+	maxComments                        = 10
+	userSearchCacheTTL                 = 2 * time.Minute
+	issueDetailCacheTTL                = 45 * time.Second
+	issueDetailCacheRetentionTTL       = 15 * time.Minute
+	issueCommentsCacheTTL              = 90 * time.Second
+	issueCommentsCacheRetentionTTL     = 15 * time.Minute
+	issueTransitionsCacheTTL           = 90 * time.Second
+	issueTransitionsCacheRetentionTTL  = 15 * time.Minute
+	issueEditMetadataCacheTTL          = 5 * time.Minute
+	issueEditMetadataCacheRetentionTTL = 30 * time.Minute
+	activeViewCacheTTL                 = 90 * time.Second
+	activeViewCacheRetentionTTL        = 30 * time.Minute
+	initialRequestID                   = 1
+	defaultRequestTimeout              = 20 * time.Second
+	defaultWorkerCount                 = 2
+	defaultQueueSize                   = 16
+	minUsefulIssueRows                 = 8
+	appChromeRows                      = 6
+	panelFrameRows                     = 4
+	detailHeaderRows                   = 6
+	issueTreeRootGutter                = 2
+	issueTreeMaxGutter                 = 12
+	issueTypeColumnWidth               = 2
+	createPickerMaxRows                = 6
 )
 
 const (
@@ -247,6 +251,7 @@ type Model struct {
 	expandRequestKey            string
 	expandMode                  worker.ExpandMode
 	transitions                 map[string][]jira.Transition
+	transitionsCache            *ttlcache.Cache[string, jiraCacheRecord[[]jira.Transition]]
 	transitionLoading           bool
 	transitionSubmitting        bool
 	transitionRequestKey        string
@@ -254,6 +259,7 @@ type Model struct {
 	transitionSubmitToStatus    string
 	transitionErr               error
 	editMetadata                map[string]jira.EditMetadata
+	editMetadataCache           *ttlcache.Cache[string, jiraCacheRecord[jira.EditMetadata]]
 	summaryMetadataLoading      bool
 	summaryMetadataRequestKey   string
 	summaryMetadataErr          error
@@ -406,7 +412,9 @@ func NewModel(client worker.JiraClient, jql string, options ...Option) Model {
 		comments:            make(map[string][]jira.Comment),
 		commentsCache:       newJiraCache[[]jira.Comment](issueCommentsCacheRetentionTTL),
 		transitions:         make(map[string][]jira.Transition),
+		transitionsCache:    newJiraCache[[]jira.Transition](issueTransitionsCacheRetentionTTL),
 		editMetadata:        make(map[string]jira.EditMetadata),
+		editMetadataCache:   newJiraCache[jira.EditMetadata](issueEditMetadataCacheRetentionTTL),
 		detailSectionOffset: make(map[string]int),
 		userSearchCache:     ttlcache.New[string, []jira.User](ttlcache.WithTTL[string, []jira.User](userSearchCacheTTL)),
 		claudeRunner:        claude.LocalRunner{},

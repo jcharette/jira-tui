@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/jon/jira-tui/internal/cache"
 	"github.com/jon/jira-tui/internal/jira"
 	"github.com/jon/jira-tui/internal/worker"
 )
@@ -1554,6 +1555,41 @@ func TestStatusSectionEnterLoadsAvailableTransitions(t *testing.T) {
 	}
 }
 
+func TestStatusSectionUsesFreshPersistentTransitions(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	store := newFakeActiveViewStore()
+	store.transitions = cache.IssueTransitionsRecord{
+		Namespace:   "https://example.atlassian.net",
+		IssueKey:    "ABC-1",
+		Transitions: []jira.Transition{{ID: "21", Name: "Start Progress", ToStatus: "In Progress"}},
+		SyncedAt:    now.Add(-10 * time.Second),
+		FreshTill:   now.Add(time.Minute),
+	}
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithActiveViewStore(store, "https://example.atlassian.net"))
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do"}}
+	model.details = map[string]jira.IssueDetail{"ABC-1": {Issue: model.issues[0]}}
+	model.jumpDetailSection("Status")
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("fresh persistent transitions should not submit background work")
+	}
+	if !next.transitionFocus {
+		t.Fatal("transitionFocus should be true")
+	}
+	if len(next.transitions["ABC-1"]) != 1 || next.transitions["ABC-1"][0].Name != "Start Progress" {
+		t.Fatalf("transitions = %#v", next.transitions["ABC-1"])
+	}
+}
+
 func TestStatusTransitionPickerRendersTransitionsAndSelection(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()
@@ -1913,6 +1949,103 @@ func TestPriorityPickerSubmitsSelectedPriority(t *testing.T) {
 	}
 	if next.prioritySubmitValue.Name != "High" {
 		t.Fatalf("prioritySubmitValue = %#v", next.prioritySubmitValue)
+	}
+}
+
+func TestPriorityEditorUsesFreshPersistentEditMetadata(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	store := newFakeActiveViewStore()
+	store.editMetadata = cache.IssueEditMetadataRecord{
+		Namespace: "https://example.atlassian.net",
+		IssueKey:  "ABC-1",
+		Metadata: jira.EditMetadata{
+			Priority: jira.EditField{
+				ID:            "priority",
+				Name:          "Priority",
+				Editable:      true,
+				AllowedValues: []jira.FieldOption{{ID: "2", Name: "High"}},
+			},
+		},
+		SyncedAt:  now.Add(-10 * time.Second),
+		FreshTill: now.Add(time.Minute),
+	}
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithActiveViewStore(store, "https://example.atlassian.net"))
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do", Priority: "Medium"}}
+
+	updated, cmd := model.startPriorityEditor()
+	next := updated
+
+	if cmd != nil {
+		t.Fatal("fresh persistent edit metadata should not submit background work")
+	}
+	if !next.priorityFocus {
+		t.Fatal("priorityFocus should be true")
+	}
+	options := next.priorityOptions("ABC-1")
+	if len(options) != 1 || options[0].Name != "High" {
+		t.Fatalf("priority options = %#v", options)
+	}
+}
+
+func TestTransitionAndEditMetadataResultsPersistToStore(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	store := newFakeActiveViewStore()
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithActiveViewStore(store, "https://example.atlassian.net"))
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.loading = false
+	model.mode = modeDetail
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do", Priority: "Medium"}}
+	model.activeTransitionsReqID = 7
+	model.transitionRequestKey = "ABC-1"
+	model.activePriorityMetadataReqID = 8
+	model.priorityMetadataRequestKey = "ABC-1"
+
+	updated, _ := model.Update(workerResultMsg{result: worker.Result{
+		ID:   7,
+		Kind: worker.KindGetTransitions,
+		GetTransitions: &worker.GetTransitionsResult{
+			Key:         "ABC-1",
+			Transitions: []jira.Transition{{ID: "21", Name: "Start Progress", ToStatus: "In Progress"}},
+			SyncedAt:    now,
+		},
+	}})
+	next := updated.(Model)
+	updated, _ = next.Update(workerResultMsg{result: worker.Result{
+		ID:   8,
+		Kind: worker.KindGetEditMetadata,
+		GetEditMetadata: &worker.GetEditMetadataResult{
+			Key: "ABC-1",
+			Metadata: jira.EditMetadata{
+				Priority: jira.EditField{
+					ID:            "priority",
+					Name:          "Priority",
+					Editable:      true,
+					AllowedValues: []jira.FieldOption{{ID: "2", Name: "High"}},
+				},
+			},
+			SyncedAt: now,
+		},
+	}})
+	next = updated.(Model)
+
+	if store.putTransitions.IssueKey != "ABC-1" || len(store.putTransitions.Transitions) != 1 || store.putTransitions.Transitions[0].ID != "21" {
+		t.Fatalf("putTransitions = %#v", store.putTransitions)
+	}
+	if store.putEditMetadata.IssueKey != "ABC-1" || !store.putEditMetadata.Metadata.Priority.Editable {
+		t.Fatalf("putEditMetadata = %#v", store.putEditMetadata)
+	}
+	if !store.putTransitions.FreshTill.Equal(now.Add(issueTransitionsCacheTTL)) {
+		t.Fatalf("transitions FreshTill = %s", store.putTransitions.FreshTill)
+	}
+	if !store.putEditMetadata.FreshTill.Equal(now.Add(issueEditMetadataCacheTTL)) {
+		t.Fatalf("metadata FreshTill = %s", store.putEditMetadata.FreshTill)
 	}
 }
 

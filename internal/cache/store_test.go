@@ -206,6 +206,84 @@ func TestStoreInvalidatesIssueComments(t *testing.T) {
 	}
 }
 
+func TestStorePersistsIssueTransitionsRecords(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(filepath.Join(t.TempDir(), "cache.sqlite"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+
+	syncedAt := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	record := IssueTransitionsRecord{
+		Namespace:   "https://example.atlassian.net",
+		IssueKey:    "ABC-1",
+		Transitions: []jira.Transition{{ID: "21", Name: "Start Progress", ToStatus: "In Progress"}},
+		SyncedAt:    syncedAt,
+		FreshTill:   syncedAt.Add(time.Minute),
+	}
+	if err := store.PutIssueTransitions(ctx, record); err != nil {
+		t.Fatalf("PutIssueTransitions() error = %v", err)
+	}
+
+	got, ok, err := store.GetIssueTransitions(ctx, record.Namespace, record.IssueKey)
+	if err != nil {
+		t.Fatalf("GetIssueTransitions() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("expected issue transitions record")
+	}
+	if len(got.Transitions) != 1 || got.Transitions[0].ID != "21" || got.Transitions[0].ToStatus != "In Progress" {
+		t.Fatalf("Transitions = %#v", got.Transitions)
+	}
+	if !got.SyncedAt.Equal(record.SyncedAt) || !got.FreshTill.Equal(record.FreshTill) {
+		t.Fatalf("timestamps = %s/%s", got.SyncedAt, got.FreshTill)
+	}
+}
+
+func TestStorePersistsIssueEditMetadataRecords(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(filepath.Join(t.TempDir(), "cache.sqlite"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+
+	syncedAt := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	record := IssueEditMetadataRecord{
+		Namespace: "https://example.atlassian.net",
+		IssueKey:  "ABC-1",
+		Metadata: jira.EditMetadata{
+			Summary: jira.EditField{ID: "summary", Name: "Summary", Editable: true},
+			Priority: jira.EditField{
+				ID:            "priority",
+				Name:          "Priority",
+				Editable:      true,
+				AllowedValues: []jira.FieldOption{{ID: "2", Name: "High"}},
+			},
+		},
+		SyncedAt:  syncedAt,
+		FreshTill: syncedAt.Add(time.Minute),
+	}
+	if err := store.PutIssueEditMetadata(ctx, record); err != nil {
+		t.Fatalf("PutIssueEditMetadata() error = %v", err)
+	}
+
+	got, ok, err := store.GetIssueEditMetadata(ctx, record.Namespace, record.IssueKey)
+	if err != nil {
+		t.Fatalf("GetIssueEditMetadata() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("expected issue edit metadata record")
+	}
+	if !got.Metadata.Summary.Editable || len(got.Metadata.Priority.AllowedValues) != 1 || got.Metadata.Priority.AllowedValues[0].Name != "High" {
+		t.Fatalf("Metadata = %#v", got.Metadata)
+	}
+	if !got.SyncedAt.Equal(record.SyncedAt) || !got.FreshTill.Equal(record.FreshTill) {
+		t.Fatalf("timestamps = %s/%s", got.SyncedAt, got.FreshTill)
+	}
+}
+
 func TestDefaultPathUsesAppCacheFile(t *testing.T) {
 	path, err := DefaultPath()
 	if err != nil {

@@ -4,6 +4,8 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Extended the SQLite persistent cache to status transitions and edit metadata used by summary and
+  priority editors.
 - Extended the SQLite persistent cache to issue detail and comments, including comment invalidation
   after posting.
 - Added a SQLite-backed persistent cache for active Jira views using `modernc.org/sqlite`, so cached

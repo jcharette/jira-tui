@@ -1126,11 +1126,14 @@ func (m Model) startStatusTransitionPicker() (Model, tea.Cmd) {
 	m.hierarchyFocus = false
 	m.actionFocus = false
 	m.jumpDetailSection("Status")
+	m.hydrateIssueTransitions(selected.Key)
 	if transitions := m.transitions[selected.Key]; len(transitions) > 0 {
 		m.transitionFocus = true
 		m.selectedTransition = clamp(m.selectedTransition, 0, len(transitions)-1)
-		m.detailNotice = ""
-		return m, nil
+		if _, ok := m.cachedIssueTransitions(selected.Key); !ok || m.isIssueTransitionsFresh(selected.Key) {
+			m.detailNotice = ""
+			return m, nil
+		}
 	}
 	if m.transitionLoading && m.transitionRequestKey == selected.Key {
 		return m, nil
@@ -1193,8 +1196,11 @@ func (m Model) startPriorityEditor() (Model, tea.Cmd) {
 	m.transitionFocus = false
 	m.summaryFocus = false
 	m.priorityFocus = true
+	m.hydrateIssueEditMetadata(selected.Key)
 	if metadata, ok := m.editMetadata[selected.Key]; ok {
-		return m.beginPriorityEditing(metadata), nil
+		if _, cached := m.cachedIssueEditMetadata(selected.Key); !cached || m.isIssueEditMetadataFresh(selected.Key) {
+			return m.beginPriorityEditing(metadata), nil
+		}
 	}
 	if m.priorityMetadataLoading && m.priorityMetadataRequestKey == selected.Key {
 		return m, nil
@@ -1385,13 +1391,16 @@ func (m Model) startSummaryEditor() (Model, tea.Cmd) {
 	m.actionFocus = false
 	m.transitionFocus = false
 	m.summaryFocus = true
+	m.hydrateIssueEditMetadata(selected.Key)
 	if metadata, ok := m.editMetadata[selected.Key]; ok {
-		if !metadata.Summary.Editable {
-			m.detailNotice = "Summary is not editable for " + selected.Key + "."
+		if _, cached := m.cachedIssueEditMetadata(selected.Key); !cached || m.isIssueEditMetadataFresh(selected.Key) {
+			if !metadata.Summary.Editable {
+				m.detailNotice = "Summary is not editable for " + selected.Key + "."
+				return m, nil
+			}
+			m.beginSummaryEditing()
 			return m, nil
 		}
-		m.beginSummaryEditing()
-		return m, nil
 	}
 	if m.summaryMetadataLoading && m.summaryMetadataRequestKey == selected.Key {
 		return m, nil

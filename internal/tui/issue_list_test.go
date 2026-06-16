@@ -1127,6 +1127,10 @@ type fakeActiveViewStore struct {
 	comments        cache.IssueCommentsRecord
 	putComments     cache.IssueCommentsRecord
 	deletedComments string
+	transitions     cache.IssueTransitionsRecord
+	putTransitions  cache.IssueTransitionsRecord
+	editMetadata    cache.IssueEditMetadataRecord
+	putEditMetadata cache.IssueEditMetadataRecord
 }
 
 func newFakeActiveViewStore() *fakeActiveViewStore {
@@ -1171,5 +1175,29 @@ func (f *fakeActiveViewStore) PutIssueComments(_ context.Context, record cache.I
 
 func (f *fakeActiveViewStore) DeleteIssueComments(_ context.Context, _ string, issueKey string) error {
 	f.deletedComments = issueKey
+	return nil
+}
+
+func (f *fakeActiveViewStore) GetIssueTransitions(_ context.Context, namespace string, issueKey string) (cache.IssueTransitionsRecord, bool, error) {
+	if f.transitions.Namespace == namespace && f.transitions.IssueKey == issueKey {
+		return f.transitions, true, nil
+	}
+	return cache.IssueTransitionsRecord{}, false, nil
+}
+
+func (f *fakeActiveViewStore) PutIssueTransitions(_ context.Context, record cache.IssueTransitionsRecord) error {
+	f.putTransitions = record
+	return nil
+}
+
+func (f *fakeActiveViewStore) GetIssueEditMetadata(_ context.Context, namespace string, issueKey string) (cache.IssueEditMetadataRecord, bool, error) {
+	if f.editMetadata.Namespace == namespace && f.editMetadata.IssueKey == issueKey {
+		return f.editMetadata, true, nil
+	}
+	return cache.IssueEditMetadataRecord{}, false, nil
+}
+
+func (f *fakeActiveViewStore) PutIssueEditMetadata(_ context.Context, record cache.IssueEditMetadataRecord) error {
+	f.putEditMetadata = record
 	return nil
 }
