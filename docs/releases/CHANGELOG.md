@@ -4,6 +4,8 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Added worker request priority and duplicate-read coalescing around the existing `ants` pool so
+  foreground Jira work can be admitted ahead of queued background refresh.
 - Added an in-memory active-view cache using `ttlcache` so fresh Jira views render without a new
   search, stale views render immediately while refreshing, and failed refreshes preserve stale rows
   with visible freshness state.

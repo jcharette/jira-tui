@@ -411,7 +411,7 @@ func NewModel(client worker.JiraClient, jql string, options ...Option) Model {
 
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
-		m.submitIssueSearch(m.activeRequestID),
+		m.submitIssueSearch(m.activeRequestID, worker.PriorityForeground),
 		m.waitForWorkerResult(),
 		m.scheduleRefresh(),
 	)
@@ -427,7 +427,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case refreshTickMsg:
 		var cmd tea.Cmd
 		if !m.loading && !m.refreshing {
-			m, cmd = m.startCachedRefresh()
+			m, cmd = m.startCachedRefresh(worker.PriorityBackground)
 		}
 		return m, tea.Batch(cmd, m.scheduleRefresh())
 	case workerResultMsg:

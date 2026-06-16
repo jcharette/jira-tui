@@ -10,14 +10,14 @@ import (
 )
 
 func (m Model) startRefresh() (Model, tea.Cmd) {
-	return m.startRefreshWithCache(false)
+	return m.startRefreshWithCache(false, worker.PriorityRefresh)
 }
 
-func (m Model) startCachedRefresh() (Model, tea.Cmd) {
-	return m.startRefreshWithCache(true)
+func (m Model) startCachedRefresh(priority worker.Priority) (Model, tea.Cmd) {
+	return m.startRefreshWithCache(true, priority)
 }
 
-func (m Model) startRefreshWithCache(useCache bool) (Model, tea.Cmd) {
+func (m Model) startRefreshWithCache(useCache bool, priority worker.Priority) (Model, tea.Cmd) {
 	if useCache {
 		if record, ok := m.cachedActiveIssueView(m.jql); ok {
 			fresh := m.activeIssueViewCacheFresh(record)
@@ -44,7 +44,7 @@ func (m Model) startRefreshWithCache(useCache bool) (Model, tea.Cmd) {
 	} else {
 		m.refreshing = true
 	}
-	return m, m.submitIssueSearch(m.activeRequestID)
+	return m, m.submitIssueSearch(m.activeRequestID, priority)
 }
 
 func (m Model) startExpandSelectedIssue(mode worker.ExpandMode) (Model, tea.Cmd) {
@@ -83,7 +83,7 @@ func (m Model) switchView(delta int) (Model, tea.Cmd) {
 	m.expandLoading = false
 	m.expandRequestKey = ""
 	m.detailNotice = ""
-	return m.startCachedRefresh()
+	return m.startCachedRefresh(worker.PriorityForeground)
 }
 
 func (m *Model) mergeExpandedIssues(children []jira.Issue) int {

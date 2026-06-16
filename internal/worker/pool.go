@@ -44,6 +44,17 @@ const (
 	KindCreateIssue         Kind = "create_issue"
 )
 
+type Priority int
+
+const (
+	PriorityDefault Priority = iota
+	PriorityWrite
+	PriorityForeground
+	PriorityRefresh
+	PriorityPrefetch
+	PriorityBackground
+)
+
 type JiraClient interface {
 	SearchIssues(ctx context.Context, jql string, maxResults int) ([]jira.Issue, error)
 	GetIssue(ctx context.Context, key string) (jira.IssueDetail, error)
@@ -63,9 +74,11 @@ type JiraClient interface {
 }
 
 type Request struct {
-	ID      int
-	Kind    Kind
-	Timeout time.Duration
+	ID          int
+	Kind        Kind
+	Timeout     time.Duration
+	Priority    Priority
+	CoalesceKey string
 
 	SearchIssues        *SearchIssuesRequest
 	GetIssue            *GetIssueRequest
@@ -295,21 +308,34 @@ type CreateIssueResult struct {
 
 type Option func(*Pool)
 
+type scheduledRequest struct {
+	request  Request
+	sequence int64
+}
+
 type Pool struct {
 	client JiraClient
 
 	workerCount int
 	queueSize   int
 
-	engine    *ants.Pool
-	admission chan struct{}
-	results   chan Result
-	done      chan struct{}
-	initErr   error
-	wg        sync.WaitGroup
-	stopOnce  sync.Once
-	mu        sync.Mutex
-	closed    bool
+	engine  *ants.Pool
+	results chan Result
+	done    chan struct{}
+	initErr error
+
+	pending           []scheduledRequest
+	coalesced         map[string][]Request
+	activeCoalesceKey map[string]struct{}
+	sequence          int64
+	running           int
+	cond              *sync.Cond
+
+	wg           sync.WaitGroup
+	dispatcherWG sync.WaitGroup
+	stopOnce     sync.Once
+	mu           sync.Mutex
+	closed       bool
 }
 
 func NewPool(client JiraClient, options ...Option) *Pool {
@@ -331,8 +357,12 @@ func NewPool(client JiraClient, options ...Option) *Pool {
 
 	capacity := pool.workerCount + pool.queueSize
 	pool.results = make(chan Result, capacity)
-	pool.admission = make(chan struct{}, capacity)
 	pool.engine, pool.initErr = ants.NewPool(pool.workerCount)
+	pool.coalesced = make(map[string][]Request)
+	pool.activeCoalesceKey = make(map[string]struct{})
+	pool.cond = sync.NewCond(&pool.mu)
+	pool.dispatcherWG.Add(1)
+	go pool.dispatch()
 	return pool
 }
 
@@ -350,23 +380,42 @@ func WithQueueSize(size int) Option {
 
 func (p *Pool) Submit(request Request) error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	if p.initErr != nil {
+		p.mu.Unlock()
 		return p.initErr
 	}
 	if p.closed {
+		p.mu.Unlock()
 		return ErrPoolClosed
 	}
 
-	select {
-	case p.admission <- struct{}{}:
-	default:
-		return ErrQueueFull
+	request = normalizeRequest(request)
+	if request.CoalesceKey != "" {
+		if _, ok := p.activeCoalesceKey[request.CoalesceKey]; ok {
+			p.coalesced[request.CoalesceKey] = append(p.coalesced[request.CoalesceKey], request)
+			p.mu.Unlock()
+			return nil
+		}
 	}
 
-	p.wg.Add(1)
-	go p.submitToEngine(request)
+	var dropped []Result
+	if p.admittedLocked() >= p.capacity() {
+		droppedRequest, droppedWaiters, ok := p.dropQueuedLowerPriorityLocked(request.Priority)
+		if !ok {
+			p.mu.Unlock()
+			return ErrQueueFull
+		}
+		dropped = append(dropped, Result{ID: droppedRequest.ID, Kind: droppedRequest.Kind, Err: ErrQueueFull})
+		dropped = append(dropped, droppedWaiters...)
+	}
+
+	p.enqueueLocked(request)
+	p.cond.Signal()
+	p.mu.Unlock()
+
+	for _, result := range dropped {
+		p.send(result)
+	}
 	return nil
 }
 
@@ -379,8 +428,10 @@ func (p *Pool) Stop() {
 		p.mu.Lock()
 		p.closed = true
 		close(p.done)
+		p.cond.Broadcast()
 		p.mu.Unlock()
 
+		p.dispatcherWG.Wait()
 		if p.engine != nil {
 			p.engine.Release()
 		}
@@ -396,30 +447,127 @@ func (p *Pool) send(result Result) {
 	}
 }
 
-func (p *Pool) submitToEngine(request Request) {
-	err := p.engine.Submit(func() {
-		defer p.wg.Done()
-		defer p.releaseAdmission()
-		defer func() {
-			if recovered := recover(); recovered != nil {
-				p.send(Result{ID: request.ID, Kind: request.Kind, Err: ErrWorkerPanic})
-			}
-		}()
+func (p *Pool) dispatch() {
+	defer p.dispatcherWG.Done()
+	for {
+		p.mu.Lock()
+		for !p.closed && (len(p.pending) == 0 || p.running >= p.workerCount) {
+			p.cond.Wait()
+		}
+		if p.closed {
+			p.mu.Unlock()
+			return
+		}
+		request := p.popNextLocked()
+		p.running++
+		p.wg.Add(1)
+		p.mu.Unlock()
 
-		p.send(p.handle(request))
-	})
-	if err != nil {
-		p.wg.Done()
-		p.releaseAdmission()
-		p.send(Result{ID: request.ID, Kind: request.Kind, Err: mapAntsError(err)})
+		p.submitToEngine(request)
 	}
 }
 
-func (p *Pool) releaseAdmission() {
-	select {
-	case <-p.admission:
-	default:
+func (p *Pool) submitToEngine(request Request) {
+	err := p.engine.Submit(func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				p.completeRequest(request, Result{ID: request.ID, Kind: request.Kind, Err: ErrWorkerPanic})
+			}
+		}()
+
+		p.completeRequest(request, p.handle(request))
+	})
+	if err != nil {
+		p.completeRequest(request, Result{ID: request.ID, Kind: request.Kind, Err: mapAntsError(err)})
 	}
+}
+
+func (p *Pool) completeRequest(request Request, result Result) {
+	p.mu.Lock()
+	p.running--
+	var waiters []Request
+	if request.CoalesceKey != "" {
+		waiters = p.coalesced[request.CoalesceKey]
+		delete(p.coalesced, request.CoalesceKey)
+		delete(p.activeCoalesceKey, request.CoalesceKey)
+	}
+	p.cond.Signal()
+	p.mu.Unlock()
+
+	p.send(result)
+	for _, waiter := range waiters {
+		clone := result
+		clone.ID = waiter.ID
+		clone.Kind = waiter.Kind
+		p.send(clone)
+	}
+	p.wg.Done()
+}
+
+func normalizeRequest(request Request) Request {
+	if request.Priority == PriorityDefault || request.Priority < PriorityDefault || request.Priority > PriorityBackground {
+		request.Priority = PriorityForeground
+	}
+	return request
+}
+
+func (p *Pool) capacity() int {
+	return p.workerCount + p.queueSize
+}
+
+func (p *Pool) admittedLocked() int {
+	return p.running + len(p.pending)
+}
+
+func (p *Pool) enqueueLocked(request Request) {
+	if request.CoalesceKey != "" {
+		p.activeCoalesceKey[request.CoalesceKey] = struct{}{}
+	}
+	item := scheduledRequest{request: request, sequence: p.sequence}
+	p.sequence++
+	index := len(p.pending)
+	for i, existing := range p.pending {
+		if request.Priority < existing.request.Priority ||
+			(request.Priority == existing.request.Priority && item.sequence < existing.sequence) {
+			index = i
+			break
+		}
+	}
+	p.pending = append(p.pending, scheduledRequest{})
+	copy(p.pending[index+1:], p.pending[index:])
+	p.pending[index] = item
+}
+
+func (p *Pool) popNextLocked() Request {
+	item := p.pending[0]
+	copy(p.pending, p.pending[1:])
+	p.pending = p.pending[:len(p.pending)-1]
+	return item.request
+}
+
+func (p *Pool) dropQueuedLowerPriorityLocked(priority Priority) (Request, []Result, bool) {
+	index := -1
+	for i := len(p.pending) - 1; i >= 0; i-- {
+		if p.pending[i].request.Priority > priority {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return Request{}, nil, false
+	}
+	item := p.pending[index]
+	p.pending = append(p.pending[:index], p.pending[index+1:]...)
+	var droppedWaiters []Result
+	if item.request.CoalesceKey != "" {
+		waiters := p.coalesced[item.request.CoalesceKey]
+		delete(p.coalesced, item.request.CoalesceKey)
+		delete(p.activeCoalesceKey, item.request.CoalesceKey)
+		for _, waiter := range waiters {
+			droppedWaiters = append(droppedWaiters, Result{ID: waiter.ID, Kind: waiter.Kind, Err: ErrQueueFull})
+		}
+	}
+	return item.request, droppedWaiters, true
 }
 
 func mapAntsError(err error) error {

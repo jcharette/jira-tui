@@ -155,12 +155,19 @@ even when cached data is fresh.
 - Reject/drop background jobs before foreground jobs when full.
 - Add diagnostics for queue depth and dropped/coalesced jobs.
 
-### Slice 3: Detail/comment metadata cache unification
+Status: implemented in `internal/worker.Pool` as an admission scheduler around the existing
+maintained `ants` execution pool. Worker requests now carry priority and coalesce-key metadata;
+duplicate reads fan out cloned results, and queued lower-priority work can be dropped before
+foreground work is rejected. Queue-depth diagnostics remain for a later diagnostics slice.
+
+### Slice 3: Detail/comment metadata cache unification and diagnostics
 
 - Move detail freshness, comments, transitions, edit metadata, create metadata, and expanded
   children behind the same cache record semantics.
 - Patch or invalidate affected records after writes.
 - Add stale-while-refresh UI labels for detail/comment sections.
+- Add diagnostics for queue depth, coalesced reads, dropped background jobs, and cache refresh
+  failures.
 
 ### Slice 4: Optional persistent cache
 

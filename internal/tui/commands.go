@@ -9,12 +9,14 @@ import (
 	"github.com/jon/jira-tui/internal/worker"
 )
 
-func (m Model) submitIssueSearch(requestID int) tea.Cmd {
+func (m Model) submitIssueSearch(requestID int, priority worker.Priority) tea.Cmd {
 	return func() tea.Msg {
 		err := m.workers.Submit(worker.Request{
-			ID:      requestID,
-			Kind:    worker.KindSearchIssues,
-			Timeout: m.requestTimeout,
+			ID:          requestID,
+			Kind:        worker.KindSearchIssues,
+			Timeout:     m.requestTimeout,
+			Priority:    priority,
+			CoalesceKey: "search:" + activeViewCacheKey(m.jql),
 			SearchIssues: &worker.SearchIssuesRequest{
 				JQL:        m.jql,
 				MaxResults: maxIssues,

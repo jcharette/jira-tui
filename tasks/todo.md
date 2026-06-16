@@ -1,5 +1,35 @@
 # Task Plan
 
+## Worker Priority And Coalescing
+
+- [x] Add worker request priority and coalesce-key metadata.
+- [x] Keep `ants` as the maintained worker execution primitive.
+- [x] Add bounded scheduler admission around the worker pool.
+- [x] Coalesce duplicate read requests and fan out cloned results to duplicate request IDs.
+- [x] Drop queued lower-priority requests to admit foreground work when capacity is full.
+- [x] Mark active-view searches with explicit foreground/refresh/background priorities.
+- [x] Add regression tests for duplicate read coalescing and foreground admission over background.
+- [x] Run final verification with `go test ./internal/worker -count=1`,
+  `go test ./internal/tui -count=1`, `go test ./... -count=1`, and `make check`.
+
+### Worker Priority And Coalescing Scope
+
+Implement slice 2 from the cache design without replacing the maintained `ants` execution pool.
+The local scheduler layer owns only app-specific policy: request priority, duplicate read
+coalescing, and dropping queued lower-priority work before rejecting foreground work.
+
+### Worker Priority And Coalescing Review
+
+- Added `worker.Priority` levels for writes, foreground reads, explicit refresh, prefetch, and
+  background work.
+- Added request `CoalesceKey` support so duplicate reads share one Jira execution and each request
+  ID still receives a result.
+- Added scheduler admission inside `internal/worker.Pool` while preserving `ants` for execution.
+- Updated active-view search submissions so startup/view-switch work is foreground, manual refresh
+  is explicit refresh, and timer refresh is background.
+- Verified with `go test ./internal/worker -count=1`, `go test ./internal/tui -count=1`,
+  `go test ./... -count=1`, and `make check`.
+
 ## Active View Cache Implementation
 
 - [x] Add `ttlcache`-backed active-view cache records to the TUI model.

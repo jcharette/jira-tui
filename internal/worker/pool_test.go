@@ -895,6 +895,119 @@ func TestPoolRejectsFullQueue(t *testing.T) {
 	}
 }
 
+func TestPoolCoalescesDuplicateReadRequests(t *testing.T) {
+	release := make(chan struct{})
+	started := make(chan struct{})
+	pool := NewPool(
+		&blockingIssueSearcher{release: release, started: started},
+		WithWorkerCount(1),
+		WithQueueSize(2),
+	)
+	t.Cleanup(pool.Stop)
+
+	first := searchRequest(1)
+	first.CoalesceKey = "search:project=ABC"
+	second := searchRequest(2)
+	second.CoalesceKey = first.CoalesceKey
+
+	if err := pool.Submit(first); err != nil {
+		t.Fatalf("Submit first request error = %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for first request to start")
+	}
+	if err := pool.Submit(second); err != nil {
+		t.Fatalf("Submit duplicate request error = %v", err)
+	}
+
+	close(release)
+	resultA := readResult(t, pool)
+	resultB := readResult(t, pool)
+	ids := map[int]bool{resultA.ID: true, resultB.ID: true}
+	if !ids[1] || !ids[2] {
+		t.Fatalf("result IDs = %d, %d", resultA.ID, resultB.ID)
+	}
+}
+
+func TestPoolDropsQueuedBackgroundForForegroundRequest(t *testing.T) {
+	release := make(chan struct{})
+	started := make(chan struct{})
+	pool := NewPool(
+		&blockingIssueSearcher{release: release, started: started},
+		WithWorkerCount(1),
+		WithQueueSize(1),
+	)
+	t.Cleanup(pool.Stop)
+
+	if err := pool.Submit(searchRequest(1)); err != nil {
+		t.Fatalf("Submit running request error = %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for first request to start")
+	}
+	background := searchRequest(2)
+	background.Priority = PriorityBackground
+	if err := pool.Submit(background); err != nil {
+		t.Fatalf("Submit background request error = %v", err)
+	}
+	foreground := searchRequest(3)
+	foreground.Priority = PriorityForeground
+	if err := pool.Submit(foreground); err != nil {
+		t.Fatalf("Submit foreground request error = %v", err)
+	}
+
+	dropped := readResult(t, pool)
+	if dropped.ID != 2 || !errors.Is(dropped.Err, ErrQueueFull) {
+		t.Fatalf("dropped result = %#v", dropped)
+	}
+
+	close(release)
+	resultA := readResult(t, pool)
+	resultB := readResult(t, pool)
+	ids := map[int]bool{resultA.ID: true, resultB.ID: true}
+	if !ids[1] || !ids[3] {
+		t.Fatalf("result IDs = %d, %d", resultA.ID, resultB.ID)
+	}
+}
+
+func TestPoolTreatsDefaultPriorityAsForeground(t *testing.T) {
+	release := make(chan struct{})
+	started := make(chan struct{})
+	pool := NewPool(
+		&blockingIssueSearcher{release: release, started: started},
+		WithWorkerCount(1),
+		WithQueueSize(1),
+	)
+	t.Cleanup(pool.Stop)
+
+	if err := pool.Submit(searchRequest(1)); err != nil {
+		t.Fatalf("Submit running request error = %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for first request to start")
+	}
+	background := searchRequest(2)
+	background.Priority = PriorityBackground
+	if err := pool.Submit(background); err != nil {
+		t.Fatalf("Submit background request error = %v", err)
+	}
+	if err := pool.Submit(searchRequest(3)); err != nil {
+		t.Fatalf("default-priority request should be admitted as foreground: %v", err)
+	}
+
+	dropped := readResult(t, pool)
+	if dropped.ID != 2 || !errors.Is(dropped.Err, ErrQueueFull) {
+		t.Fatalf("dropped result = %#v", dropped)
+	}
+	close(release)
+}
+
 func TestPoolReturnsInvalidRequestResult(t *testing.T) {
 	pool := NewPool(&fakeIssueSearcher{}, WithWorkerCount(1), WithQueueSize(1))
 	defer pool.Stop()

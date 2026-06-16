@@ -1003,7 +1003,7 @@ func TestSubmitIssueSearchReturnsLoadedResultFromPool(t *testing.T) {
 	}, "project = ABC")
 	defer model.workers.Stop()
 
-	msg := model.submitIssueSearch(9)()
+	msg := model.submitIssueSearch(9, worker.PriorityForeground)()
 	if _, ok := msg.(workSubmittedMsg); !ok {
 		t.Fatalf("msg = %T", msg)
 	}
@@ -1028,7 +1028,7 @@ func TestSubmitIssueSearchReturnsFailedResultFromPool(t *testing.T) {
 	}, "project = ABC")
 	defer model.workers.Stop()
 
-	msg := model.submitIssueSearch(9)()
+	msg := model.submitIssueSearch(9, worker.PriorityForeground)()
 	if _, ok := msg.(workSubmittedMsg); !ok {
 		t.Fatalf("msg = %T", msg)
 	}
