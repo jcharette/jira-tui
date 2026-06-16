@@ -157,7 +157,7 @@ func TestDiagnosticsRecordsDetailCacheDecisions(t *testing.T) {
 	model.loading = false
 	model.issues = []jira.Issue{{Key: "ABC-1"}}
 	model.cacheIssueDetail("ABC-1", jira.IssueDetail{Issue: jira.Issue{Key: "ABC-1"}, Description: "Cached detail"}, now)
-	model.comments = map[string][]jira.Comment{"ABC-1": {}}
+	model.cacheIssueComments("ABC-1", nil, now)
 
 	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
 	fresh := updated.(Model)

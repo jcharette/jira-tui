@@ -1,5 +1,35 @@
 # Task Plan
 
+## Comments Cache Record Unification
+
+- [x] Add retained comment cache records using the shared Jira cache record helper.
+- [x] Preserve existing `comments` map rendering while moving freshness checks to cache records.
+- [x] Keep fresh cached comments from submitting Jira work when opening detail.
+- [x] Keep stale comments visible while a refresh is submitted.
+- [x] Invalidate retained comments after adding a comment so the follow-up refresh is real.
+- [x] Add focused fresh/stale/invalidation tests.
+- [x] Update cache design/backlog/changelog notes.
+- [x] Run final verification with `go test ./internal/tui -count=1`, `go test ./... -count=1`,
+  and `make check`.
+
+### Comments Cache Record Unification Scope
+
+Migrate comments to the same retained cache-record semantics now used by issue detail. Do not
+migrate transitions, edit metadata, create metadata, or expanded children in this commit. Keep the
+current `comments` map as the render source for this slice so UI rendering and Claude prompt
+assembly continue to use the same data path.
+
+### Comments Cache Record Unification Review
+
+- Added retained `ttlcache` records for issue comments using the shared `jiraCacheRecord[T]` helper.
+- Preserved the existing `comments` map as the render/Claude prompt source for this slice.
+- Made fresh cached comments skip Jira work when opening detail.
+- Made stale cached comments remain visible while submitting a refresh.
+- Invalidated both the visible comments map and retained comment record after comment creation and
+  Claude-assisted comment posting.
+- Added focused tests for fresh comments, stale comments, and add-comment invalidation.
+- Verified with `go test ./internal/tui -count=1`, `go test ./... -count=1`, and `make check`.
+
 ## Detail Cache Record Unification
 
 - [x] Add a generic Jira cache record helper for value, sync time, and freshness window.

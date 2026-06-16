@@ -439,9 +439,7 @@ func (m Model) handleAddCommentResult(result worker.Result) (Model, tea.Cmd) {
 	m.commentConfirm = false
 	m.commentRequestKey = ""
 	m.detailNotice = "Comment posted."
-	if m.comments != nil {
-		delete(m.comments, key)
-	}
+	m.invalidateIssueComments(key)
 	m.nextRequestID++
 	m.activeCommentsReqID = m.nextRequestID
 	m.commentsRequestKey = key
@@ -498,7 +496,49 @@ func (m Model) handleCommentsResult(result worker.Result) Model {
 	if m.comments == nil {
 		m.comments = make(map[string][]jira.Comment)
 	}
-	m.comments[result.GetComments.Key] = result.GetComments.Comments
+	m.cacheIssueComments(result.GetComments.Key, result.GetComments.Comments, result.GetComments.SyncedAt)
 	m.commentsErr = nil
 	return m
+}
+
+func (m Model) isIssueCommentsFresh(key string) bool {
+	record, ok := m.cachedIssueComments(key)
+	return ok && record.Fresh(m.currentTime())
+}
+
+func (m Model) cachedIssueComments(key string) (jiraCacheRecord[[]jira.Comment], bool) {
+	if m.commentsCache == nil || strings.TrimSpace(key) == "" {
+		return jiraCacheRecord[[]jira.Comment]{}, false
+	}
+	item := m.commentsCache.Get(strings.TrimSpace(key))
+	if item == nil {
+		return jiraCacheRecord[[]jira.Comment]{}, false
+	}
+	return item.Value(), true
+}
+
+func (m *Model) cacheIssueComments(key string, comments []jira.Comment, syncedAt time.Time) {
+	key = strings.TrimSpace(key)
+	if m.commentsCache == nil || key == "" {
+		return
+	}
+	if m.comments == nil {
+		m.comments = make(map[string][]jira.Comment)
+	}
+	copied := append([]jira.Comment(nil), comments...)
+	m.comments[key] = copied
+	m.commentsCache.Set(key, newJiraCacheRecord(copied, syncedAt, issueCommentsCacheTTL), ttlcache.DefaultTTL)
+}
+
+func (m *Model) invalidateIssueComments(key string) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return
+	}
+	if m.comments != nil {
+		delete(m.comments, key)
+	}
+	if m.commentsCache != nil {
+		m.commentsCache.Delete(key)
+	}
 }

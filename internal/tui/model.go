@@ -20,25 +20,27 @@ import (
 )
 
 const (
-	maxIssues                    = 50
-	maxComments                  = 10
-	userSearchCacheTTL           = 2 * time.Minute
-	issueDetailCacheTTL          = 45 * time.Second
-	issueDetailCacheRetentionTTL = 15 * time.Minute
-	activeViewCacheTTL           = 90 * time.Second
-	activeViewCacheRetentionTTL  = 30 * time.Minute
-	initialRequestID             = 1
-	defaultRequestTimeout        = 20 * time.Second
-	defaultWorkerCount           = 2
-	defaultQueueSize             = 16
-	minUsefulIssueRows           = 8
-	appChromeRows                = 6
-	panelFrameRows               = 4
-	detailHeaderRows             = 6
-	issueTreeRootGutter          = 2
-	issueTreeMaxGutter           = 12
-	issueTypeColumnWidth         = 2
-	createPickerMaxRows          = 6
+	maxIssues                      = 50
+	maxComments                    = 10
+	userSearchCacheTTL             = 2 * time.Minute
+	issueDetailCacheTTL            = 45 * time.Second
+	issueDetailCacheRetentionTTL   = 15 * time.Minute
+	issueCommentsCacheTTL          = 90 * time.Second
+	issueCommentsCacheRetentionTTL = 15 * time.Minute
+	activeViewCacheTTL             = 90 * time.Second
+	activeViewCacheRetentionTTL    = 30 * time.Minute
+	initialRequestID               = 1
+	defaultRequestTimeout          = 20 * time.Second
+	defaultWorkerCount             = 2
+	defaultQueueSize               = 16
+	minUsefulIssueRows             = 8
+	appChromeRows                  = 6
+	panelFrameRows                 = 4
+	detailHeaderRows               = 6
+	issueTreeRootGutter            = 2
+	issueTreeMaxGutter             = 12
+	issueTypeColumnWidth           = 2
+	createPickerMaxRows            = 6
 )
 
 const (
@@ -206,6 +208,7 @@ type Model struct {
 	detailErr                   error
 	detailRequestKey            string
 	comments                    map[string][]jira.Comment
+	commentsCache               *ttlcache.Cache[string, jiraCacheRecord[[]jira.Comment]]
 	commentsLoading             bool
 	commentsErr                 error
 	commentsRequestKey          string
@@ -392,6 +395,7 @@ func NewModel(client worker.JiraClient, jql string, options ...Option) Model {
 		activeViewCache:     newIssueViewCache(),
 		detailCache:         newJiraCache[jira.IssueDetail](issueDetailCacheRetentionTTL),
 		comments:            make(map[string][]jira.Comment),
+		commentsCache:       newJiraCache[[]jira.Comment](issueCommentsCacheRetentionTTL),
 		transitions:         make(map[string][]jira.Transition),
 		editMetadata:        make(map[string]jira.EditMetadata),
 		detailSectionOffset: make(map[string]int),

@@ -256,7 +256,7 @@ func TestFreshCachedDetailSkipsDetailRefresh(t *testing.T) {
 	model.loading = false
 	model.issues = []jira.Issue{{Key: "ABC-1"}}
 	model.cacheIssueDetail("ABC-1", jira.IssueDetail{Issue: jira.Issue{Key: "ABC-1"}, Description: "Cached detail"}, now)
-	model.comments = map[string][]jira.Comment{"ABC-1": {}}
+	model.cacheIssueComments("ABC-1", nil, now)
 
 	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
 	next := updated.(Model)
@@ -280,7 +280,7 @@ func TestStaleCachedDetailStartsBackgroundRefresh(t *testing.T) {
 	model.loading = false
 	model.issues = []jira.Issue{{Key: "ABC-1"}}
 	model.cacheIssueDetail("ABC-1", jira.IssueDetail{Issue: jira.Issue{Key: "ABC-1"}, Description: "Stale detail"}, now.Add(-2*issueDetailCacheTTL))
-	model.comments = map[string][]jira.Comment{"ABC-1": {}}
+	model.cacheIssueComments("ABC-1", nil, now)
 
 	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
 	next := updated.(Model)
@@ -296,6 +296,57 @@ func TestStaleCachedDetailStartsBackgroundRefresh(t *testing.T) {
 	}
 	if next.details["ABC-1"].Description != "Stale detail" {
 		t.Fatalf("stale detail should remain visible, details = %#v", next.details["ABC-1"])
+	}
+}
+
+func TestFreshCachedCommentsSkipCommentsRefresh(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.loading = false
+	model.issues = []jira.Issue{{Key: "ABC-1"}}
+	model.cacheIssueDetail("ABC-1", jira.IssueDetail{Issue: jira.Issue{Key: "ABC-1"}, Description: "Cached detail"}, now)
+	model.cacheIssueComments("ABC-1", []jira.Comment{{ID: "10001", Body: "Cached comment"}}, now)
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("fresh cached comments should not submit background work")
+	}
+	if next.commentsLoading {
+		t.Fatal("commentsLoading should be false")
+	}
+	if next.commentsRequestKey != "" {
+		t.Fatalf("commentsRequestKey = %q", next.commentsRequestKey)
+	}
+}
+
+func TestStaleCachedCommentsStayVisibleWhileRefreshing(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.loading = false
+	model.issues = []jira.Issue{{Key: "ABC-1"}}
+	model.cacheIssueDetail("ABC-1", jira.IssueDetail{Issue: jira.Issue{Key: "ABC-1"}, Description: "Cached detail"}, now)
+	model.cacheIssueComments("ABC-1", []jira.Comment{{ID: "10001", Body: "Stale comment"}}, now.Add(-2*issueCommentsCacheTTL))
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("stale cached comments should submit background refresh")
+	}
+	if !next.commentsLoading {
+		t.Fatal("commentsLoading should be true while stale comments refresh")
+	}
+	if next.commentsRequestKey != "ABC-1" {
+		t.Fatalf("commentsRequestKey = %q", next.commentsRequestKey)
+	}
+	if next.comments["ABC-1"][0].Body != "Stale comment" {
+		t.Fatalf("stale comments should remain visible, comments = %#v", next.comments["ABC-1"])
 	}
 }
 

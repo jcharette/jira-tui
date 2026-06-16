@@ -94,11 +94,16 @@ func (m Model) startDetailRequestForSelected() (Model, tea.Cmd) {
 		cmds = append(cmds, m.submitIssueDetail(m.activeDetailRequestID, selected.Key))
 	}
 
-	if _, ok := m.comments[selected.Key]; ok {
+	if _, ok := m.comments[selected.Key]; ok && m.isIssueCommentsFresh(selected.Key) {
 		m.commentsLoading = false
 		m.commentsErr = nil
 		m.commentsRequestKey = ""
 	} else if !(m.commentsLoading && m.commentsRequestKey == selected.Key) {
+		status := "miss"
+		if _, ok := m.comments[selected.Key]; ok {
+			status = "stale"
+		}
+		m.recordDiagnosticEvent(diagnosticKindCache, "issue_comments", status, selected.Key)
 		m.nextRequestID++
 		m.activeCommentsReqID = m.nextRequestID
 		m.commentsRequestKey = selected.Key

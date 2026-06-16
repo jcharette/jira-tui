@@ -4,6 +4,8 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Moved issue comments onto retained cache records so fresh comments skip Jira work, stale comments
+  stay visible while refreshing, and comment posts invalidate retained comment data.
 - Replaced marker-only issue detail freshness with retained detail cache records using the existing
   `ttlcache` dependency, preserving stale-visible detail refresh behavior.
 - Added worker scheduler stats to Diagnostics so the overlay shows queue running, pending,

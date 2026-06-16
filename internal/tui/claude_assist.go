@@ -185,9 +185,7 @@ func (m Model) handleClaudeAssistCommentResult(result worker.Result) (Model, tea
 	m.claudeAssistOpen = false
 	m.activeClaudeAssistCommentReqID = 0
 	m.detailNotice = "Ticket assist draft posted as a comment."
-	if m.comments != nil {
-		delete(m.comments, key)
-	}
+	m.invalidateIssueComments(key)
 	m.nextRequestID++
 	m.activeCommentsReqID = m.nextRequestID
 	m.commentsRequestKey = key

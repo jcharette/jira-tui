@@ -173,10 +173,10 @@ diagnostics enhancements if the compact snapshot is not enough in practice.
 - Add diagnostics for queue depth, coalesced reads, dropped background jobs, and cache refresh
   failures.
 
-Status: partially implemented for issue detail. Detail freshness now uses a retained cache record
-with value, sync time, and freshness boundary backed by `ttlcache`, while the existing detail map
-continues to serve current rendering paths. Comments, transitions, edit metadata, create metadata,
-and expanded children remain pending.
+Status: partially implemented for issue detail and comments. Detail freshness and comments now use
+retained cache records with value, sync time, and freshness boundary backed by `ttlcache`, while the
+existing detail/comment maps continue to serve current rendering paths. Transitions, edit metadata,
+create metadata, and expanded children remain pending.
 
 ### Slice 4: Optional persistent cache
 

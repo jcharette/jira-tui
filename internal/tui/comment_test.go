@@ -79,6 +79,9 @@ func TestCommentComposerConfirmsAndPostsComment(t *testing.T) {
 	if _, ok := next.comments["ABC-1"]; ok {
 		t.Fatalf("expected stale comment cache to be cleared: %#v", next.comments["ABC-1"])
 	}
+	if _, ok := next.cachedIssueComments("ABC-1"); ok {
+		t.Fatal("expected retained comment cache to be invalidated")
+	}
 }
 
 func TestCommentComposerCancelReturnsToDetail(t *testing.T) {
