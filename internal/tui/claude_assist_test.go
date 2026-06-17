@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/jon/jira-tui/internal/claude"
+	"github.com/jon/jira-tui/internal/events"
 	"github.com/jon/jira-tui/internal/jira"
 )
 
@@ -81,8 +83,17 @@ func TestInlineAIPickerCanCancel(t *testing.T) {
 }
 
 func TestInlineDescriptionAIImproveClaritySubmitsScopedPrompt(t *testing.T) {
+	stream := events.NewStream()
+	defer stream.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	received, err := stream.Subscribe(ctx)
+	if err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
 	runner := &fakeClaudeRunner{result: claude.Result{Text: "Review\n- Description is vague\n\nDraft\nClearer description"}}
 	model := newInlineDescriptionAIModel(t)
+	model.eventStream = stream
 	model.claudeRunner = runner
 	model.jumpDetailSection("Description")
 	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "a"}))
@@ -101,6 +112,11 @@ func TestInlineDescriptionAIImproveClaritySubmitsScopedPrompt(t *testing.T) {
 	result := resultMsg.(claudeAssistResultMsg)
 	if result.err != nil {
 		t.Fatalf("Claude result error = %v", result.err)
+	}
+	taskEvents := collectEventTypesForTest(t, received, events.TypeAITaskRequested, events.TypeAITaskCompleted)
+	requested := decodeAITaskPayloadForTest(t, taskEvents[events.TypeAITaskRequested])
+	if requested.Operation != events.AIOperationInlineAssist || requested.IssueKey != "ABC-1" {
+		t.Fatalf("requested payload = %#v", requested)
 	}
 	for _, want := range []string{"Improve clarity", "Description-scoped", "Do not update Jira", "ABC-1", "Current unclear description", "Please clarify done."} {
 		if !strings.Contains(runner.request.Prompt, want) {
@@ -229,6 +245,186 @@ func TestClaudeSectionSubmitsTicketPlanWithSelectedContext(t *testing.T) {
 	}
 	if !sawSubmit || !sawResult {
 		t.Fatalf("missing Claude diagnostics submit=%t result=%t events=%#v", sawSubmit, sawResult, next.diagnosticsEvents)
+	}
+}
+
+func TestClaudeTicketPlanPublishesProviderNeutralAIEvents(t *testing.T) {
+	stream := events.NewStream()
+	defer stream.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	received, err := stream.Subscribe(ctx)
+	if err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+	runner := &fakeClaudeRunner{result: claude.Result{Text: "Implementation plan"}}
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithEventStream(stream),
+		WithClaudeConfig(ClaudeConfig{Enabled: true, TicketPlan: true, Timeout: time.Second}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "/usr/local/bin/claude"}),
+		WithClaudeRunner(runner),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 120
+	model.height = 35
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Fix production thing", Status: "To Do"}}
+	model.jumpDetailSection("Claude")
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+	resultMsg := <-runClaudePlanCommandAsyncForTest(cmd)
+	result, ok := resultMsg.(claudePlanResultMsg)
+	if !ok {
+		t.Fatalf("message = %#v", resultMsg)
+	}
+	if result.err != nil {
+		t.Fatalf("Claude result error = %v", result.err)
+	}
+
+	taskEvents := collectEventTypesForTest(t, received, events.TypeAITaskRequested, events.TypeAITaskCompleted)
+	requestedEvent := taskEvents[events.TypeAITaskRequested]
+	requested := decodeAITaskPayloadForTest(t, requestedEvent)
+	if requested.Operation != events.AIOperationTicketPlan ||
+		requested.PreferredProvider != events.AIProviderAuto ||
+		requested.Provider != events.AIProviderClaude ||
+		requested.IssueKey != "ABC-1" ||
+		requested.RequestID != next.activeClaudePlanReqID ||
+		requested.PromptBytes == 0 {
+		t.Fatalf("requested payload = %#v", requested)
+	}
+	completedEvent := taskEvents[events.TypeAITaskCompleted]
+	completed := decodeAITaskPayloadForTest(t, completedEvent)
+	if completed.Operation != events.AIOperationTicketPlan ||
+		completed.Provider != events.AIProviderClaude ||
+		completed.IssueKey != "ABC-1" ||
+		completed.ResultBytes != len("Implementation plan") {
+		t.Fatalf("completed payload = %#v", completed)
+	}
+}
+
+func TestClaudeTicketPlanPublishesAIProgressEvents(t *testing.T) {
+	stream := events.NewStream()
+	defer stream.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	received, err := stream.Subscribe(ctx)
+	if err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+	runner := &fakeClaudeRunner{
+		result: claude.Result{Text: "Implementation plan"},
+		events: []claude.Event{{Kind: "stderr", Text: "receiving response"}},
+	}
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithEventStream(stream),
+		WithClaudeConfig(ClaudeConfig{Enabled: true, TicketPlan: true, Timeout: time.Second}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "/usr/local/bin/claude"}),
+		WithClaudeRunner(runner),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 120
+	model.height = 35
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Fix production thing", Status: "To Do"}}
+	model.jumpDetailSection("Claude")
+
+	_, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	resultMsg := <-runClaudePlanCommandAsyncForTest(cmd)
+	if result, ok := resultMsg.(claudePlanResultMsg); !ok || result.err != nil {
+		t.Fatalf("result = %#v", resultMsg)
+	}
+
+	taskEvents := collectEventTypesForTest(t, received, events.TypeAITaskRequested, events.TypeAITaskProgress, events.TypeAITaskCompleted)
+	progressEvent := taskEvents[events.TypeAITaskProgress]
+	progress := decodeAITaskPayloadForTest(t, progressEvent)
+	if progress.Operation != events.AIOperationTicketPlan ||
+		progress.ProgressKind != "stderr" ||
+		progress.ProgressBytes != len("receiving response") {
+		t.Fatalf("progress payload = %#v", progress)
+	}
+	if data, err := json.Marshal(progress); err != nil || strings.Contains(string(data), "receiving response") {
+		t.Fatalf("progress payload leaked raw text: %s err=%v", data, err)
+	}
+}
+
+func TestClaudeTicketPlanPublishesAIFailedEvents(t *testing.T) {
+	stream := events.NewStream()
+	defer stream.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	received, err := stream.Subscribe(ctx)
+	if err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+	runner := &fakeClaudeRunner{err: errors.New("provider failed")}
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithEventStream(stream),
+		WithClaudeConfig(ClaudeConfig{Enabled: true, TicketPlan: true, Timeout: time.Second}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "/usr/local/bin/claude"}),
+		WithClaudeRunner(runner),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 120
+	model.height = 35
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Fix production thing", Status: "To Do"}}
+	model.jumpDetailSection("Claude")
+
+	_, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	resultMsg := <-runClaudePlanCommandAsyncForTest(cmd)
+	if result, ok := resultMsg.(claudePlanResultMsg); !ok || result.err == nil {
+		t.Fatalf("result = %#v", resultMsg)
+	}
+
+	taskEvents := collectEventTypesForTest(t, received, events.TypeAITaskRequested, events.TypeAITaskFailed)
+	failedEvent := taskEvents[events.TypeAITaskFailed]
+	failed := decodeAITaskPayloadForTest(t, failedEvent)
+	if failed.Operation != events.AIOperationTicketPlan ||
+		failed.Provider != events.AIProviderClaude ||
+		!strings.Contains(failed.Error, "provider failed") {
+		t.Fatalf("failed payload = %#v", failed)
+	}
+}
+
+func decodeAITaskPayloadForTest(t *testing.T, event events.Event) events.AITaskPayload {
+	t.Helper()
+	var payload events.AITaskPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		t.Fatalf("decode AI task payload: %v", err)
+	}
+	return payload
+}
+
+func collectEventTypesForTest(t *testing.T, received <-chan events.Event, eventTypes ...events.Type) map[events.Type]events.Event {
+	t.Helper()
+	wanted := make(map[events.Type]struct{}, len(eventTypes))
+	for _, eventType := range eventTypes {
+		wanted[eventType] = struct{}{}
+	}
+	got := make(map[events.Type]events.Event, len(eventTypes))
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case event := <-received:
+			if _, ok := wanted[event.Type]; ok {
+				got[event.Type] = event
+				if len(got) == len(wanted) {
+					return got
+				}
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for event types %v, got %#v", eventTypes, got)
+		}
 	}
 }
 
@@ -659,10 +855,19 @@ func TestClaudeTicketAssistROpensRefinementEditor(t *testing.T) {
 }
 
 func TestClaudeTicketAssistRefinementPromptIncludesCurrentEditedDraft(t *testing.T) {
+	stream := events.NewStream()
+	defer stream.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	received, err := stream.Subscribe(ctx)
+	if err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
 	runner := &fakeClaudeRunner{result: claude.Result{Text: "Review\n- Tightened acceptance criteria\n\nDraft\nSummary: Refined ticket\n\nAcceptance Criteria\n- [ ] Refined criterion"}}
 	model := NewModel(
 		&fakeIssueSearcher{},
 		"project = ABC",
+		WithEventStream(stream),
 		WithClaudeConfig(ClaudeConfig{Enabled: true, TicketAssist: true, Timeout: time.Second}),
 		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
 		WithClaudeRunner(runner),
@@ -712,6 +917,11 @@ func TestClaudeTicketAssistRefinementPromptIncludesCurrentEditedDraft(t *testing
 		if !strings.Contains(runner.request.Prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, runner.request.Prompt)
 		}
+	}
+	taskEvents := collectEventTypesForTest(t, received, events.TypeAITaskRequested, events.TypeAITaskCompleted)
+	requested := decodeAITaskPayloadForTest(t, taskEvents[events.TypeAITaskRequested])
+	if requested.Operation != events.AIOperationRefineDraft || requested.IssueKey != "ABC-1" {
+		t.Fatalf("requested payload = %#v", requested)
 	}
 
 	updated, _ = next.Update(result)

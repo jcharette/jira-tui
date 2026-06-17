@@ -4,6 +4,8 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Added provider-neutral AI task event payloads and routed existing Claude-backed AI requests through
+  an event-publishing adapter for future Claude/Codex/auto provider routing.
 - Added a Watermill GoChannel-backed event stream foundation for Jira/app events, with active-view
   ticket `new`/`updated` events routed into Diagnostics as the first consumer.
 - Changed persisted active-view startup behavior to stale-while-revalidate: displayable cached rows

@@ -51,6 +51,41 @@ type TicketPayload struct {
 	SyncedAt      time.Time   `json:"synced_at,omitempty"`
 }
 
+type AIProvider string
+
+const (
+	AIProviderAuto   AIProvider = "auto"
+	AIProviderClaude AIProvider = "claude"
+	AIProviderCodex  AIProvider = "codex"
+)
+
+type AIOperation string
+
+const (
+	AIOperationTicketPlan         AIOperation = "ticket_plan"
+	AIOperationTicketAssist       AIOperation = "ticket_assist"
+	AIOperationInlineAssist       AIOperation = "inline_assist"
+	AIOperationCreateDraft        AIOperation = "create_draft"
+	AIOperationRefineDraft        AIOperation = "refine_draft"
+	AIOperationCodeReview         AIOperation = "code_review"
+	AIOperationImplementationPlan AIOperation = "implementation_plan"
+)
+
+type AITaskPayload struct {
+	RequestID         int         `json:"request_id,omitempty"`
+	Operation         AIOperation `json:"operation"`
+	PreferredProvider AIProvider  `json:"preferred_provider,omitempty"`
+	Provider          AIProvider  `json:"provider,omitempty"`
+	IssueKey          string      `json:"issue_key,omitempty"`
+	ProjectKey        string      `json:"project_key,omitempty"`
+	CancellationKey   string      `json:"cancellation_key,omitempty"`
+	PromptBytes       int         `json:"prompt_bytes,omitempty"`
+	ResultBytes       int         `json:"result_bytes,omitempty"`
+	ProgressKind      string      `json:"progress_kind,omitempty"`
+	ProgressBytes     int         `json:"progress_bytes,omitempty"`
+	Error             string      `json:"error,omitempty"`
+}
+
 type Stream struct {
 	pubsub *gochannel.GoChannel
 	now    func() time.Time

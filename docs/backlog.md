@@ -120,6 +120,8 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
   confirmation before every write.
 - Add AI-assisted ticket summaries, implementation notes, PR prep, and comment drafts with visible
   source context and user approval before posting or changing Jira.
+- Route new AI features through the provider-neutral `ai.task.*` event boundary so Claude, Codex,
+  and future `auto` routing stay behind one command path.
 - Keep git provider integrations isolated behind internal boundaries so GitHub/GitLab/Bitbucket
   support can be added without rewriting Jira UI flows.
 

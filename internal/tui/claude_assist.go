@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jon/jira-tui/internal/claude"
+	"github.com/jon/jira-tui/internal/events"
 	"github.com/jon/jira-tui/internal/worker"
 )
 
@@ -751,48 +752,36 @@ func (m Model) startClaudeTicketAssist() (Model, tea.Cmd) {
 	)
 }
 
-func (m Model) submitClaudeTicketPlan(ctx context.Context, reqID int, key string, prompt string, events chan<- claude.Event) tea.Cmd {
-	return m.submitClaudeRequest(ctx, reqID, key, prompt, events, func(id int, key string, text string, err error) tea.Msg {
-		return claudePlanResultMsg{id: id, key: key, text: text, err: err}
+func (m Model) submitClaudeTicketPlan(ctx context.Context, reqID int, key string, prompt string, progress chan<- claude.Event) tea.Cmd {
+	return m.submitAIRequest(ctx, aiTaskRequest{
+		RequestID:         reqID,
+		Operation:         events.AIOperationTicketPlan,
+		PreferredProvider: events.AIProviderAuto,
+		IssueKey:          key,
+		Prompt:            prompt,
+		Progress:          progress,
+		ResultMsg: func(id int, key string, text string, err error) tea.Msg {
+			return claudePlanResultMsg{id: id, key: key, text: text, err: err}
+		},
 	})
 }
 
-func (m Model) submitClaudeTicketAssist(ctx context.Context, reqID int, key string, prompt string, events chan<- claude.Event) tea.Cmd {
-	return m.submitClaudeRequest(ctx, reqID, key, prompt, events, func(id int, key string, text string, err error) tea.Msg {
-		return claudeAssistResultMsg{id: id, key: key, text: text, err: err}
-	})
+func (m Model) submitClaudeTicketAssist(ctx context.Context, reqID int, key string, prompt string, progress chan<- claude.Event) tea.Cmd {
+	return m.submitClaudeTicketAssistOperation(ctx, reqID, key, prompt, progress, events.AIOperationTicketAssist)
 }
 
-func (m Model) submitClaudeRequest(ctx context.Context, reqID int, key string, prompt string, events chan<- claude.Event, resultMsg func(int, string, string, error) tea.Msg) tea.Cmd {
-	runner := m.claudeRunner
-	if runner == nil {
-		runner = claude.LocalRunner{}
-	}
-	config := claude.Config{
-		Enabled: m.claudeConfig.Enabled,
-		Command: m.claudeConfig.Command,
-		Timeout: m.claudeConfig.Timeout,
-	}
-	return func() tea.Msg {
-		defer closeClaudeEvents(events)
-		result, err := runner.Run(ctx, claude.Request{
-			Config: config,
-			Prompt: prompt,
-			Progress: func(event claude.Event) {
-				if strings.TrimSpace(event.Text) == "" {
-					return
-				}
-				select {
-				case events <- event:
-				case <-ctx.Done():
-				}
-			},
-		})
-		if err != nil {
-			return resultMsg(reqID, key, "", err)
-		}
-		return resultMsg(reqID, key, result.Text, nil)
-	}
+func (m Model) submitClaudeTicketAssistOperation(ctx context.Context, reqID int, key string, prompt string, progress chan<- claude.Event, operation events.AIOperation) tea.Cmd {
+	return m.submitAIRequest(ctx, aiTaskRequest{
+		RequestID:         reqID,
+		Operation:         operation,
+		PreferredProvider: events.AIProviderAuto,
+		IssueKey:          key,
+		Prompt:            prompt,
+		Progress:          progress,
+		ResultMsg: func(id int, key string, text string, err error) tea.Msg {
+			return claudeAssistResultMsg{id: id, key: key, text: text, err: err}
+		},
+	})
 }
 
 func closeClaudeEvents(events chan<- claude.Event) {
@@ -1639,7 +1628,7 @@ func (m Model) submitInlineDescriptionAI(action inlineAIAction, instruction stri
 	m.detailNotice = ""
 	m.recordDiagnosticEvent(diagnosticKindClaude, "inline_description_ai", "submit", workerDiagnosticDetail(reqID, key, nil))
 	return m, tea.Batch(
-		m.submitClaudeTicketAssist(runCtx, reqID, key, m.buildInlineDescriptionAIPrompt(ctx, action, instruction), m.claudeAssistEvents),
+		m.submitClaudeTicketAssistOperation(runCtx, reqID, key, m.buildInlineDescriptionAIPrompt(ctx, action, instruction), m.claudeAssistEvents, events.AIOperationInlineAssist),
 		m.waitForClaudeAssistProgress(reqID, key),
 		m.scheduleClaudeAssistTick(reqID),
 	)
@@ -1774,7 +1763,7 @@ func (m Model) submitClaudeAssistRefinement() (Model, tea.Cmd) {
 	m.detailNotice = ""
 	m.recordDiagnosticEvent(diagnosticKindClaude, "ticket_assist_refine", "submit", workerDiagnosticDetail(reqID, key, nil))
 	return m, tea.Batch(
-		m.submitClaudeTicketAssist(runCtx, reqID, key, m.buildClaudeTicketAssistRefinementPrompt(ctx, currentDraft, instruction), m.claudeAssistEvents),
+		m.submitClaudeTicketAssistOperation(runCtx, reqID, key, m.buildClaudeTicketAssistRefinementPrompt(ctx, currentDraft, instruction), m.claudeAssistEvents, events.AIOperationRefineDraft),
 		m.waitForClaudeAssistProgress(reqID, key),
 		m.scheduleClaudeAssistTick(reqID),
 	)

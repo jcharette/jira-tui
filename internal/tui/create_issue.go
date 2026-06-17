@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jon/jira-tui/internal/claude"
+	"github.com/jon/jira-tui/internal/events"
 	"github.com/jon/jira-tui/internal/jira"
 	"github.com/jon/jira-tui/internal/worker"
 )
@@ -1342,9 +1343,17 @@ func (m Model) submitCreateAIPrompt() (Model, tea.Cmd) {
 	)
 }
 
-func (m Model) submitCreatePrompt(ctx context.Context, reqID int, prompt string, events chan<- claude.Event) tea.Cmd {
-	return m.submitClaudeRequest(ctx, reqID, m.createProjectKey, prompt, events, func(id int, _ string, text string, err error) tea.Msg {
-		return createAIPromptResultMsg{id: id, text: text, err: err}
+func (m Model) submitCreatePrompt(ctx context.Context, reqID int, prompt string, progress chan<- claude.Event) tea.Cmd {
+	return m.submitAIRequest(ctx, aiTaskRequest{
+		RequestID:         reqID,
+		Operation:         events.AIOperationCreateDraft,
+		PreferredProvider: events.AIProviderAuto,
+		ProjectKey:        m.createProjectKey,
+		Prompt:            prompt,
+		Progress:          progress,
+		ResultMsg: func(id int, _ string, text string, err error) tea.Msg {
+			return createAIPromptResultMsg{id: id, text: text, err: err}
+		},
 	})
 }
 

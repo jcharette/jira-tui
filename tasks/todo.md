@@ -28,6 +28,37 @@
 - Published active-view `jira.ticket.new` and `jira.ticket.updated` events from refreshed rows.
 - Routed app events into Diagnostics as the first non-blocking consumer.
 
+## Provider-Agnostic AI Event Command Foundation
+
+- [x] Add provider-neutral AI task payload types for operation, provider, key, prompt, and result
+  metadata.
+- [x] Route existing Claude subprocess requests through provider-neutral request metadata while
+  keeping the current Claude runner as the only concrete provider.
+- [x] Publish `ai.task.requested`, `ai.task.progress`, `ai.task.completed`, and `ai.task.failed`
+  events around AI work.
+- [x] Keep existing Claude/TUI result messages and modals unchanged in this slice.
+- [x] Add focused stream tests for ticket plan success, progress, and failure events.
+- [x] Update docs/changelog/backlog notes and run focused tests plus `make check`.
+
+### Provider-Agnostic AI Event Command Foundation Scope
+
+Introduce the provider boundary without changing user-facing AI behavior. The current Claude
+subprocess runner remains the concrete implementation. This slice should only add typed metadata
+and event publication so future Codex or `auto` routing can plug in without another direct TUI to
+Claude command path.
+
+### Provider-Agnostic AI Event Command Foundation Review
+
+- Added `events.AITaskPayload`, provider constants, and operation constants for ticket plan, ticket
+  assist, inline assist, create draft, refine draft, code review, and implementation plan tasks.
+- Added a focused TUI AI request adapter that publishes `ai.task.requested`, `ai.task.progress`,
+  `ai.task.completed`, and `ai.task.failed` around the current Claude runner.
+- Routed ticket plan, ticket assist, inline assist, refine assist, and create-ticket draft calls
+  through the adapter while preserving existing result messages and modals.
+- Kept prompt/result text out of event payloads; progress events carry kind and byte count only.
+- Added stream tests proving ticket plan success, progress, and failure events carry provider-neutral
+  metadata.
+
 ## Persistent Expanded Children Cache
 
 - [x] Add retained hot-cache records for explicit expanded children by parent key and expand mode.
