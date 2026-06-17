@@ -171,7 +171,7 @@ func tableBindings() []keyBinding {
 		{Keys: []string{"g", "G", "home", "end"}, FooterKey: "g/G", Label: "first/last", Description: "Jump to the first or last issue.", Group: "Navigation"},
 		{Keys: []string{"enter"}, Label: "open", Description: "Open focused ticket detail.", Group: "Issue", Footer: true},
 		{Keys: []string{"n"}, Label: "new", Description: "Create a new Jira ticket.", Group: "Issue", Footer: true},
-		{Keys: []string{"z"}, Label: "collapse", Description: "Collapse or expand the selected issue subtree.", Group: "Issue", Footer: true},
+		{Keys: []string{"z"}, Label: "collapse", Description: "Collapse or expand the selected issue subtree.", Group: "Issue"},
 		{Keys: []string{"x"}, Label: "expand-open", Description: "Load open child issues for the selected parent.", Group: "Issue", Footer: true},
 		{Keys: []string{"X"}, Label: "expand-all", Description: "Load all child issues for the selected parent, including resolved issues.", Group: "Issue"},
 		{Keys: []string{"r"}, Label: "refresh", Description: "Refresh the active issue view.", Group: "Global", Footer: true},

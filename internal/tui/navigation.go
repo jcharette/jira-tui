@@ -393,18 +393,6 @@ func (m *Model) repairCollapsedSelection() {
 	m.selected = 0
 }
 
-func (m Model) visibleSelectionPosition(visible []int) int {
-	if len(visible) == 0 {
-		return 0
-	}
-	for position, index := range visible {
-		if index == m.selected {
-			return position
-		}
-	}
-	return 0
-}
-
 func (m *Model) replaceIssues(issues []jira.Issue) {
 	selectedKey := ""
 	if len(m.issues) > 0 && m.selected >= 0 && m.selected < len(m.issues) {

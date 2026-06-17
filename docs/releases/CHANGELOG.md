@@ -6,6 +6,8 @@ All notable changes to this project should be recorded here.
 
 - Added a local issue-table Active filter with `f`, hiding loaded terminal-status tickets without
   changing saved views, JQL, Jira reads, or cached issue data.
+- Added local issue-table subtree collapse with `z`, so dense loaded ticket branches can be hidden
+  or revealed without changing Jira reads or the loaded issue data.
 - Moved Assignee and mention picker filters onto Bubbles `textinput` while preserving Jira user
   search, cached lookup, and shared choice-list rendering behavior.
 - Added a default `Epics` saved view scoped to the configured default project.

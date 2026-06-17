@@ -271,6 +271,10 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
 - Issue tables support a local `f` Active filter that hides loaded tickets whose status text looks
   terminal (`done`, `closed`, `resolved`, `canceled`, or `cancelled`) without changing Jira reads,
   saved views, cache records, or loaded issue data.
+- Issue tables support local subtree collapse with `z`: the selected node can hide or reveal its
+  loaded descendants without changing Jira reads, saved views, cache records, issue ordering, or the
+  loaded issue data. Collapsed rows show a compact hidden-descendant count, and navigation skips
+  hidden rows until the ancestor is expanded.
 - Fetches read-only issue details for the selected issue through the worker pool, caches details by
   issue key, and ignores stale detail responses when selection changes. Issue detail uses
   short-lived TTL freshness tracking via `github.com/jellydator/ttlcache/v3`: fresh cached detail

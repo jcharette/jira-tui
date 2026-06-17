@@ -37,7 +37,7 @@ view, JQL, Jira reads, caches, issue ordering, and `m.issues`.
 ## Issue List Subtree Collapse
 
 - [x] Confirm UX design/spec for issue-list subtree collapse.
-- [ ] Audit issue-table key bindings and choose one low-conflict collapse toggle.
+- [x] Audit issue-table key bindings and choose one low-conflict collapse toggle.
 - [x] Add focused tests for default expanded rendering and subtree collapse projection.
 - [x] Add focused tests for subtree re-expand, preserved deeper collapse state, and explicit child
   expansion compatibility.
@@ -46,8 +46,8 @@ view, JQL, Jira reads, caches, issue ordering, and `m.issues`.
 - [x] Derive visible issue rows from the existing tree plus collapse state.
 - [x] Render a compact hidden-descendant count on collapsed nodes.
 - [x] Route issue-list navigation and selection visibility through visible rows.
-- [ ] Update project docs/changelog for the user-visible issue-list behavior.
-- [ ] Run focused issue-list/navigation tests, broader Go verification, `make check`, and
+- [x] Update project docs/changelog for the user-visible issue-list behavior.
+- [x] Run focused issue-list/navigation tests, broader Go verification, `make check`, and
   `make install-user`.
 
 ### Issue List Subtree Collapse Scope
@@ -59,12 +59,16 @@ reveals that node while preserving any deeper collapsed branches.
 
 ### Issue List Subtree Collapse Review
 
-- Task 1 added render-level regression coverage for default-expanded and collapsed-parent behavior.
-- Collapse state remains model-local and presentation-only; `m.issues`, Jira reads, worker flows,
-  saved views, and cache records remain untouched in this slice.
-- The render path now projects issue rows through collapse-aware render lines and shows compact
-  hidden-descendant counts on collapsed parents.
-- Verified with focused Task 1 collapse tests and the broader hierarchy-focused issue-list command.
+- Added `z` as a local issue-table subtree collapse/expand toggle.
+- Kept Jira reads, explicit `x`/`X` child loading, saved views, caches, issue ordering, and
+  `m.issues` unchanged.
+- Added visible-row projection so rendering, navigation, paging, and selection visibility honor
+  collapsed branches.
+- Preserved deeper collapsed branches when expanding an ancestor.
+- Rendered compact hidden-descendant counts on collapsed rows.
+- Updated project-state and changelog docs for the user-visible behavior.
+- Verified with focused issue-list/navigation tests, `go test ./... -count=1`, `make check`, and
+  `make install-user`.
 
 ### Task 1: Collapse State And Rendered Projection
 
