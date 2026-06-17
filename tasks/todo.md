@@ -1,5 +1,24 @@
 # Task Plan
 
+## JQL Query UX Backlog Note
+
+- [x] Record direct raw JQL entry as a required query workflow.
+- [x] Record AI-assisted JQL generation as a separate query workflow with preview, revision
+  feedback, and explicit confirmation before running.
+
+### JQL Query UX Scope
+
+Future query work should support both power-user direct JQL entry and AI-assisted generation in the
+same query UX area. AI output should be inspectable and revisable before any generated JQL changes
+the active view or triggers Jira reads.
+
+### JQL Query UX Review
+
+- Updated the backlog to replace the generic JQL input item with direct JQL plus AI-assisted JQL
+  generation.
+- Captured the required AI feedback loop: generated JQL preview, user revision feedback, and
+  explicit confirmation before running.
+
 ## Local Active Status Filter
 
 - [x] Confirm UX design for a local active-status issue-table filter.

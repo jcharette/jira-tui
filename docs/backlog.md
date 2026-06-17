@@ -46,7 +46,11 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
 
 ## Next: Navigation And Query
 
-- Add a command/search input for changing JQL without restarting.
+- Add a query input workflow for changing JQL without restarting:
+  direct raw JQL entry for users who know Jira syntax, plus AI-assisted JQL generation for users
+  who describe the view they want.
+- Design the AI-assisted JQL flow with a visible generated JQL preview, user feedback/revision loop,
+  and explicit confirmation before running the generated query.
 - Add epic and subtask support.
 - Add sprint and board support.
 - Add configuration file support for saved profiles and default queries.
