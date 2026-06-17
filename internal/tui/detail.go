@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 	lipglosstable "github.com/charmbracelet/lipgloss/table"
@@ -1278,6 +1279,8 @@ func (m Model) startAssigneePicker() (Model, tea.Cmd) {
 	m.summaryFocus = false
 	m.assigneeFocus = true
 	m.assigneeQuery = ""
+	m.assigneeQueryEditor = newUserSearchInput("")
+	m.assigneeQueryEditorReady = true
 	m.assigneeUsers = nil
 	m.selectedAssignee = 0
 	m.assigneeSearchLoading = false
@@ -1291,6 +1294,8 @@ func (m Model) updateAssigneePicker(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "esc":
 		m.assigneeFocus = false
 		m.assigneeQuery = ""
+		m.assigneeQueryEditor = textinput.Model{}
+		m.assigneeQueryEditorReady = false
 		m.assigneeUsers = nil
 		m.selectedAssignee = 0
 		m.assigneeSearchLoading = false
@@ -1306,7 +1311,15 @@ func (m Model) updateAssigneePicker(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.moveSelectedAssignee(1)
 		return m, nil
 	}
-	query, changed := nextMentionQuery(m.assigneeQuery, msg)
+	if !m.assigneeQueryEditorReady {
+		m.assigneeQueryEditor = newUserSearchInput(m.assigneeQuery)
+		m.assigneeQueryEditorReady = true
+	}
+	previous := m.assigneeQueryEditor.Value()
+	editor, _ := m.assigneeQueryEditor.Update(msg)
+	m.assigneeQueryEditor = editor
+	query := strings.TrimSpace(editor.Value())
+	changed := strings.TrimSpace(previous) != query
 	if !changed {
 		return m, nil
 	}

@@ -530,3 +530,31 @@ func TestCommentComposerMentionPickerTreatsJAsFilterText(t *testing.T) {
 		t.Fatalf("mentionQuery = %q", next.mentionQuery)
 	}
 }
+
+func TestCommentComposerMentionPickerFilterUsesCursorAwareTextInput(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.mode = modeComment
+	model.width = 110
+	model.height = 28
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "One"}}
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "@", Code: '@'}))
+	model = updated.(Model)
+	for _, key := range []tea.KeyMsg{
+		tea.KeyPressMsg(tea.Key{Text: "J", Code: 'J'}),
+		tea.KeyPressMsg(tea.Key{Text: "o", Code: 'o'}),
+		tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft}),
+		tea.KeyPressMsg(tea.Key{Text: "h", Code: 'h'}),
+	} {
+		updated, _ = model.Update(key)
+		model = updated.(Model)
+	}
+
+	if model.mentionQuery != "Jho" {
+		t.Fatalf("mentionQuery = %q", model.mentionQuery)
+	}
+	if model.commentDraft != "" {
+		t.Fatalf("commentDraft should not change while mention picker is open: %q", model.commentDraft)
+	}
+}

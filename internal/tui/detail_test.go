@@ -1940,6 +1940,36 @@ func TestAssigneePickerUsesAssigneeHelpContext(t *testing.T) {
 	}
 }
 
+func TestAssigneePickerFilterUsesCursorAwareTextInput(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 120
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Assignee: "Jane Doe", Priority: "Medium", Status: "To Do"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {Issue: model.issues[0]},
+	}
+	model.assigneeFocus = true
+	model.assigneeQueryEditor = newUserSearchInput("")
+	model.assigneeQueryEditorReady = true
+
+	for _, key := range []tea.KeyMsg{
+		tea.KeyPressMsg(tea.Key{Text: "J", Code: 'J'}),
+		tea.KeyPressMsg(tea.Key{Text: "o", Code: 'o'}),
+		tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft}),
+		tea.KeyPressMsg(tea.Key{Text: "h", Code: 'h'}),
+	} {
+		updated, _ := model.Update(key)
+		model = updated.(Model)
+	}
+
+	if model.assigneeQuery != "Jho" {
+		t.Fatalf("assigneeQuery = %q", model.assigneeQuery)
+	}
+}
+
 func TestAssigneePickerUsesSharedChoiceListRendering(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()

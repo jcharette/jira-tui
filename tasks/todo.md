@@ -1,5 +1,35 @@
 # Task Plan
 
+## Assignee And Mention Filter Textinput
+
+- [x] Add focused tests proving Assignee and mention picker filters support cursor-aware editing.
+- [x] Add shared Bubbles `textinput` setup for Jira user-search filters.
+- [x] Route Assignee and mention picker filter updates through `textinput` while keeping existing
+  query strings synchronized for worker requests/results.
+- [x] Remove the old hand-rolled mention query editor helper.
+- [x] Update TUI component audit/changelog notes.
+- [x] Run focused TUI tests, full Go tests, `make check`, and install the updated binary.
+
+### Assignee And Mention Filter Textinput Scope
+
+Finish the next low-risk TUI consistency item from the component audit. Mention and Assignee result
+lists already share the Bubbles choice-list adapter; this slice only moves their filter editing from
+manual rune/backspace handling to Bubbles `textinput`. Keep Jira search behavior, caching,
+selection, footer/help text, and picker rendering semantics unchanged.
+
+### Assignee And Mention Filter Textinput Review
+
+- Added focused regression coverage proving Assignee and mention filters support cursor-aware
+  insertion through Bubbles `textinput`.
+- Added a shared `newUserSearchInput` helper for Jira user-search picker filters.
+- Kept `assigneeQuery` and `mentionQuery` synchronized as the existing source of truth for worker
+  requests, cached user search, and stale-result guards.
+- Removed the old hand-rolled `nextMentionQuery` rune/backspace editor helper.
+- Preserved existing behavior where cached Assignee user searches do not submit worker commands.
+- Updated the TUI component audit and changelog.
+- Verified with focused picker tests, `go test ./... -count=1`, `make check`, and
+  `make install-user`.
+
 ## Default Epic Saved View
 
 - [x] Add focused config test coverage for the default Epics saved view.

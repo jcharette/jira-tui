@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jon/jira-tui/internal/jira"
@@ -356,43 +357,32 @@ func (m Model) updateMentionPicker(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.moveMentionCursor(1)
 			return m, nil
 		}
-		if query, changed := nextMentionQuery(m.mentionQuery, keyMsg); changed {
-			m.setMentionQuery(query)
-			if m.mentionQuery == "" {
-				m.mentionSearchLoading = false
-				m.mentionSearchErr = nil
-				m.mentionUsers = nil
-				m.mentionCursor = 0
-				return m, nil
-			}
-			m.nextRequestID++
-			m.mentionSearchReqID = m.nextRequestID
-			m.mentionSearchLoading = true
-			m.mentionSearchErr = nil
-			return m, m.submitUserSearch(m.mentionSearchReqID, m.mentionQuery)
+		if !m.mentionQueryEditorReady {
+			m.mentionQueryEditor = newUserSearchInput(m.mentionQuery)
+			m.mentionQueryEditorReady = true
 		}
+		previous := m.mentionQueryEditor.Value()
+		editor, _ := m.mentionQueryEditor.Update(keyMsg)
+		m.mentionQueryEditor = editor
+		query := strings.TrimSpace(editor.Value())
+		if strings.TrimSpace(previous) == query {
+			return m, nil
+		}
+		m.setMentionQuery(query)
+		if m.mentionQuery == "" {
+			m.mentionSearchLoading = false
+			m.mentionSearchErr = nil
+			m.mentionUsers = nil
+			m.mentionCursor = 0
+			return m, nil
+		}
+		m.nextRequestID++
+		m.mentionSearchReqID = m.nextRequestID
+		m.mentionSearchLoading = true
+		m.mentionSearchErr = nil
+		return m, m.submitUserSearch(m.mentionSearchReqID, m.mentionQuery)
 	}
 	return m, nil
-}
-
-func nextMentionQuery(current string, keyMsg tea.KeyMsg) (string, bool) {
-	switch keyMsg.String() {
-	case "backspace", "ctrl+h":
-		runes := []rune(current)
-		if len(runes) == 0 {
-			return "", false
-		}
-		return string(runes[:len(runes)-1]), true
-	}
-	text := keyMsg.Key().Text
-	if text == "" {
-		return current, false
-	}
-	runes := []rune(text)
-	if len(runes) != 1 || runes[0] < 32 || runes[0] == 127 {
-		return current, false
-	}
-	return current + text, true
 }
 
 func newCommentEditor(value string) textarea.Model {
@@ -447,6 +437,8 @@ func (m *Model) openMentionPicker() {
 	m.mentionUsers = nil
 	m.mentionCursor = 0
 	m.setMentionQuery("")
+	m.mentionQueryEditor = newUserSearchInput("")
+	m.mentionQueryEditorReady = true
 	m.ensureCommentEditor()
 	m.commentEditor.Blur()
 }
@@ -454,6 +446,8 @@ func (m *Model) openMentionPicker() {
 func (m *Model) closeMentionPicker() {
 	m.mentionPickerOpen = false
 	m.mentionQuery = ""
+	m.mentionQueryEditor = textinput.Model{}
+	m.mentionQueryEditorReady = false
 	m.mentionSearchLoading = false
 	m.mentionSearchErr = nil
 	m.ensureCommentEditor()
@@ -462,6 +456,10 @@ func (m *Model) closeMentionPicker() {
 
 func (m *Model) setMentionQuery(query string) {
 	m.mentionQuery = strings.TrimSpace(query)
+	if m.mentionQueryEditorReady && strings.TrimSpace(m.mentionQueryEditor.Value()) != m.mentionQuery {
+		m.mentionQueryEditor.SetValue(m.mentionQuery)
+		m.mentionQueryEditor.CursorEnd()
+	}
 	m.mentionCursor = 0
 }
 

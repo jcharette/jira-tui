@@ -7,7 +7,7 @@ maintained Bubble Tea, Bubbles, Lip Gloss, or compatible ecosystem libraries.
 | --- | --- | --- | --- | --- | --- | --- |
 | Footer and keyboard help | `internal/tui/keymap.go`; `internal/tui/model.go`: `renderFooterHelpWithBindings`, `renderHelp`, `helpLines` | Custom binding type, footer truncation, help grouping, and manual help scrolling | Bubbles `key` and `help`, with a local adapter for context grouping | Migrated | Done | Footer rendering now uses Bubbles `help`; key metadata adapts to Bubbles `key.Binding`. |
 | Config scalar text input | `internal/configui/model.go`: `updateEditor`, `renderFields` | Manual single-line edit buffer with append/backspace only and no cursor model | Bubbles `textinput` | First implementation candidate | P0 | Separate config model makes this easy to test. Keep custom bool/color picker rendering for now. |
-| Assignee and mention pickers | `internal/tui/model.go`: `renderAssigneeDialog`, `updateAssigneePicker`, `renderMentionPicker`, `updateMentionPicker`; `internal/tui/choice_list.go` | Manual query strings, cursors, selection, filtering, result rendering, and async state glue | Bubbles `textinput` for query plus `list` or `table` for selectable results | In progress | P1 | Mention search and Assignee search now render through the shared Bubbles list-backed choice adapter. Query input is still manual and can move to `textinput` later. |
+| Assignee and mention pickers | `internal/tui/detail.go`: `renderAssigneeDialog`, `updateAssigneePicker`; `internal/tui/comment.go`: `renderMentionPicker`, `updateMentionPicker`; `internal/tui/choice_list.go`; `internal/tui/user_search_input.go` | Selection, filtering, result rendering, and async state glue | Bubbles `textinput` for query plus Bubbles `list` for selectable results | Migrated | Done | Mention search and Assignee search now use the shared Bubbles list-backed choice adapter plus cursor-aware Bubbles `textinput` filters while keeping existing Jira search/caching behavior. |
 | Repeated action and option lists | `internal/tui/model.go`: `renderPriorityDialog`, `renderStatusSection`, `renderActionsSection`, `renderClaudeSection`; `internal/tui/choice_list.go` | Repeated selected-index, `>` marker, and table/list rendering patterns | Local wrapper over Bubbles `list` or `table` | Wrap later | P1 | Priority now renders through the shared choice-list adapter. Status, Actions, and Claude still have multi-column or action-state semantics that need separate review. |
 | Create metadata option picker | `internal/tui/model.go`: `renderCreateIssueTypePickerLines`, `renderCreateDynamicField`, `updateCreateIssue`; `internal/tui/choice_list.go` | Long Jira option lists, custom filtering/windowing, repeated selection logic | Bubbles `list` and `textinput` via local adapters | Migrated | Done | Issue type selection and dynamic create option fields render through the shared choice-list adapter. Dynamic option filtering uses Bubbles `textinput` while preserving existing string filter state for matching. |
 | Rich text and fitted tables | `internal/tui/model.go`: `wrapRichText`, `renderFittedTable`, `renderWrappedTableRow` | Custom table fitting and Markdown-ish parsing | Lip Gloss table helpers where fixture-compatible | Investigate later | P1 | Keep ADF fixture tests and the `internal/adf.Render` boundary. Existing table behavior is covered by real-shaped fixtures. |
@@ -88,6 +88,13 @@ The eighth implementation slice migrated the Priority picker onto the shared Bub
 `list`-backed choice-list adapter. Priority keeps the same metadata-backed selection and submit
 behavior while sharing selected-row rendering, pagination, and range indicators with the other
 single-column picker surfaces.
+
+## Ninth Slice Outcome
+
+The ninth implementation slice moved Assignee and mention picker filters from manual rune/backspace
+editing to Bubbles `textinput`. Both pickers keep their existing synchronized query strings for Jira
+search requests, stale-result guards, and cached user lookup, while gaining cursor-aware editing
+through one shared `newUserSearchInput` helper.
 
 Remaining repeated lists, such as Status transitions, Actions, and Claude actions, have richer
 state or multi-column semantics and should be reviewed during the package/file boundary audit rather

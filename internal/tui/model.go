@@ -89,6 +89,8 @@ type Model struct {
 	selectedAssignee                   int
 	assigneeUsers                      []jira.User
 	assigneeQuery                      string
+	assigneeQueryEditor                textinput.Model
+	assigneeQueryEditorReady           bool
 	assigneeSearchLoading              bool
 	assigneeSearchErr                  error
 	assigneeSearchReqID                int
@@ -243,6 +245,8 @@ type Model struct {
 	mentionUsers                []jira.User
 	mentionCursor               int
 	mentionQuery                string
+	mentionQueryEditor          textinput.Model
+	mentionQueryEditorReady     bool
 	mentionSearchLoading        bool
 	mentionSearchErr            error
 	mentionSearchReqID          int

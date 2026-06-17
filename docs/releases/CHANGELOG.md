@@ -4,6 +4,8 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Moved Assignee and mention picker filters onto Bubbles `textinput` while preserving Jira user
+  search, cached lookup, and shared choice-list rendering behavior.
 - Added a default `Epics` saved view scoped to the configured default project.
 - Added sanitized API debug rows to Diagnostics, showing Jira operation family, request ID,
   issue/project scope, result class, safe counts, elapsed time, and categorized errors without raw
