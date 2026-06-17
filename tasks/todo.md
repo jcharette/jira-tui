@@ -1,5 +1,35 @@
 # Task Plan
 
+## Cache Family Diagnostics Summary
+
+- [x] Add a focused Diagnostics test for per-cache-family record counts and freshness totals.
+- [x] Render a compact cache summary derived from retained TTL cache records.
+- [x] Include active view, issue detail, comments, transitions, edit metadata, create metadata, and
+  expanded children without changing cache policy.
+- [x] Update docs/changelog for the Diagnostics visibility improvement.
+- [x] Run focused diagnostics tests, full TUI tests, `make check`, and install the updated binary.
+
+### Cache Family Diagnostics Summary Scope
+
+Improve cache observability before changing cache invalidation or cleanup behavior. Diagnostics
+should show how many retained records each Jira cache family currently holds and whether those
+records are fresh or stale. This slice must not change worker scheduling, cache TTL values, Jira
+request behavior, or write invalidation policies.
+
+### Cache Family Diagnostics Summary Review
+
+- Added a Diagnostics cache summary that reports retained cache records by family as fresh/stale
+  counts.
+- Covered active view, issue detail, comments, transitions, edit metadata, create issue types,
+  create fields, and expanded children.
+- Kept the change read-only: no TTLs, worker scheduling, Jira requests, persistence writes, or
+  invalidation policies changed.
+- Updated cache performance docs, backlog, and changelog to record that family-level diagnostics
+  landed while per-record refresh failures, cleanup, and remaining write invalidation policies stay
+  queued.
+- Verified with `go test ./internal/tui -run 'TestDiagnostics' -count=1`,
+  `go test ./internal/tui -count=1`, `make check`, and `make install-user`.
+
 ## Ticket Detail Visual Hierarchy Polish
 
 - [x] Add focused tests for summary-as-title header behavior and plain active tab markers.

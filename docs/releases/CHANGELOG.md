@@ -4,6 +4,8 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Added Diagnostics cache-family summaries that show retained active view, detail, comments,
+  transition, metadata, create, and expanded-child cache records as fresh/stale counts.
 - Polished the ticket-detail header so the summary reads as the title, metadata uses compact
   label/value spacing, and the active section tab uses a plain selected marker instead of filled tab
   styling.

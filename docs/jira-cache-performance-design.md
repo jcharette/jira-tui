@@ -176,7 +176,10 @@ diagnostics enhancements if the compact snapshot is not enough in practice.
 Status: implemented for issue detail, comments, transitions, edit metadata, create metadata, and
 expanded children. These reads now use retained cache records with value, sync time, and freshness
 boundary backed by `ttlcache`, while the existing maps/slices continue to serve current rendering
-paths. Per-cache diagnostics and remaining write invalidation policies are still pending.
+paths. Diagnostics now renders per-cache-family fresh/stale retained-record counts for active
+views, issue detail, comments, transitions, edit metadata, create metadata, and expanded children.
+Remaining write invalidation policies, cache cleanup, and per-record refresh failure summaries are
+still pending.
 
 ### Slice 4: Optional persistent cache
 

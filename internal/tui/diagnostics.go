@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/jellydator/ttlcache/v3"
 	"github.com/jon/jira-tui/internal/jira"
 	"github.com/jon/jira-tui/internal/worker"
 )
@@ -44,6 +46,10 @@ func (m Model) renderDiagnostics(layout browserLayout) string {
 	b.WriteString("\n\n")
 	if len(events) == 0 {
 		b.WriteString(renderWorkerQueueSummary(m.workerStats(), max(20, layout.contentWidth-6)))
+		if cacheSummary := m.renderCacheFamilySummary(max(20, layout.contentWidth-6)); cacheSummary != "" {
+			b.WriteString("\n")
+			b.WriteString(cacheSummary)
+		}
 		b.WriteString("\n\n")
 		b.WriteString(m.theme.Muted.Render("No background activity recorded yet."))
 		return m.theme.ActivePane.Width(layout.contentWidth).Render(strings.TrimRight(b.String(), "\n"))
@@ -51,6 +57,10 @@ func (m Model) renderDiagnostics(layout browserLayout) string {
 	b.WriteString(m.renderDiagnosticsSummary(events, max(20, layout.contentWidth-6)))
 	b.WriteString("\n")
 	b.WriteString(renderWorkerQueueSummary(m.workerStats(), max(20, layout.contentWidth-6)))
+	if cacheSummary := m.renderCacheFamilySummary(max(20, layout.contentWidth-6)); cacheSummary != "" {
+		b.WriteString("\n")
+		b.WriteString(cacheSummary)
+	}
 	b.WriteString("\n\n")
 	b.WriteString(m.theme.Muted.Render(fmt.Sprintf("%-8s  %-8s  %-8s  %s", "TIME", "KIND", "STATUS", "DETAIL")))
 	for _, event := range events {
@@ -89,6 +99,92 @@ func renderWorkerQueueSummary(stats worker.Stats, width int) string {
 		stats.Capacity,
 	)
 	return truncate(summary, width)
+}
+
+type cacheFamilyStat struct {
+	Label string
+	Fresh int
+	Stale int
+}
+
+func (m Model) renderCacheFamilySummary(width int) string {
+	stats := []cacheFamilyStat{
+		m.activeViewCacheFamilyStat(),
+		jiraCacheFamilyStat(m, "issue_detail", m.detailCache),
+		jiraCacheFamilyStat(m, "comments", m.commentsCache),
+		jiraCacheFamilyStat(m, "transitions", m.transitionsCache),
+		jiraCacheFamilyStat(m, "edit_meta", m.editMetadataCache),
+		jiraCacheFamilyStat(m, "create_types", m.createIssueTypesCache),
+		jiraCacheFamilyStat(m, "create_fields", m.createFieldsCache),
+		jiraCacheFamilyStat(m, "expanded_children", m.expandedChildrenCache),
+	}
+	var parts []string
+	for _, stat := range stats {
+		if stat.Fresh == 0 && stat.Stale == 0 {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s %d fresh %d stale", stat.Label, stat.Fresh, stat.Stale))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return wrapDiagnosticParts("Cache records", parts, width)
+}
+
+func (m Model) activeViewCacheFamilyStat() cacheFamilyStat {
+	stat := cacheFamilyStat{Label: "active_view"}
+	if m.activeViewCache == nil {
+		return stat
+	}
+	m.activeViewCache.Range(func(item *ttlcache.Item[string, issueViewCacheRecord]) bool {
+		record := item.Value()
+		if m.activeIssueViewCacheFresh(record) {
+			stat.Fresh++
+		} else {
+			stat.Stale++
+		}
+		return true
+	})
+	return stat
+}
+
+func jiraCacheFamilyStat[T any](m Model, label string, cache *ttlcache.Cache[string, jiraCacheRecord[T]]) cacheFamilyStat {
+	stat := cacheFamilyStat{Label: label}
+	if cache == nil {
+		return stat
+	}
+	now := m.currentTime()
+	cache.Range(func(item *ttlcache.Item[string, jiraCacheRecord[T]]) bool {
+		record := item.Value()
+		if record.Fresh(now) {
+			stat.Fresh++
+		} else {
+			stat.Stale++
+		}
+		return true
+	})
+	return stat
+}
+
+func wrapDiagnosticParts(prefix string, parts []string, width int) string {
+	if width <= 0 {
+		width = 80
+	}
+	var lines []string
+	current := prefix
+	for _, part := range parts {
+		candidate := current + "   " + part
+		if current != prefix && lipgloss.Width(candidate) > width {
+			lines = append(lines, truncate(current, width))
+			current = prefix + "   " + part
+			continue
+		}
+		current = candidate
+	}
+	if strings.TrimSpace(current) != "" {
+		lines = append(lines, truncate(current, width))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func diagnosticStatsFor(events []diagnosticEvent) diagnosticStats {

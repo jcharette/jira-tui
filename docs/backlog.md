@@ -41,16 +41,17 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
   queue/cache events in Diagnostics. Issue detail and comments now use retained cache records;
   transitions, edit metadata, create metadata, and expanded children now use retained cache records.
   Selected issue detail prefetch is now bounded for active-view refreshes and table navigation, and
-  comments are loaded by explicit detail opens instead of list prefetch. Per-cache diagnostics and
-  remaining write invalidation policies still need to land with cache unification.
+  comments are loaded by explicit detail opens instead of list prefetch. Diagnostics now shows
+  per-cache-family fresh/stale retained-record counts; remaining write invalidation policies, cache
+  cleanup, and more detailed refresh failure summaries still need to land with cache unification.
 - Add a generic in-memory TTL cache policy around Jira reads using maintained library support where
   possible: cache typeahead/metadata/detail/view data with per-data TTLs, refresh important entries
   asynchronously on expiry or view timers, use bounded background workers/threads where helpful,
   and merge new ticket rows into active views without blocking the TUI.
 - Extend the Diagnostics overlay with queue depth, per-view refresh timestamps, cache expiry/refresh
   events, and background sync summaries as cache and prefetch tooling grows. Queue running,
-  pending, coalesced, and capacity counts are now visible; per-cache-record refresh summaries still
-  need to land with cache unification.
+  pending, coalesced, capacity counts, and per-cache-family fresh/stale counts are now visible;
+  per-cache-record refresh summaries still need to land with cache unification.
 - Extend the SQLite persistent cache beyond active views after the active-view path proves useful:
   persist remaining metadata with per-site namespaces, schema migrations, and safe cache deletion.
   Active views, issue detail, comments, transitions, edit metadata, create metadata, and expanded

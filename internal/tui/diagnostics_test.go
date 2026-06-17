@@ -277,6 +277,46 @@ func TestDiagnosticsOverlayShowsSummaryAndActivityBars(t *testing.T) {
 	}
 }
 
+func TestDiagnosticsOverlayShowsCacheFamilySummary(t *testing.T) {
+	now := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.loading = false
+	model.diagnosticsOpen = true
+	model.width = 140
+	model.height = 30
+
+	model.cacheActiveIssueView("project = ABC", []jira.Issue{{Key: "ABC-1"}}, now)
+	model.cacheActiveIssueView("project = XYZ", []jira.Issue{{Key: "XYZ-1"}}, now.Add(-2*activeViewCacheTTL))
+	model.cacheIssueDetail("ABC-1", jira.IssueDetail{Issue: jira.Issue{Key: "ABC-1"}}, now)
+	model.cacheIssueDetail("ABC-2", jira.IssueDetail{Issue: jira.Issue{Key: "ABC-2"}}, now.Add(-2*issueDetailCacheTTL))
+	model.cacheIssueComments("ABC-1", []jira.Comment{{ID: "10001"}}, now)
+	model.cacheIssueTransitions("ABC-1", []jira.Transition{{ID: "21", Name: "Start"}}, now.Add(-2*issueTransitionsCacheTTL))
+	model.cacheIssueEditMetadata("ABC-1", jira.EditMetadata{Summary: jira.EditField{ID: "summary"}}, now)
+	model.cacheCreateIssueTypes("DEVOPS", []jira.CreateIssueType{{ID: "10001", Name: "Story"}}, now)
+	model.cacheCreateFields("DEVOPS", "10001", []jira.CreateField{{ID: "summary", Name: "Summary"}}, now.Add(-2*createFieldsCacheTTL))
+	model.cacheExpandedChildren("ABC-1", worker.ExpandModeOpen, []jira.Issue{{Key: "ABC-2"}}, now)
+
+	view := model.render()
+
+	for _, want := range []string{
+		"Cache records",
+		"active_view 1 fresh 1 stale",
+		"issue_detail 1 fresh 1 stale",
+		"comments 1 fresh 0 stale",
+		"transitions 0 fresh 1 stale",
+		"edit_meta 1 fresh 0 stale",
+		"create_types 1 fresh 0 stale",
+		"create_fields 0 fresh 1 stale",
+		"expanded_children 1 fresh 0 stale",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in %q", want, view)
+		}
+	}
+}
+
 func TestDiagnosticsQueueSummaryShowsWorkerSchedulerState(t *testing.T) {
 	summary := renderWorkerQueueSummary(worker.Stats{
 		Running:   1,
