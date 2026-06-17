@@ -4,6 +4,8 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+## 0.2.1 - 2026-06-17
+
 - Added a `cmd/jira` package for versioned `go install` installs, corrected the Go module path to
   the actual GitHub repository, and documented release binary, Go, and source install paths.
 

@@ -9,7 +9,7 @@
 - [x] Keep Homebrew as the remaining packaging follow-up.
 - [x] Update changelog, project state, roadmap, and backlog.
 - [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
-- [ ] Merge, push, and cut a patch release so the documented versioned install path resolves.
+- [x] Merge, push, and cut a patch release so the documented versioned install path resolves.
 
 ### Packaging Install Story Scope
 
