@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/jon/jira-tui/internal/cache"
@@ -106,6 +107,11 @@ func runApp() error {
 	}
 	if cacheStore, cacheErr := cache.OpenDefault(); cacheErr == nil {
 		defer cacheStore.Close()
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			_, _ = cacheStore.DeleteRowsUpdatedBefore(ctx, time.Now().Add(-cache.DefaultCleanupMaxAge))
+		}()
 		options = append(options, jiratui.WithActiveViewStore(cacheStore, cfg.BaseURL))
 	}
 	model := jiratui.NewModel(client, cfg.DefaultJQL, options...)

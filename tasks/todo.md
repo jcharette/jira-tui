@@ -1,5 +1,36 @@
 # Task Plan
 
+## Persistent Cache Cleanup
+
+- [x] Add focused SQLite store tests for conservative age-based cache cleanup.
+- [x] Add a cleanup method that deletes rows by `updated_at_unix_nano` cutoff across every cache
+  table.
+- [x] Run cleanup after opening the default cache store without blocking the Bubble Tea render loop.
+- [x] Keep cleanup based on disk retention age, not record freshness, so stale-while-revalidate
+  behavior remains intact.
+- [x] Update cache performance docs/changelog/backlog.
+- [x] Run focused cache tests, full Go tests, `make check`, and install the updated binary.
+
+### Persistent Cache Cleanup Scope
+
+Prevent the private SQLite cache from growing forever. Cleanup should be conservative and should
+only remove records that have not been updated for the configured persistent retention window. Do
+not delete records merely because `FreshTill` has passed; stale active views and detail data are
+still useful while background refresh runs.
+
+### Persistent Cache Cleanup Review
+
+- Added `Store.DeleteRowsUpdatedBefore` to delete old rows from every persistent cache table using
+  the existing `updated_at_unix_nano` indexes.
+- Kept cleanup conservative: records are removed only when their disk update time is older than the
+  seven-day retention window, not when their freshness TTL expires.
+- Started cleanup as a short best-effort background task after opening the default cache store so it
+  does not block Bubble Tea startup/rendering.
+- Added store coverage that proves old rows across every cache table are deleted while recent stale
+  rows remain available.
+- Verified with focused cache cleanup tests, `go test ./... -count=1`, `make check`, and
+  `make install-user`.
+
 ## Write-Side Cache Consistency
 
 - [x] Add focused tests proving summary/priority/assignee/description/status writes patch retained

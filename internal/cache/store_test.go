@@ -269,6 +269,167 @@ func TestStoreInvalidatesIssueTransitions(t *testing.T) {
 	}
 }
 
+func TestStoreDeletesRowsOlderThanCutoffAcrossCacheTables(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(filepath.Join(t.TempDir(), "cache.sqlite"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	oldSite := "old-site"
+	recentSite := "recent-site"
+	for _, namespace := range []string{oldSite, recentSite} {
+		if err := store.PutActiveView(ctx, ActiveViewRecord{
+			Namespace: namespace,
+			CacheKey:  "project = ABC",
+			Issues:    []jira.Issue{{Key: "ABC-1"}},
+			SyncedAt:  now.Add(-2 * time.Hour),
+			FreshTill: now.Add(-time.Hour),
+		}); err != nil {
+			t.Fatalf("PutActiveView(%s) error = %v", namespace, err)
+		}
+		if err := store.PutIssueDetail(ctx, IssueDetailRecord{
+			Namespace: namespace,
+			IssueKey:  "ABC-1",
+			Detail:    jira.IssueDetail{Issue: jira.Issue{Key: "ABC-1"}},
+			SyncedAt:  now.Add(-2 * time.Hour),
+			FreshTill: now.Add(-time.Hour),
+		}); err != nil {
+			t.Fatalf("PutIssueDetail(%s) error = %v", namespace, err)
+		}
+		if err := store.PutIssueComments(ctx, IssueCommentsRecord{
+			Namespace:  namespace,
+			IssueKey:   "ABC-1",
+			MaxResults: 10,
+			Comments:   []jira.Comment{{ID: "10001"}},
+			SyncedAt:   now.Add(-2 * time.Hour),
+			FreshTill:  now.Add(-time.Hour),
+		}); err != nil {
+			t.Fatalf("PutIssueComments(%s) error = %v", namespace, err)
+		}
+		if err := store.PutIssueTransitions(ctx, IssueTransitionsRecord{
+			Namespace:   namespace,
+			IssueKey:    "ABC-1",
+			Transitions: []jira.Transition{{ID: "21"}},
+			SyncedAt:    now.Add(-2 * time.Hour),
+			FreshTill:   now.Add(-time.Hour),
+		}); err != nil {
+			t.Fatalf("PutIssueTransitions(%s) error = %v", namespace, err)
+		}
+		if err := store.PutIssueEditMetadata(ctx, IssueEditMetadataRecord{
+			Namespace: namespace,
+			IssueKey:  "ABC-1",
+			Metadata:  jira.EditMetadata{Summary: jira.EditField{ID: "summary"}},
+			SyncedAt:  now.Add(-2 * time.Hour),
+			FreshTill: now.Add(-time.Hour),
+		}); err != nil {
+			t.Fatalf("PutIssueEditMetadata(%s) error = %v", namespace, err)
+		}
+		if err := store.PutCreateIssueTypes(ctx, CreateIssueTypesRecord{
+			Namespace:  namespace,
+			ProjectKey: "ABC",
+			IssueTypes: []jira.CreateIssueType{{ID: "10001"}},
+			SyncedAt:   now.Add(-2 * time.Hour),
+			FreshTill:  now.Add(-time.Hour),
+		}); err != nil {
+			t.Fatalf("PutCreateIssueTypes(%s) error = %v", namespace, err)
+		}
+		if err := store.PutCreateFields(ctx, CreateFieldsRecord{
+			Namespace:   namespace,
+			ProjectKey:  "ABC",
+			IssueTypeID: "10001",
+			Fields:      []jira.CreateField{{ID: "summary"}},
+			SyncedAt:    now.Add(-2 * time.Hour),
+			FreshTill:   now.Add(-time.Hour),
+		}); err != nil {
+			t.Fatalf("PutCreateFields(%s) error = %v", namespace, err)
+		}
+		if err := store.PutExpandedChildren(ctx, ExpandedChildrenRecord{
+			Namespace: namespace,
+			ParentKey: "ABC-1",
+			Mode:      "open",
+			Issues:    []jira.Issue{{Key: "ABC-2"}},
+			SyncedAt:  now.Add(-2 * time.Hour),
+			FreshTill: now.Add(-time.Hour),
+		}); err != nil {
+			t.Fatalf("PutExpandedChildren(%s) error = %v", namespace, err)
+		}
+	}
+
+	oldUpdatedAt := now.Add(-8 * 24 * time.Hour).UnixNano()
+	for _, table := range []string{
+		"active_views",
+		"issue_details",
+		"issue_comments",
+		"issue_transitions",
+		"issue_edit_metadata",
+		"create_issue_types",
+		"create_fields",
+		"expanded_children",
+	} {
+		if _, err := store.db.ExecContext(ctx, "UPDATE "+table+" SET updated_at_unix_nano = ? WHERE namespace = ?", oldUpdatedAt, oldSite); err != nil {
+			t.Fatalf("age %s rows: %v", table, err)
+		}
+	}
+
+	deleted, err := store.DeleteRowsUpdatedBefore(ctx, now.Add(-7*24*time.Hour))
+	if err != nil {
+		t.Fatalf("DeleteRowsUpdatedBefore() error = %v", err)
+	}
+	if deleted != 8 {
+		t.Fatalf("deleted rows = %d, want 8", deleted)
+	}
+
+	assertMissing := func(name string, ok bool, err error) {
+		t.Helper()
+		if err != nil || ok {
+			t.Fatalf("%s old row ok=%v err=%v", name, ok, err)
+		}
+	}
+	assertPresent := func(name string, ok bool, err error) {
+		t.Helper()
+		if err != nil || !ok {
+			t.Fatalf("%s recent row ok=%v err=%v", name, ok, err)
+		}
+	}
+
+	_, ok, err := store.GetActiveView(ctx, oldSite, "project = ABC")
+	assertMissing("active view", ok, err)
+	_, ok, err = store.GetIssueDetail(ctx, oldSite, "ABC-1")
+	assertMissing("issue detail", ok, err)
+	_, ok, err = store.GetIssueComments(ctx, oldSite, "ABC-1", 10)
+	assertMissing("issue comments", ok, err)
+	_, ok, err = store.GetIssueTransitions(ctx, oldSite, "ABC-1")
+	assertMissing("issue transitions", ok, err)
+	_, ok, err = store.GetIssueEditMetadata(ctx, oldSite, "ABC-1")
+	assertMissing("issue edit metadata", ok, err)
+	_, ok, err = store.GetCreateIssueTypes(ctx, oldSite, "ABC")
+	assertMissing("create issue types", ok, err)
+	_, ok, err = store.GetCreateFields(ctx, oldSite, "ABC", "10001")
+	assertMissing("create fields", ok, err)
+	_, ok, err = store.GetExpandedChildren(ctx, oldSite, "ABC-1", "open")
+	assertMissing("expanded children", ok, err)
+
+	_, ok, err = store.GetActiveView(ctx, recentSite, "project = ABC")
+	assertPresent("active view", ok, err)
+	_, ok, err = store.GetIssueDetail(ctx, recentSite, "ABC-1")
+	assertPresent("issue detail", ok, err)
+	_, ok, err = store.GetIssueComments(ctx, recentSite, "ABC-1", 10)
+	assertPresent("issue comments", ok, err)
+	_, ok, err = store.GetIssueTransitions(ctx, recentSite, "ABC-1")
+	assertPresent("issue transitions", ok, err)
+	_, ok, err = store.GetIssueEditMetadata(ctx, recentSite, "ABC-1")
+	assertPresent("issue edit metadata", ok, err)
+	_, ok, err = store.GetCreateIssueTypes(ctx, recentSite, "ABC")
+	assertPresent("create issue types", ok, err)
+	_, ok, err = store.GetCreateFields(ctx, recentSite, "ABC", "10001")
+	assertPresent("create fields", ok, err)
+	_, ok, err = store.GetExpandedChildren(ctx, recentSite, "ABC-1", "open")
+	assertPresent("expanded children", ok, err)
+}
+
 func TestStorePersistsIssueEditMetadataRecords(t *testing.T) {
 	ctx := context.Background()
 	store, err := Open(filepath.Join(t.TempDir(), "cache.sqlite"))

@@ -15,7 +15,21 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 1
+const (
+	schemaVersion        = 1
+	DefaultCleanupMaxAge = 7 * 24 * time.Hour
+)
+
+var cleanupTables = []string{
+	"active_views",
+	"issue_details",
+	"issue_comments",
+	"issue_transitions",
+	"issue_edit_metadata",
+	"create_issue_types",
+	"create_fields",
+	"expanded_children",
+}
 
 type Store struct {
 	db *sql.DB
@@ -130,6 +144,37 @@ func (s *Store) Close() error {
 		return nil
 	}
 	return s.db.Close()
+}
+
+func (s *Store) DeleteRowsUpdatedBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	if s == nil || s.db == nil {
+		return 0, errors.New("cache store is closed")
+	}
+	if cutoff.IsZero() {
+		return 0, errors.New("cleanup cutoff is required")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	var deleted int64
+	for _, table := range cleanupTables {
+		result, err := tx.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s WHERE updated_at_unix_nano < ?", table), cutoff.UnixNano())
+		if err != nil {
+			_ = tx.Rollback()
+			return 0, err
+		}
+		count, err := result.RowsAffected()
+		if err != nil {
+			_ = tx.Rollback()
+			return 0, err
+		}
+		deleted += count
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return deleted, nil
 }
 
 func (s *Store) PutActiveView(ctx context.Context, record ActiveViewRecord) error {

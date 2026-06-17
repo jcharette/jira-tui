@@ -180,7 +180,8 @@ paths. Diagnostics now renders per-cache-family fresh/stale retained-record coun
 views, issue detail, comments, transitions, edit metadata, create metadata, and expanded children.
 Confirmed summary, description, priority, assignee, and status writes now patch retained
 issue-detail and current active-view cache records, and status writes invalidate retained transition
-options because available transitions depend on the current status. Cache cleanup and per-record
+options because available transitions depend on the current status. Persistent SQLite rows not
+updated within the last seven days are cleaned up by a short best-effort startup task. Per-record
 refresh failure summaries are still pending.
 
 ### Slice 4: Optional persistent cache
@@ -196,7 +197,8 @@ cache directory with `modernc.org/sqlite`, hydrates active view rows by Jira bas
 JQL, hydrates ticket-detail reads by issue key, hydrates create metadata by project and issue type,
 hydrates explicit expanded children by parent and mode, and writes successful active
 view/detail/comment/transition/edit metadata/create metadata/expanded-child reads back to disk.
-Comment writes invalidate persisted comments. Cache cleanup policies remain pending.
+Comment writes invalidate persisted comments, status writes invalidate persisted transitions, and
+cache rows not updated within the last seven days are removed during startup cleanup.
 
 ## Non-Goals For The First Slice
 

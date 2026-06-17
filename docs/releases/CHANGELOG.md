@@ -4,6 +4,8 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Added conservative persistent cache cleanup that removes SQLite cache rows not updated in the
+  last seven days from a short background startup task.
 - Patched retained issue-detail and current active-view cache records after confirmed summary,
   description, priority, assignee, and status writes, and invalidated cached transition options after
   status changes.
