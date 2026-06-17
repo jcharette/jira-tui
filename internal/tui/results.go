@@ -115,6 +115,11 @@ func (m Model) handleEditMetadataResult(result worker.Result) Model {
 		m.summaryMetadataLoading = false
 	}
 	if result.Err != nil {
+		requestKey := m.summaryMetadataRequestKey
+		if isPriorityRequest {
+			requestKey = m.priorityMetadataRequestKey
+		}
+		m.markIssueEditMetadataCacheError(requestKey, result.Err)
 		if isPriorityRequest {
 			m.priorityMetadataErr = result.Err
 			m.detailNotice = "Priority metadata failed: " + result.Err.Error()
@@ -244,6 +249,7 @@ func (m Model) handleGetTransitionsResult(result worker.Result) Model {
 	m.transitionLoading = false
 	if result.Err != nil {
 		m.transitionErr = result.Err
+		m.markIssueTransitionsCacheError(m.transitionRequestKey, result.Err)
 		m.detailNotice = "Transitions failed: " + result.Err.Error()
 		return m
 	}
@@ -304,6 +310,7 @@ func (m Model) handleExpandIssuesResult(result worker.Result) Model {
 	}
 	m.expandLoading = false
 	if result.Err != nil {
+		m.markExpandedChildrenCacheError(m.expandRequestKey, m.expandMode, result.Err)
 		m.detailNotice = "Expand failed: " + result.Err.Error()
 		return m
 	}
@@ -337,6 +344,7 @@ func (m Model) handleSearchResult(result worker.Result) (Model, tea.Cmd) {
 	m.refreshing = false
 	if result.Err != nil {
 		m.err = result.Err
+		m.markActiveIssueViewCacheError(m.jql, result.Err)
 		if len(m.issues) > 0 {
 			m.viewStale = true
 		}
@@ -376,6 +384,7 @@ func (m Model) handleDetailResult(result worker.Result) Model {
 	m.detailLoading = false
 	if result.Err != nil {
 		m.detailErr = result.Err
+		m.markIssueDetailCacheError(m.detailRequestKey, result.Err)
 		return m
 	}
 	if result.GetIssue == nil {
@@ -401,6 +410,10 @@ func (m Model) cachedIssueDetail(key string) (jiraCacheRecord[jira.IssueDetail],
 		return jiraCacheRecord[jira.IssueDetail]{}, false
 	}
 	return item.Value(), true
+}
+
+func (m *Model) markIssueDetailCacheError(key string, err error) {
+	markJiraCacheRecordError(m.detailCache, strings.TrimSpace(key), err)
 }
 
 func (m *Model) cacheIssueDetail(key string, detail jira.IssueDetail, syncedAt time.Time) {
@@ -493,6 +506,7 @@ func (m Model) handleCommentsResult(result worker.Result) Model {
 	m.commentsLoading = false
 	if result.Err != nil {
 		m.commentsErr = result.Err
+		m.markIssueCommentsCacheError(m.commentsRequestKey, result.Err)
 		return m
 	}
 	if result.GetComments == nil {
@@ -521,6 +535,10 @@ func (m Model) cachedIssueComments(key string) (jiraCacheRecord[[]jira.Comment],
 		return jiraCacheRecord[[]jira.Comment]{}, false
 	}
 	return item.Value(), true
+}
+
+func (m *Model) markIssueCommentsCacheError(key string, err error) {
+	markJiraCacheRecordError(m.commentsCache, strings.TrimSpace(key), err)
 }
 
 func (m *Model) cacheIssueComments(key string, comments []jira.Comment, syncedAt time.Time) {

@@ -45,6 +45,7 @@ func (m Model) handleGetCreateIssueTypesResult(result worker.Result) Model {
 	m.createIssueTypesLoading = false
 	if result.Err != nil {
 		m.createIssueTypesErr = result.Err
+		m.markCreateIssueTypesCacheError(m.createProjectKey, result.Err)
 		return m
 	}
 	if result.GetCreateIssueTypes == nil {
@@ -67,6 +68,7 @@ func (m Model) handleGetCreateFieldsResult(result worker.Result) Model {
 	m.createFieldsLoading = false
 	if result.Err != nil {
 		m.createFieldsErr = result.Err
+		m.markCreateFieldsCacheError(m.createProjectKey, m.createIssueType.ID, result.Err)
 		return m
 	}
 	if result.GetCreateFields == nil {

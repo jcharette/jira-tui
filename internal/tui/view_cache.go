@@ -37,6 +37,7 @@ type issueViewCacheRecord struct {
 	Issues    []jira.Issue
 	SyncedAt  time.Time
 	FreshTill time.Time
+	Err       error
 }
 
 func newIssueViewCache() *ttlcache.Cache[string, issueViewCacheRecord] {
@@ -84,6 +85,20 @@ func (m *Model) cacheActiveIssueView(jql string, issues []jira.Issue, syncedAt t
 	}
 	m.activeViewCache.Set(activeViewCacheKey(jql), record, ttlcache.DefaultTTL)
 	m.persistActiveIssueView(jql, record)
+}
+
+func (m *Model) markActiveIssueViewCacheError(jql string, err error) {
+	if m.activeViewCache == nil || err == nil {
+		return
+	}
+	key := activeViewCacheKey(jql)
+	item := m.activeViewCache.Get(key)
+	if item == nil {
+		return
+	}
+	record := item.Value()
+	record.Err = err
+	m.activeViewCache.Set(key, record, ttlcache.DefaultTTL)
 }
 
 func (m *Model) applyActiveIssueView(record issueViewCacheRecord, stale bool) {
@@ -322,6 +337,10 @@ func (m Model) cachedIssueTransitions(key string) (jiraCacheRecord[[]jira.Transi
 	return item.Value(), true
 }
 
+func (m *Model) markIssueTransitionsCacheError(key string, err error) {
+	markJiraCacheRecordError(m.transitionsCache, strings.TrimSpace(key), err)
+}
+
 func (m *Model) cacheIssueTransitions(key string, transitions []jira.Transition, syncedAt time.Time) {
 	key = strings.TrimSpace(key)
 	if m.transitionsCache == nil || key == "" {
@@ -367,6 +386,10 @@ func (m Model) cachedIssueEditMetadata(key string) (jiraCacheRecord[jira.EditMet
 		return jiraCacheRecord[jira.EditMetadata]{}, false
 	}
 	return item.Value(), true
+}
+
+func (m *Model) markIssueEditMetadataCacheError(key string, err error) {
+	markJiraCacheRecordError(m.editMetadataCache, strings.TrimSpace(key), err)
 }
 
 func (m *Model) cacheIssueEditMetadata(key string, metadata jira.EditMetadata, syncedAt time.Time) {
@@ -481,6 +504,10 @@ func (m Model) cachedCreateIssueTypes(projectKey string) (jiraCacheRecord[[]jira
 	return item.Value(), true
 }
 
+func (m *Model) markCreateIssueTypesCacheError(projectKey string, err error) {
+	markJiraCacheRecordError(m.createIssueTypesCache, normalizeCreateProjectKey(projectKey), err)
+}
+
 func (m *Model) cacheCreateIssueTypes(projectKey string, issueTypes []jira.CreateIssueType, syncedAt time.Time) {
 	projectKey = normalizeCreateProjectKey(projectKey)
 	if projectKey == "" {
@@ -525,6 +552,10 @@ func (m Model) cachedCreateFields(projectKey string, issueTypeID string) (jiraCa
 		return jiraCacheRecord[[]jira.CreateField]{}, false
 	}
 	return item.Value(), true
+}
+
+func (m *Model) markCreateFieldsCacheError(projectKey string, issueTypeID string, err error) {
+	markJiraCacheRecordError(m.createFieldsCache, createFieldsCacheKey(projectKey, issueTypeID), err)
 }
 
 func (m *Model) cacheCreateFields(projectKey string, issueTypeID string, fields []jira.CreateField, syncedAt time.Time) {
@@ -631,6 +662,10 @@ func (m Model) cachedExpandedChildren(parentKey string, mode worker.ExpandMode) 
 		return jiraCacheRecord[[]jira.Issue]{}, false
 	}
 	return item.Value(), true
+}
+
+func (m *Model) markExpandedChildrenCacheError(parentKey string, mode worker.ExpandMode, err error) {
+	markJiraCacheRecordError(m.expandedChildrenCache, expandedChildrenCacheKey(parentKey, mode), err)
 }
 
 func (m *Model) cacheExpandedChildren(parentKey string, mode worker.ExpandMode, issues []jira.Issue, syncedAt time.Time) {

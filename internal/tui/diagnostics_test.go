@@ -317,6 +317,143 @@ func TestDiagnosticsOverlayShowsCacheFamilySummary(t *testing.T) {
 	}
 }
 
+func TestDiagnosticsOverlayShowsCacheRefreshFailureSummary(t *testing.T) {
+	now := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.loading = false
+	model.diagnosticsOpen = true
+	model.width = 150
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1"}}
+	model.cacheActiveIssueView(model.jql, model.issues, now.Add(-2*activeViewCacheTTL))
+	model.cacheIssueDetail("ABC-1", jira.IssueDetail{Issue: jira.Issue{Key: "ABC-1"}, Description: "Stale detail"}, now.Add(-2*issueDetailCacheTTL))
+	model.cacheIssueComments("ABC-1", []jira.Comment{{ID: "10001", Body: "Stale comment"}}, now.Add(-2*issueCommentsCacheTTL))
+
+	model.activeRequestID = 11
+	updated, _ := model.Update(workerResultMsg{result: worker.Result{
+		ID:   11,
+		Kind: worker.KindSearchIssues,
+		Err:  fmt.Errorf("search unavailable"),
+	}})
+	model = updated.(Model)
+
+	model.activeDetailRequestID = 12
+	model.detailRequestKey = "ABC-1"
+	updated, _ = model.Update(workerResultMsg{result: worker.Result{
+		ID:   12,
+		Kind: worker.KindGetIssue,
+		Err:  fmt.Errorf("detail unavailable"),
+	}})
+	model = updated.(Model)
+
+	model.activeCommentsReqID = 13
+	model.commentsRequestKey = "ABC-1"
+	updated, _ = model.Update(workerResultMsg{result: worker.Result{
+		ID:   13,
+		Kind: worker.KindGetComments,
+		Err:  fmt.Errorf("comments unavailable"),
+	}})
+	model = updated.(Model)
+
+	view := model.render()
+
+	for _, want := range []string{
+		"active_view 0 fresh 1 stale 1 error",
+		"issue_detail 0 fresh 1 stale 1 error",
+		"comments 0 fresh 1 stale 1 error",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in %q", want, view)
+		}
+	}
+	if record, ok := model.cachedIssueDetail("ABC-1"); !ok || record.Err == nil {
+		t.Fatalf("detail cache error was not retained: ok=%v record=%#v", ok, record)
+	}
+	if record, ok := model.cachedIssueComments("ABC-1"); !ok || record.Err == nil {
+		t.Fatalf("comments cache error was not retained: ok=%v record=%#v", ok, record)
+	}
+}
+
+func TestDiagnosticsOverlayShowsMetadataCacheRefreshFailures(t *testing.T) {
+	now := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.loading = false
+	model.diagnosticsOpen = true
+	model.width = 180
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1"}}
+	model.cacheIssueTransitions("ABC-1", []jira.Transition{{ID: "21"}}, now.Add(-2*issueTransitionsCacheTTL))
+	model.cacheIssueEditMetadata("ABC-1", jira.EditMetadata{Summary: jira.EditField{ID: "summary"}}, now.Add(-2*issueEditMetadataCacheTTL))
+	model.cacheCreateIssueTypes("ABC", []jira.CreateIssueType{{ID: "10001"}}, now.Add(-2*createIssueTypesCacheTTL))
+	model.cacheCreateFields("ABC", "10001", []jira.CreateField{{ID: "summary"}}, now.Add(-2*createFieldsCacheTTL))
+	model.cacheExpandedChildren("ABC-1", worker.ExpandModeOpen, []jira.Issue{{Key: "ABC-2"}}, now.Add(-2*expandedChildrenCacheTTL))
+
+	model.activeTransitionsReqID = 21
+	model.transitionRequestKey = "ABC-1"
+	updated, _ := model.Update(workerResultMsg{result: worker.Result{
+		ID:   21,
+		Kind: worker.KindGetTransitions,
+		Err:  fmt.Errorf("transitions unavailable"),
+	}})
+	model = updated.(Model)
+
+	model.activeSummaryMetadataReqID = 22
+	model.summaryMetadataRequestKey = "ABC-1"
+	updated, _ = model.Update(workerResultMsg{result: worker.Result{
+		ID:   22,
+		Kind: worker.KindGetEditMetadata,
+		Err:  fmt.Errorf("metadata unavailable"),
+	}})
+	model = updated.(Model)
+
+	model.createOpen = true
+	model.createProjectKey = "ABC"
+	model.activeCreateIssueTypesReqID = 23
+	updated, _ = model.Update(workerResultMsg{result: worker.Result{
+		ID:   23,
+		Kind: worker.KindGetCreateIssueTypes,
+		Err:  fmt.Errorf("issue types unavailable"),
+	}})
+	model = updated.(Model)
+
+	model.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Story"}
+	model.activeCreateFieldsReqID = 24
+	updated, _ = model.Update(workerResultMsg{result: worker.Result{
+		ID:   24,
+		Kind: worker.KindGetCreateFields,
+		Err:  fmt.Errorf("fields unavailable"),
+	}})
+	model = updated.(Model)
+
+	model.activeExpandReqID = 25
+	model.expandRequestKey = "ABC-1"
+	model.expandMode = worker.ExpandModeOpen
+	updated, _ = model.Update(workerResultMsg{result: worker.Result{
+		ID:   25,
+		Kind: worker.KindExpandIssues,
+		Err:  fmt.Errorf("children unavailable"),
+	}})
+	model = updated.(Model)
+
+	view := model.render()
+
+	for _, want := range []string{
+		"transitions 0 fresh 1 stale 1 error",
+		"edit_meta 0 fresh 1 stale 1 error",
+		"create_types 0 fresh 1 stale 1 error",
+		"create_fields 0 fresh 1 stale 1 error",
+		"expanded_children 0 fresh 1 stale 1 error",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in %q", want, view)
+		}
+	}
+}
+
 func TestDiagnosticsQueueSummaryShowsWorkerSchedulerState(t *testing.T) {
 	summary := renderWorkerQueueSummary(worker.Stats{
 		Running:   1,

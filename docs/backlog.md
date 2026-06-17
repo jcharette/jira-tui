@@ -45,16 +45,16 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
   per-cache-family fresh/stale retained-record counts. Confirmed summary, description, priority,
   assignee, and status writes now patch retained detail/current-view cache records, and status
   writes invalidate cached transitions. Persistent cache rows not updated in the last seven days are
-  cleaned up from a short background startup task; more detailed refresh failure summaries still
-  need to land with cache unification.
+  cleaned up from a short background startup task. Failed refreshes now attach their latest error to
+  retained cache records and Diagnostics reports per-cache-family error counts.
 - Add a generic in-memory TTL cache policy around Jira reads using maintained library support where
   possible: cache typeahead/metadata/detail/view data with per-data TTLs, refresh important entries
   asynchronously on expiry or view timers, use bounded background workers/threads where helpful,
   and merge new ticket rows into active views without blocking the TUI.
 - Extend the Diagnostics overlay with queue depth, per-view refresh timestamps, cache expiry/refresh
   events, and background sync summaries as cache and prefetch tooling grows. Queue running,
-  pending, coalesced, capacity counts, and per-cache-family fresh/stale counts are now visible;
-  per-cache-record refresh summaries still need to land with cache unification.
+  pending, coalesced, capacity counts, and per-cache-family fresh/stale/error counts are now
+  visible.
 - Extend the SQLite persistent cache beyond active views after the active-view path proves useful:
   persist remaining metadata with per-site namespaces, schema migrations, and safe cache deletion.
   Active views, issue detail, comments, transitions, edit metadata, create metadata, and expanded

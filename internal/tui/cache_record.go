@@ -28,6 +28,19 @@ func newJiraCache[T any](retention time.Duration) *ttlcache.Cache[string, jiraCa
 	return ttlcache.New[string, jiraCacheRecord[T]](ttlcache.WithTTL[string, jiraCacheRecord[T]](retention))
 }
 
+func markJiraCacheRecordError[T any](cache *ttlcache.Cache[string, jiraCacheRecord[T]], key string, err error) {
+	if cache == nil || key == "" || err == nil {
+		return
+	}
+	item := cache.Get(key)
+	if item == nil {
+		return
+	}
+	record := item.Value()
+	record.Err = err
+	cache.Set(key, record, ttlcache.DefaultTTL)
+}
+
 func (r jiraCacheRecord[T]) Fresh(now time.Time) bool {
 	return !r.FreshTill.IsZero() && now.Before(r.FreshTill)
 }

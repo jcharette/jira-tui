@@ -102,9 +102,10 @@ func renderWorkerQueueSummary(stats worker.Stats, width int) string {
 }
 
 type cacheFamilyStat struct {
-	Label string
-	Fresh int
-	Stale int
+	Label  string
+	Fresh  int
+	Stale  int
+	Errors int
 }
 
 func (m Model) renderCacheFamilySummary(width int) string {
@@ -123,7 +124,11 @@ func (m Model) renderCacheFamilySummary(width int) string {
 		if stat.Fresh == 0 && stat.Stale == 0 {
 			continue
 		}
-		parts = append(parts, fmt.Sprintf("%s %d fresh %d stale", stat.Label, stat.Fresh, stat.Stale))
+		part := fmt.Sprintf("%s %d fresh %d stale", stat.Label, stat.Fresh, stat.Stale)
+		if stat.Errors > 0 {
+			part += fmt.Sprintf(" %d error", stat.Errors)
+		}
+		parts = append(parts, part)
 	}
 	if len(parts) == 0 {
 		return ""
@@ -143,6 +148,9 @@ func (m Model) activeViewCacheFamilyStat() cacheFamilyStat {
 		} else {
 			stat.Stale++
 		}
+		if record.Err != nil {
+			stat.Errors++
+		}
 		return true
 	})
 	return stat
@@ -160,6 +168,9 @@ func jiraCacheFamilyStat[T any](m Model, label string, cache *ttlcache.Cache[str
 			stat.Fresh++
 		} else {
 			stat.Stale++
+		}
+		if record.Err != nil {
+			stat.Errors++
 		}
 		return true
 	})

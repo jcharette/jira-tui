@@ -181,8 +181,9 @@ views, issue detail, comments, transitions, edit metadata, create metadata, and 
 Confirmed summary, description, priority, assignee, and status writes now patch retained
 issue-detail and current active-view cache records, and status writes invalidate retained transition
 options because available transitions depend on the current status. Persistent SQLite rows not
-updated within the last seven days are cleaned up by a short best-effort startup task. Per-record
-refresh failure summaries are still pending.
+updated within the last seven days are cleaned up by a short best-effort startup task. Failed
+refreshes now attach their latest error to retained cache records and Diagnostics reports
+per-cache-family error counts alongside fresh/stale counts.
 
 ### Slice 4: Optional persistent cache
 

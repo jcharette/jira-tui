@@ -1,5 +1,35 @@
 # Task Plan
 
+## Cache Refresh Failure Diagnostics
+
+- [x] Add focused tests proving failed active-view, issue-detail, and comments refreshes attach
+  errors to retained cache records and render them in Diagnostics.
+- [x] Store refresh errors on retained active-view cache records.
+- [x] Store refresh errors on retained Jira cache records without changing the cached value or
+  freshness boundary.
+- [x] Render per-cache-family error counts in the Diagnostics cache summary.
+- [x] Update cache performance docs/changelog/backlog.
+- [x] Run focused diagnostics tests, full Go tests, `make check`, and install the updated binary.
+
+### Cache Refresh Failure Diagnostics Scope
+
+Improve observability only. When a refresh fails while a retained record still exists, keep the
+stale value visible and attach the latest refresh error to that retained record for Diagnostics.
+Do not change worker retry behavior, TTL values, cache persistence schema, or user-facing stale data
+rendering in this slice.
+
+### Cache Refresh Failure Diagnostics Review
+
+- Added Diagnostics regression coverage for failed active-view, issue-detail, comments,
+  transitions, edit metadata, create issue type, create field, and expanded-child refreshes.
+- Stored the latest refresh error on retained cache records without changing the cached value,
+  synced timestamp, freshness boundary, retry behavior, or persistence schema.
+- Extended the Diagnostics cache-family summary from fresh/stale counts to fresh/stale/error counts.
+- Updated cache performance docs, backlog, and changelog to remove the remaining refresh-failure
+  diagnostics backlog item.
+- Verified with focused Diagnostics tests, `go test ./... -count=1`, `make check`, and
+  `make install-user`.
+
 ## Persistent Cache Cleanup
 
 - [x] Add focused SQLite store tests for conservative age-based cache cleanup.
