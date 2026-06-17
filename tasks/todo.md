@@ -39,13 +39,13 @@ view, JQL, Jira reads, caches, issue ordering, and `m.issues`.
 - [x] Confirm UX design/spec for issue-list subtree collapse.
 - [ ] Audit issue-table key bindings and choose one low-conflict collapse toggle.
 - [x] Add focused tests for default expanded rendering and subtree collapse projection.
-- [ ] Add focused tests for subtree re-expand, preserved deeper collapse state, hidden-selection
-  repair, visible-row navigation, and explicit child expansion compatibility.
+- [ ] Add focused tests for subtree re-expand, preserved deeper collapse state, and explicit child
+  expansion compatibility.
 - [x] Add model-local collapse state keyed by issue key without changing Jira reads, caches, saved
   views, issue ordering, or `m.issues`.
 - [x] Derive visible issue rows from the existing tree plus collapse state.
 - [x] Render a compact hidden-descendant count on collapsed nodes.
-- [ ] Route issue-list navigation and selection visibility through visible rows.
+- [x] Route issue-list navigation and selection visibility through visible rows.
 - [ ] Update project docs/changelog for the user-visible issue-list behavior.
 - [ ] Run focused issue-list/navigation tests, broader Go verification, `make check`, and
   `make install-user`.
@@ -103,6 +103,23 @@ reveals that node while preserving any deeper collapsed branches.
   Jira reads, worker expansion flows, saved views, cache records, or `m.issues`.
 - Verified the focused Task 2 toggle/help command and the broader Task 2 command after recovering
   from the stalled worker; the original RED output was not preserved.
+
+### Task 3: Visible-Row Navigation And Selection Repair
+
+- [x] Add focused tests for skipping collapsed descendants during movement.
+- [x] Add focused tests for repairing selection hidden by a collapsed ancestor.
+- [x] Add focused tests for paging over visible rows.
+- [x] Route movement, paging, selection visibility, and table first/last commands through visible
+  issue rows.
+- [x] Run the focused Task 3 navigation test command.
+
+### Task 3 Review
+
+- Added visible-row navigation coverage for collapsed branches.
+- Routed table `j/k`, paging, `g/G`, and viewport offset calculations through the collapse-aware
+  rendered projection.
+- Preserved the raw loaded issue slice while changing only selection and offset behavior.
+- Verified with the focused Task 3 navigation command.
 
 ## Assignee And Mention Filter Textinput
 

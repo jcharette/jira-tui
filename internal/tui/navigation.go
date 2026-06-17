@@ -320,9 +320,9 @@ func (m *Model) scrollDetailToBottom() {
 
 func (m *Model) ensureSelectionVisible(rows int) {
 	rows = max(1, rows)
-	renderedRows := m.issueRows(m.browserLayout(m.width))
-	selectedRow := m.selectedRenderedRowIndex(renderedRows)
-	maxOffset := max(0, len(renderedRows)-rows)
+	lines := m.issueRenderLines(m.browserLayout(m.width))
+	selectedRow := m.selectedRenderedLineIndex(lines)
+	maxOffset := max(0, len(lines)-rows)
 	if selectedRow < m.offset {
 		m.offset = selectedRow
 	}
@@ -332,17 +332,16 @@ func (m *Model) ensureSelectionVisible(rows int) {
 	m.offset = clamp(m.offset, 0, maxOffset)
 }
 
-func (m Model) selectedRenderedRowIndex(rows []string) int {
+func (m Model) selectedRenderedLineIndex(lines []issueRenderLine) int {
 	if len(m.issues) == 0 || m.selected < 0 || m.selected >= len(m.issues) {
 		return 0
 	}
-	key := m.issues[m.selected].Key
-	for index, row := range rows {
-		if strings.Contains(row, key) {
+	for index, line := range lines {
+		if line.issueIndex == m.selected {
 			return index
 		}
 	}
-	return clamp(m.selected, 0, max(0, len(rows)-1))
+	return clamp(m.selected, 0, max(0, len(lines)-1))
 }
 
 func (m Model) currentLayoutRows() int {
@@ -392,6 +391,18 @@ func (m *Model) repairCollapsedSelection() {
 		return
 	}
 	m.selected = 0
+}
+
+func (m Model) visibleSelectionPosition(visible []int) int {
+	if len(visible) == 0 {
+		return 0
+	}
+	for position, index := range visible {
+		if index == m.selected {
+			return position
+		}
+	}
+	return 0
 }
 
 func (m *Model) replaceIssues(issues []jira.Issue) {

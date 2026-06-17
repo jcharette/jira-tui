@@ -1257,6 +1257,68 @@ func TestIssueListToggleCollapseLeafShowsNotice(t *testing.T) {
 	}
 }
 
+func TestIssueListNavigationSkipsCollapsedDescendants(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.height = 30
+	model.width = 120
+	model.selected = 0
+	model.collapsedIssueKeys = map[string]bool{"ABC-1": true}
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Parent", IssueType: "Epic"},
+		{Key: "ABC-2", Summary: "Child", IssueType: "Story", ParentKey: "ABC-1"},
+		{Key: "ABC-3", Summary: "Peer", IssueType: "Task"},
+	}
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
+	next := updated.(Model)
+
+	if got := next.issues[next.selected].Key; got != "ABC-3" {
+		t.Fatalf("selection after j = %s, want ABC-3", got)
+	}
+}
+
+func TestIssueListRepairSelectionHiddenByCollapsedAncestor(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.height = 30
+	model.width = 120
+	model.selected = 2
+	model.collapsedIssueKeys = map[string]bool{"ABC-1": true}
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Parent", IssueType: "Epic"},
+		{Key: "ABC-2", Summary: "Child", IssueType: "Story", ParentKey: "ABC-1"},
+		{Key: "ABC-3", Summary: "Grandchild", IssueType: "Task", ParentKey: "ABC-2"},
+	}
+
+	model.repairCollapsedSelection()
+
+	if got := model.issues[model.selected].Key; got != "ABC-1" {
+		t.Fatalf("selection after repair = %s, want collapsed ancestor ABC-1", got)
+	}
+}
+
+func TestIssueListPagingUsesVisibleRows(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.height = 30
+	model.width = 120
+	model.selected = 0
+	model.collapsedIssueKeys = map[string]bool{"ABC-1": true}
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Parent", IssueType: "Epic"},
+		{Key: "ABC-2", Summary: "Child", IssueType: "Story", ParentKey: "ABC-1"},
+		{Key: "ABC-3", Summary: "Peer 1", IssueType: "Task"},
+		{Key: "ABC-4", Summary: "Peer 2", IssueType: "Task"},
+	}
+
+	model.pageSelection(1)
+
+	if got := model.issues[model.selected].Key; got != "ABC-4" {
+		t.Fatalf("page selection = %s, want last visible issue ABC-4", got)
+	}
+}
+
 func TestIssueRenderLinesPreserveIssueIndexForMissingParentChildRow(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "symbols"}))
 	defer model.workers.Stop()
