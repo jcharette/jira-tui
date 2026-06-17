@@ -39,7 +39,7 @@ view, JQL, Jira reads, caches, issue ordering, and `m.issues`.
 - [x] Confirm UX design/spec for issue-list subtree collapse.
 - [ ] Audit issue-table key bindings and choose one low-conflict collapse toggle.
 - [x] Add focused tests for default expanded rendering and subtree collapse projection.
-- [ ] Add focused tests for subtree re-expand, preserved deeper collapse state, and explicit child
+- [x] Add focused tests for subtree re-expand, preserved deeper collapse state, and explicit child
   expansion compatibility.
 - [x] Add model-local collapse state keyed by issue key without changing Jira reads, caches, saved
   views, issue ordering, or `m.issues`.
@@ -120,6 +120,22 @@ reveals that node while preserving any deeper collapsed branches.
   rendered projection.
 - Preserved the raw loaded issue slice while changing only selection and offset behavior.
 - Verified with the focused Task 3 navigation command.
+
+### Task 4: Preserve Deeper Collapse State And Expansion Compatibility
+
+- [x] Add focused tests for expanding a parent while preserving deeper collapsed branches.
+- [x] Add focused tests proving explicit child merge keeps collapse state.
+- [x] Add refresh/replace regression coverage for repairing selection hidden by a preserved
+  collapsed ancestor.
+- [x] Repair selection after refreshed issue replacement restores a now-hidden selected issue.
+- [x] Run focused Task 4 tests and the broader issue-list regression command.
+
+### Task 4 Review
+
+- Preserved child collapse state when expanding an ancestor.
+- Kept explicit `x`/`X` merge behavior compatible with existing collapse state.
+- Repaired refresh replacement so preserved collapse state cannot leave selection on a hidden row.
+- Verified with focused Task 4 tests and the broader issue-list command.
 
 ## Assignee And Mention Filter Textinput
 

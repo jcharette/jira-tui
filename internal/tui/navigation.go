@@ -422,12 +422,14 @@ func (m *Model) replaceIssues(issues []jira.Issue) {
 		for index, issue := range m.issues {
 			if issue.Key == selectedKey {
 				m.selected = index
+				m.repairCollapsedSelection()
 				m.ensureSelectionVisible(m.currentLayoutRows())
 				return
 			}
 		}
 	}
 	m.selected = clamp(m.selected, 0, len(m.issues)-1)
+	m.repairCollapsedSelection()
 	m.ensureSelectionVisible(m.currentLayoutRows())
 }
 

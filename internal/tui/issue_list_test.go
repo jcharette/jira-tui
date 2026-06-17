@@ -1319,6 +1319,72 @@ func TestIssueListPagingUsesVisibleRows(t *testing.T) {
 	}
 }
 
+func TestIssueListExpandParentPreservesDeeperCollapsedBranch(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "symbols"}))
+	defer model.workers.Stop()
+	model.height = 30
+	model.width = 120
+	model.selected = 0
+	model.collapsedIssueKeys = map[string]bool{"ABC-1": true, "ABC-2": true}
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Parent", IssueType: "Epic"},
+		{Key: "ABC-2", Summary: "Child", IssueType: "Story", ParentKey: "ABC-1"},
+		{Key: "ABC-3", Summary: "Grandchild", IssueType: "Task", ParentKey: "ABC-2"},
+	}
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "z", Code: 'z'}))
+	next := updated.(Model)
+	view := next.renderIssueList(next.browserLayout(next.width))
+
+	if next.collapsedIssueKeys["ABC-1"] {
+		t.Fatalf("parent should be expanded, state=%v", next.collapsedIssueKeys)
+	}
+	if !next.collapsedIssueKeys["ABC-2"] {
+		t.Fatalf("child collapse state should remain, state=%v", next.collapsedIssueKeys)
+	}
+	if !strings.Contains(view, "ABC-2") || strings.Contains(view, "ABC-3") {
+		t.Fatalf("expanded parent should reveal collapsed child but not grandchild: %q", view)
+	}
+}
+
+func TestIssueListMergeExpandedIssuesPreservesCollapseState(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.collapsedIssueKeys = map[string]bool{"ABC-1": true}
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Parent", IssueType: "Epic"}}
+
+	added := model.mergeExpandedIssues([]jira.Issue{{Key: "ABC-2", Summary: "Child", ParentKey: "ABC-1"}})
+
+	if added != 1 {
+		t.Fatalf("added = %d, want 1", added)
+	}
+	if !model.collapsedIssueKeys["ABC-1"] {
+		t.Fatalf("collapse state should survive explicit expansion: %v", model.collapsedIssueKeys)
+	}
+}
+
+func TestIssueListReplaceIssuesRepairsSelectionHiddenByPreservedCollapse(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.height = 30
+	model.width = 120
+	model.selected = 1
+	model.collapsedIssueKeys = map[string]bool{"ABC-1": true}
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Parent", IssueType: "Epic"},
+		{Key: "ABC-2", Summary: "Child", IssueType: "Story", ParentKey: "ABC-1"},
+	}
+
+	model.replaceIssues([]jira.Issue{
+		{Key: "ABC-1", Summary: "Parent refreshed", IssueType: "Epic"},
+		{Key: "ABC-2", Summary: "Child refreshed", IssueType: "Story", ParentKey: "ABC-1"},
+	})
+
+	if got := model.issues[model.selected].Key; got != "ABC-1" {
+		t.Fatalf("selection after replace = %s, want collapsed parent ABC-1", got)
+	}
+}
+
 func TestIssueRenderLinesPreserveIssueIndexForMissingParentChildRow(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "symbols"}))
 	defer model.workers.Stop()
