@@ -1210,6 +1210,30 @@ func TestVisibleIssueIndexesIncludeMissingParentRoots(t *testing.T) {
 	}
 }
 
+func TestIssueRenderLinesPreserveIssueIndexForMissingParentChildRow(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "symbols"}))
+	defer model.workers.Stop()
+	model.height = 30
+	model.width = 120
+	model.issues = []jira.Issue{
+		{Key: "ABC-2", Summary: "Child story", IssueType: "Story", ParentKey: "ABC-1", ParentSummary: "Parent outside filter"},
+	}
+
+	lines := model.issueRenderLines(model.browserLayout(model.width))
+	if len(lines) < 2 {
+		t.Fatalf("expected placeholder and child rows, got %#v", lines)
+	}
+	if lines[0].issueIndex != -1 {
+		t.Fatalf("missing-parent placeholder issueIndex = %d, want -1", lines[0].issueIndex)
+	}
+	if lines[1].issueIndex != 0 {
+		t.Fatalf("missing-parent child row issueIndex = %d, want 0", lines[1].issueIndex)
+	}
+	if !strings.Contains(lines[1].text, "ABC-2") {
+		t.Fatalf("expected child row text to contain issue key, got %q", lines[1].text)
+	}
+}
+
 func TestIssueListKeepsShallowHierarchyOnNarrowTerminals(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "symbols"}))
 	defer model.workers.Stop()

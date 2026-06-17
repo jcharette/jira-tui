@@ -82,7 +82,7 @@ reveals that node while preserving any deeper collapsed branches.
 - [x] Fix collapsed-row rendering so the hidden-descendant cue survives summary truncation.
 - [x] Add direct `visibleIssueIndexes` assertions for collapsed branches, including missing-parent roots.
 - [x] Re-run focused GREEN tests and the broader Task 1 hierarchy command.
-- [x] Append review-fix evidence to the Task 1 report and commit the fix.
+- [x] Append review-fix evidence to the Task 1 report and record the verification package.
 
 ## Assignee And Mention Filter Textinput
 
