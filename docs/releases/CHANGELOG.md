@@ -4,6 +4,8 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+## 0.2.0 - 2026-06-17
+
 - Added an in-app query modal with direct JQL entry and AI-assisted JQL generation, including
   generated-query preview, revision feedback, and explicit confirmation before running.
 - Added persisted recent query history in the query modal, covering confirmed direct JQL and
