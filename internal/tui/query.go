@@ -2,10 +2,12 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
+	"github.com/jon/jira-tui/internal/cache"
 	"github.com/jon/jira-tui/internal/events"
 	"github.com/jon/jira-tui/internal/worker"
 )
@@ -16,6 +18,8 @@ func (m *Model) startQueryModal() {
 	m.queryJQLDraft = strings.TrimSpace(m.jql)
 	m.queryJQLEditor = newQueryTextArea(m.queryJQLDraft, "Enter JQL")
 	m.queryJQLEditorReady = true
+	m.queryHistory = m.loadQueryHistory()
+	m.queryHistorySelected = min(m.queryHistorySelected, max(0, len(m.queryHistory)-1))
 	if strings.TrimSpace(m.queryAIPrompt) == "" {
 		m.queryAIEditor = newQueryTextArea("", "Describe the issues you want to see")
 		m.queryAIEditorReady = true
@@ -55,16 +59,38 @@ func (m Model) updateQueryModal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.queryMode = queryModeJQL
 			m.setQueryJQLDraft(m.queryGeneratedJQL)
 			m.detailNotice = "Generated JQL copied for review."
+		} else if m.queryMode == queryModeRecent {
+			m.loadSelectedRecentQueryForReview()
 		}
 		return m, nil
 	case "ctrl+s":
 		if m.queryMode == queryModeAI {
 			if strings.TrimSpace(m.queryGeneratedJQL) != "" && strings.TrimSpace(m.queryAIPromptValue()) == strings.TrimSpace(m.queryGeneratedPrompt) {
-				return m.applyQueryJQL(m.queryGeneratedJQL)
+				return m.applyQueryJQLWithHistory(m.queryGeneratedJQL, cache.QueryHistorySourceAI, m.queryGeneratedPrompt)
 			}
 			return m.submitQueryAI()
 		}
-		return m.applyQueryJQL(m.queryJQLValue())
+		if m.queryMode == queryModeRecent {
+			if record, ok := m.selectedQueryHistoryRecord(); ok {
+				return m.applyQueryJQLWithHistory(record.JQL, record.Source, record.Prompt)
+			}
+			m.detailNotice = "No recent queries yet."
+			return m, nil
+		}
+		return m.applyQueryJQLWithHistory(m.queryJQLValue(), cache.QueryHistorySourceDirect, "")
+	}
+	if m.queryMode == queryModeRecent {
+		switch msg.String() {
+		case "j", "down":
+			if len(m.queryHistory) > 0 {
+				m.queryHistorySelected = min(len(m.queryHistory)-1, m.queryHistorySelected+1)
+			}
+		case "k", "up":
+			if len(m.queryHistory) > 0 {
+				m.queryHistorySelected = max(0, m.queryHistorySelected-1)
+			}
+		}
+		return m, nil
 	}
 	if m.queryMode == queryModeAI {
 		m.configureQueryAIEditor(max(32, m.browserLayout(m.width).contentWidth-12), 5)
@@ -86,16 +112,25 @@ func (m *Model) toggleQueryMode() {
 		m.configureQueryAIEditor(max(32, m.browserLayout(m.width).contentWidth-12), 5)
 		return
 	}
+	if m.queryMode == queryModeAI {
+		m.queryMode = queryModeRecent
+		return
+	}
 	m.queryMode = queryModeJQL
 	m.configureQueryJQLEditor(max(32, m.browserLayout(m.width).contentWidth-12), 4)
 }
 
 func (m Model) applyQueryJQL(jql string) (Model, tea.Cmd) {
+	return m.applyQueryJQLWithHistory(jql, cache.QueryHistorySourceDirect, "")
+}
+
+func (m Model) applyQueryJQLWithHistory(jql string, source cache.QueryHistorySource, prompt string) (Model, tea.Cmd) {
 	jql = strings.TrimSpace(jql)
 	if jql == "" {
 		m.detailNotice = "JQL cannot be empty."
 		return m, nil
 	}
+	m.persistQueryHistory(jql, source, prompt)
 	m.jql = jql
 	m.view = -1
 	m.mode = modeTable
@@ -186,6 +221,8 @@ func (m Model) renderQueryModal(layout browserLayout) string {
 			lines = append(lines, "", m.theme.Muted.Render("Preview"))
 			lines = append(lines, m.theme.Text.Render(wrapText(m.queryGeneratedJQL, bodyWidth)))
 		}
+	} else if m.queryMode == queryModeRecent {
+		lines = append(lines, m.renderQueryHistory(bodyWidth)...)
 	} else {
 		lines = append(lines, m.configuredQueryJQLEditor(bodyWidth, 4).View())
 	}
@@ -217,20 +254,73 @@ func (m Model) configuredQueryAIEditor(width int, rows int) textarea.Model {
 }
 
 func (m Model) queryModeLabel() string {
-	if m.queryMode == queryModeAI {
-		return "JQL  |  AI selected"
+	switch m.queryMode {
+	case queryModeAI:
+		return "JQL  |  AI selected  |  Recent"
+	case queryModeRecent:
+		return "JQL  |  AI  |  Recent selected"
+	default:
+		return "JQL selected  |  AI  |  Recent"
 	}
-	return "JQL selected  |  AI"
 }
 
 func (m Model) queryFooterText() string {
 	if m.queryMode == queryModeAI {
 		if strings.TrimSpace(m.queryGeneratedJQL) != "" {
-			return "ctrl+s run preview  enter edit preview  tab direct JQL  esc cancel"
+			return "ctrl+s run preview  enter edit preview  tab recent  esc cancel"
 		}
-		return "ctrl+s generate  tab direct JQL  esc cancel"
+		return "ctrl+s generate  tab recent  esc cancel"
+	}
+	if m.queryMode == queryModeRecent {
+		if len(m.queryHistory) == 0 {
+			return "tab direct JQL  esc cancel"
+		}
+		return "j/k select  enter edit  ctrl+s run  tab direct JQL  esc cancel"
 	}
 	return "ctrl+s run  tab AI  esc cancel"
+}
+
+func (m Model) renderQueryHistory(width int) []string {
+	if len(m.queryHistory) == 0 {
+		return []string{m.theme.Muted.Render("No recent queries yet.")}
+	}
+	rows := make([]string, 0, min(len(m.queryHistory), 8))
+	for i, record := range m.queryHistory {
+		prefix := "  "
+		style := m.theme.Text
+		if i == m.queryHistorySelected {
+			prefix = "> "
+			style = m.theme.Selected
+		}
+		source := "JQL"
+		if record.Source == cache.QueryHistorySourceAI {
+			source = "AI"
+		}
+		label := record.JQL
+		if strings.TrimSpace(record.Prompt) != "" {
+			label = record.Prompt + " -> " + record.JQL
+		}
+		rows = append(rows, style.Render(truncate(fmt.Sprintf("%s[%s] %s", prefix, source, label), width)))
+	}
+	return rows
+}
+
+func (m Model) selectedQueryHistoryRecord() (cache.QueryHistoryRecord, bool) {
+	if len(m.queryHistory) == 0 || m.queryHistorySelected < 0 || m.queryHistorySelected >= len(m.queryHistory) {
+		return cache.QueryHistoryRecord{}, false
+	}
+	return m.queryHistory[m.queryHistorySelected], true
+}
+
+func (m *Model) loadSelectedRecentQueryForReview() {
+	record, ok := m.selectedQueryHistoryRecord()
+	if !ok {
+		m.detailNotice = "No recent queries yet."
+		return
+	}
+	m.queryMode = queryModeJQL
+	m.setQueryJQLDraft(record.JQL)
+	m.detailNotice = "Recent query loaded for review."
 }
 
 func (m Model) queryAIAvailable() bool {

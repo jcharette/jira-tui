@@ -6,6 +6,8 @@ All notable changes to this project should be recorded here.
 
 - Added an in-app query modal with direct JQL entry and AI-assisted JQL generation, including
   generated-query preview, revision feedback, and explicit confirmation before running.
+- Added persisted recent query history in the query modal, covering confirmed direct JQL and
+  confirmed AI-generated JQL with source prompts, scoped to the active Jira cache namespace.
 - Added a local issue-table Active filter with `f`, hiding loaded terminal-status tickets without
   changing saved views, JQL, Jira reads, or cached issue data.
 - Added local issue-table subtree collapse with `z`, so dense loaded ticket branches can be hidden

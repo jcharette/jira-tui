@@ -15,6 +15,8 @@ import (
 type activeViewStore interface {
 	GetActiveView(context.Context, string, string) (cache.ActiveViewRecord, bool, error)
 	PutActiveView(context.Context, cache.ActiveViewRecord) error
+	PutQueryHistory(context.Context, cache.QueryHistoryRecord) error
+	ListQueryHistory(context.Context, string, int) ([]cache.QueryHistoryRecord, error)
 	GetIssueDetail(context.Context, string, string) (cache.IssueDetailRecord, bool, error)
 	PutIssueDetail(context.Context, cache.IssueDetailRecord) error
 	GetIssueComments(context.Context, string, string, int) (cache.IssueCommentsRecord, bool, error)
@@ -177,6 +179,35 @@ func (m Model) persistActiveIssueView(jql string, record issueViewCacheRecord) {
 		Issues:    append([]jira.Issue(nil), record.Issues...),
 		SyncedAt:  record.SyncedAt,
 		FreshTill: record.FreshTill,
+	})
+}
+
+func (m Model) loadQueryHistory() []cache.QueryHistoryRecord {
+	if m.activeViewStore == nil || strings.TrimSpace(m.activeViewNamespace) == "" {
+		return nil
+	}
+	records, err := m.activeViewStore.ListQueryHistory(context.Background(), m.activeViewNamespace, 10)
+	if err != nil {
+		return nil
+	}
+	return records
+}
+
+func (m Model) persistQueryHistory(jql string, source cache.QueryHistorySource, prompt string) {
+	jql = strings.TrimSpace(jql)
+	if m.activeViewStore == nil || strings.TrimSpace(m.activeViewNamespace) == "" || jql == "" {
+		return
+	}
+	if source == "" {
+		source = cache.QueryHistorySourceDirect
+	}
+	_ = m.activeViewStore.PutQueryHistory(context.Background(), cache.QueryHistoryRecord{
+		Namespace:  m.activeViewNamespace,
+		CacheKey:   activeViewCacheKey(jql),
+		JQL:        jql,
+		Prompt:     strings.TrimSpace(prompt),
+		Source:     source,
+		LastUsedAt: m.currentTime(),
 	})
 }
 

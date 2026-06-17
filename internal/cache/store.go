@@ -43,6 +43,24 @@ type ActiveViewRecord struct {
 	FreshTill time.Time
 }
 
+type QueryHistorySource string
+
+const (
+	QueryHistorySourceDirect QueryHistorySource = "direct"
+	QueryHistorySourceAI     QueryHistorySource = "ai"
+)
+
+type QueryHistoryRecord struct {
+	Namespace  string
+	CacheKey   string
+	JQL        string
+	Prompt     string
+	Source     QueryHistorySource
+	CreatedAt  time.Time
+	LastUsedAt time.Time
+	RunCount   int
+}
+
 type IssueDetailRecord struct {
 	Namespace string
 	IssueKey  string
@@ -236,6 +254,87 @@ WHERE namespace = ? AND cache_key = ?
 		SyncedAt:  time.Unix(0, syncedAtUnixNano),
 		FreshTill: time.Unix(0, freshTillUnixNano),
 	}, true, nil
+}
+
+func (s *Store) PutQueryHistory(ctx context.Context, record QueryHistoryRecord) error {
+	if s == nil || s.db == nil {
+		return errors.New("cache store is closed")
+	}
+	record.Namespace = strings.TrimSpace(record.Namespace)
+	record.CacheKey = strings.TrimSpace(record.CacheKey)
+	record.JQL = strings.TrimSpace(record.JQL)
+	record.Prompt = strings.TrimSpace(record.Prompt)
+	record.Source = QueryHistorySource(strings.TrimSpace(string(record.Source)))
+	if record.Namespace == "" || record.CacheKey == "" || record.JQL == "" {
+		return errors.New("query history namespace, cache key, and JQL are required")
+	}
+	if record.Source == "" {
+		record.Source = QueryHistorySourceDirect
+	}
+	if record.LastUsedAt.IsZero() {
+		record.LastUsedAt = time.Now()
+	}
+	if record.CreatedAt.IsZero() {
+		record.CreatedAt = record.LastUsedAt
+	}
+	runCount := record.RunCount
+	if runCount <= 0 {
+		runCount = 1
+	}
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO query_history(namespace, cache_key, jql, prompt, source, created_at_unix_nano, last_used_at_unix_nano, run_count, updated_at_unix_nano)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(namespace, cache_key) DO UPDATE SET
+	jql = excluded.jql,
+	prompt = excluded.prompt,
+	source = excluded.source,
+	last_used_at_unix_nano = excluded.last_used_at_unix_nano,
+	run_count = query_history.run_count + excluded.run_count,
+	updated_at_unix_nano = excluded.updated_at_unix_nano
+`, record.Namespace, record.CacheKey, record.JQL, record.Prompt, string(record.Source), record.CreatedAt.UnixNano(), record.LastUsedAt.UnixNano(), runCount, time.Now().UnixNano())
+	return err
+}
+
+func (s *Store) ListQueryHistory(ctx context.Context, namespace string, limit int) ([]QueryHistoryRecord, error) {
+	if s == nil || s.db == nil {
+		return nil, errors.New("cache store is closed")
+	}
+	namespace = strings.TrimSpace(namespace)
+	if namespace == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT namespace, cache_key, jql, prompt, source, created_at_unix_nano, last_used_at_unix_nano, run_count
+FROM query_history
+WHERE namespace = ?
+ORDER BY last_used_at_unix_nano DESC
+LIMIT ?
+`, namespace, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var records []QueryHistoryRecord
+	for rows.Next() {
+		var record QueryHistoryRecord
+		var source string
+		var createdAtUnixNano int64
+		var lastUsedAtUnixNano int64
+		if err := rows.Scan(&record.Namespace, &record.CacheKey, &record.JQL, &record.Prompt, &source, &createdAtUnixNano, &lastUsedAtUnixNano, &record.RunCount); err != nil {
+			return nil, err
+		}
+		record.Source = QueryHistorySource(source)
+		record.CreatedAt = time.Unix(0, createdAtUnixNano)
+		record.LastUsedAt = time.Unix(0, lastUsedAtUnixNano)
+		records = append(records, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return records, nil
 }
 
 func (s *Store) PutIssueDetail(ctx context.Context, record IssueDetailRecord) error {
@@ -719,6 +818,20 @@ CREATE TABLE IF NOT EXISTS active_views (
 	PRIMARY KEY(namespace, cache_key)
 );
 CREATE INDEX IF NOT EXISTS active_views_updated_at_idx ON active_views(updated_at_unix_nano);
+
+CREATE TABLE IF NOT EXISTS query_history (
+	namespace TEXT NOT NULL,
+	cache_key TEXT NOT NULL,
+	jql TEXT NOT NULL,
+	prompt TEXT NOT NULL,
+	source TEXT NOT NULL,
+	created_at_unix_nano INTEGER NOT NULL,
+	last_used_at_unix_nano INTEGER NOT NULL,
+	run_count INTEGER NOT NULL,
+	updated_at_unix_nano INTEGER NOT NULL,
+	PRIMARY KEY(namespace, cache_key)
+);
+CREATE INDEX IF NOT EXISTS query_history_last_used_idx ON query_history(namespace, last_used_at_unix_nano DESC);
 
 CREATE TABLE IF NOT EXISTS issue_details (
 	namespace TEXT NOT NULL,

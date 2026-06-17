@@ -48,6 +48,8 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
 
 - Add epic and subtask support.
 - Add sprint and board support.
+- Add a named saved-query flow that promotes a recent direct or AI-generated JQL query into a
+  durable saved view/profile.
 - Add configuration file support for saved profiles and default queries.
 - Add bounded concurrency controls for sprint and board fetches when parallel loading expands beyond
   the current issue/detail/comment/cache worker paths.

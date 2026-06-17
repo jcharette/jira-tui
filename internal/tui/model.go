@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jellydator/ttlcache/v3"
+	"github.com/jon/jira-tui/internal/cache"
 	"github.com/jon/jira-tui/internal/claude"
 	"github.com/jon/jira-tui/internal/config"
 	"github.com/jon/jira-tui/internal/events"
@@ -83,6 +84,8 @@ type Model struct {
 	queryAIErr           error
 	queryGeneratedJQL    string
 	queryGeneratedPrompt string
+	queryHistory         []cache.QueryHistoryRecord
+	queryHistorySelected int
 	queryAICancel        context.CancelFunc
 	activeQueryAIReqID   int
 
@@ -347,6 +350,7 @@ const (
 const (
 	queryModeJQL queryMode = iota
 	queryModeAI
+	queryModeRecent
 )
 
 const (

@@ -1,5 +1,33 @@
 # Task Plan
 
+## Persisted Query History
+
+- [x] Persist confirmed direct JQL queries between application executions.
+- [x] Persist confirmed AI-generated JQL queries with their source prompt.
+- [x] Add a Recent mode in the query modal so users can select previous queries.
+- [x] Keep query history in the SQLite app cache, scoped by active cache namespace/site.
+- [x] Keep named saved-view promotion as a future follow-up unless it stays small after history lands.
+- [x] Update docs/changelog for the user-visible query history workflow.
+- [x] Run focused query/cache tests, full Go tests, `make check`, and `make install-user`.
+
+### Persisted Query History Scope
+
+Confirmed query runs should be recorded automatically. AI previews must not be recorded until the
+user explicitly runs the generated JQL. Recent entries should dedupe by normalized JQL, preserve the
+AI prompt when available, track source (`direct` or `ai`), and be selectable in the query modal
+without changing the active query until the user confirms.
+
+### Persisted Query History Review
+
+- Added SQLite-backed query history records for confirmed direct JQL and confirmed AI-generated JQL.
+- Kept AI previews out of history until the user explicitly runs the generated query.
+- Added `Recent` mode to the query modal with selection, load-for-review, and run-selected flows.
+- Kept query history scoped by active cache namespace and outside transient cache cleanup.
+- Left named saved-view promotion as a documented follow-up because it needs a separate naming and
+  config/profile write UX.
+- Verified with focused cache/query tests, `go test ./... -count=1`, `make check`, and
+  `make install-user`.
+
 ## JQL Query UX
 
 - [x] Add direct raw JQL entry in the TUI without restarting.

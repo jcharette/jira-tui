@@ -2166,6 +2166,8 @@ func TestSubmitIssueSearchReturnsFailedResultFromPool(t *testing.T) {
 type fakeActiveViewStore struct {
 	record              cache.ActiveViewRecord
 	put                 cache.ActiveViewRecord
+	queryHistory        []cache.QueryHistoryRecord
+	putQueryHistory     cache.QueryHistoryRecord
 	detail              cache.IssueDetailRecord
 	putDetail           cache.IssueDetailRecord
 	comments            cache.IssueCommentsRecord
@@ -2198,6 +2200,21 @@ func (f *fakeActiveViewStore) GetActiveView(_ context.Context, namespace string,
 func (f *fakeActiveViewStore) PutActiveView(_ context.Context, record cache.ActiveViewRecord) error {
 	f.put = record
 	return nil
+}
+
+func (f *fakeActiveViewStore) PutQueryHistory(_ context.Context, record cache.QueryHistoryRecord) error {
+	f.putQueryHistory = record
+	return nil
+}
+
+func (f *fakeActiveViewStore) ListQueryHistory(_ context.Context, namespace string, limit int) ([]cache.QueryHistoryRecord, error) {
+	if namespace == "" {
+		return nil, nil
+	}
+	if limit <= 0 || limit > len(f.queryHistory) {
+		limit = len(f.queryHistory)
+	}
+	return append([]cache.QueryHistoryRecord(nil), f.queryHistory[:limit]...), nil
 }
 
 func (f *fakeActiveViewStore) GetIssueDetail(_ context.Context, namespace string, issueKey string) (cache.IssueDetailRecord, bool, error) {

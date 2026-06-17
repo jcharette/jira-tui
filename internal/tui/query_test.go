@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/jon/jira-tui/internal/cache"
 	"github.com/jon/jira-tui/internal/claude"
 	"github.com/jon/jira-tui/internal/events"
 )
@@ -208,5 +209,166 @@ func TestQueryModalRevisionPromptIncludesCurrentPreview(t *testing.T) {
 	<-runClaudePlanCommandAsyncForTest(cmd)
 	if !strings.Contains(runner.request.Prompt, model.queryGeneratedJQL) {
 		t.Fatalf("revision prompt missing current preview:\n%s", runner.request.Prompt)
+	}
+}
+
+func TestQueryModalRecordsConfirmedDirectJQLHistory(t *testing.T) {
+	store := newFakeActiveViewStore()
+	now := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithActiveViewStore(store, "https://example.atlassian.net"),
+		WithNow(func() time.Time { return now }),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.startQueryModal()
+	model.setQueryJQLDraft("project = ABC   ORDER BY updated DESC")
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next := updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("direct JQL should submit search")
+	}
+	if store.putQueryHistory.JQL != "project = ABC   ORDER BY updated DESC" {
+		t.Fatalf("query history JQL = %q", store.putQueryHistory.JQL)
+	}
+	if store.putQueryHistory.CacheKey != "project = ABC ORDER BY updated DESC" {
+		t.Fatalf("query history cache key = %q", store.putQueryHistory.CacheKey)
+	}
+	if store.putQueryHistory.Source != cache.QueryHistorySourceDirect {
+		t.Fatalf("query history source = %q", store.putQueryHistory.Source)
+	}
+	if store.putQueryHistory.Prompt != "" {
+		t.Fatalf("direct query prompt = %q", store.putQueryHistory.Prompt)
+	}
+	if !store.putQueryHistory.LastUsedAt.Equal(now) {
+		t.Fatalf("LastUsedAt = %s, want %s", store.putQueryHistory.LastUsedAt, now)
+	}
+	if next.jql != store.putQueryHistory.JQL {
+		t.Fatalf("model jql = %q", next.jql)
+	}
+}
+
+func TestQueryModalRecordsConfirmedAIJQLHistory(t *testing.T) {
+	store := newFakeActiveViewStore()
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithActiveViewStore(store, "https://example.atlassian.net"),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.startQueryModal()
+	model.queryMode = queryModeAI
+	model.setQueryAIPrompt("show assigned work")
+	model.queryGeneratedPrompt = "show assigned work"
+	model.queryGeneratedJQL = "project = ABC AND assignee = currentUser() ORDER BY updated DESC"
+
+	_, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+
+	if cmd == nil {
+		t.Fatal("confirmed AI JQL should submit search")
+	}
+	if store.putQueryHistory.Source != cache.QueryHistorySourceAI {
+		t.Fatalf("query history source = %q", store.putQueryHistory.Source)
+	}
+	if store.putQueryHistory.Prompt != "show assigned work" {
+		t.Fatalf("query history prompt = %q", store.putQueryHistory.Prompt)
+	}
+	if store.putQueryHistory.JQL != model.queryGeneratedJQL {
+		t.Fatalf("query history JQL = %q", store.putQueryHistory.JQL)
+	}
+}
+
+func TestQueryModalLoadsPersistedRecentQueries(t *testing.T) {
+	store := newFakeActiveViewStore()
+	store.queryHistory = []cache.QueryHistoryRecord{
+		{JQL: "project = ABC AND assignee = currentUser()", Source: cache.QueryHistorySourceAI, Prompt: "my work"},
+		{JQL: "project = ABC ORDER BY updated DESC", Source: cache.QueryHistorySourceDirect},
+	}
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithActiveViewStore(store, "https://example.atlassian.net"),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+
+	model.startQueryModal()
+
+	if len(model.queryHistory) != 2 {
+		t.Fatalf("queryHistory count = %d", len(model.queryHistory))
+	}
+	if model.queryHistory[0].Prompt != "my work" {
+		t.Fatalf("first history prompt = %q", model.queryHistory[0].Prompt)
+	}
+	if model.queryHistorySelected != 0 {
+		t.Fatalf("queryHistorySelected = %d", model.queryHistorySelected)
+	}
+}
+
+func TestQueryModalRecentSelectionLoadsJQLForReview(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.startQueryModal()
+	model.queryMode = queryModeRecent
+	model.queryHistory = []cache.QueryHistoryRecord{
+		{JQL: "project = ABC ORDER BY updated DESC", Source: cache.QueryHistorySourceDirect},
+		{JQL: "project = ABC AND status = \"In Progress\"", Source: cache.QueryHistorySourceAI, Prompt: "active work"},
+	}
+	model.queryHistorySelected = 1
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("loading recent query for review should not submit work")
+	}
+	if next.queryMode != queryModeJQL {
+		t.Fatalf("queryMode = %v, want JQL", next.queryMode)
+	}
+	if next.queryJQLDraft != "project = ABC AND status = \"In Progress\"" {
+		t.Fatalf("queryJQLDraft = %q", next.queryJQLDraft)
+	}
+	if !strings.Contains(next.detailNotice, "Recent query loaded") {
+		t.Fatalf("detailNotice = %q", next.detailNotice)
+	}
+}
+
+func TestQueryModalRecentSelectionRunsSelectedJQL(t *testing.T) {
+	store := newFakeActiveViewStore()
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithActiveViewStore(store, "https://example.atlassian.net"),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.startQueryModal()
+	model.queryMode = queryModeRecent
+	model.queryHistory = []cache.QueryHistoryRecord{
+		{JQL: "project = ABC ORDER BY updated DESC", Source: cache.QueryHistorySourceDirect},
+		{JQL: "project = ABC AND status = \"In Progress\"", Source: cache.QueryHistorySourceAI, Prompt: "active work"},
+	}
+	model.queryHistorySelected = 1
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next := updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("running selected recent query should submit a search")
+	}
+	if next.jql != "project = ABC AND status = \"In Progress\"" {
+		t.Fatalf("jql = %q", next.jql)
+	}
+	if store.putQueryHistory.Source != cache.QueryHistorySourceAI || store.putQueryHistory.Prompt != "active work" {
+		t.Fatalf("query history = %#v", store.putQueryHistory)
+	}
+	if next.queryOpen {
+		t.Fatal("query modal should close after running recent query")
 	}
 }

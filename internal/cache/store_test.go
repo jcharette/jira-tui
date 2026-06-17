@@ -108,6 +108,88 @@ func TestStoreKeepsActiveViewsIsolatedByNamespace(t *testing.T) {
 	}
 }
 
+func TestStorePersistsQueryHistoryRecords(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(filepath.Join(t.TempDir(), "cache.sqlite"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+
+	usedAt := time.Date(2026, 6, 17, 11, 0, 0, 0, time.UTC)
+	record := QueryHistoryRecord{
+		Namespace:  "https://example.atlassian.net",
+		CacheKey:   "project = ABC",
+		JQL:        "project = ABC ORDER BY updated DESC",
+		Prompt:     "show project abc",
+		Source:     QueryHistorySourceAI,
+		LastUsedAt: usedAt,
+	}
+	if err := store.PutQueryHistory(ctx, record); err != nil {
+		t.Fatalf("PutQueryHistory() error = %v", err)
+	}
+
+	got, err := store.ListQueryHistory(ctx, record.Namespace, 10)
+	if err != nil {
+		t.Fatalf("ListQueryHistory() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("history count = %d, want 1: %#v", len(got), got)
+	}
+	if got[0].JQL != record.JQL || got[0].Prompt != record.Prompt || got[0].Source != record.Source {
+		t.Fatalf("history record = %#v", got[0])
+	}
+	if got[0].RunCount != 1 {
+		t.Fatalf("RunCount = %d, want 1", got[0].RunCount)
+	}
+	if !got[0].LastUsedAt.Equal(usedAt) {
+		t.Fatalf("LastUsedAt = %s, want %s", got[0].LastUsedAt, usedAt)
+	}
+}
+
+func TestStoreDedupesQueryHistoryByNamespaceAndCacheKey(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(filepath.Join(t.TempDir(), "cache.sqlite"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+
+	first := QueryHistoryRecord{
+		Namespace:  "https://example.atlassian.net",
+		CacheKey:   "project = ABC",
+		JQL:        "project = ABC",
+		Source:     QueryHistorySourceDirect,
+		LastUsedAt: time.Date(2026, 6, 17, 11, 0, 0, 0, time.UTC),
+	}
+	second := first
+	second.JQL = "project = ABC ORDER BY updated DESC"
+	second.Prompt = "sort by recent"
+	second.Source = QueryHistorySourceAI
+	second.LastUsedAt = first.LastUsedAt.Add(time.Minute)
+
+	if err := store.PutQueryHistory(ctx, first); err != nil {
+		t.Fatalf("PutQueryHistory(first) error = %v", err)
+	}
+	if err := store.PutQueryHistory(ctx, second); err != nil {
+		t.Fatalf("PutQueryHistory(second) error = %v", err)
+	}
+
+	got, err := store.ListQueryHistory(ctx, first.Namespace, 10)
+	if err != nil {
+		t.Fatalf("ListQueryHistory() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("history count = %d, want 1: %#v", len(got), got)
+	}
+	if got[0].JQL != second.JQL || got[0].Prompt != second.Prompt || got[0].Source != second.Source {
+		t.Fatalf("history record = %#v", got[0])
+	}
+	if got[0].RunCount != 2 {
+		t.Fatalf("RunCount = %d, want 2", got[0].RunCount)
+	}
+}
+
 func TestStorePersistsIssueDetailRecords(t *testing.T) {
 	ctx := context.Background()
 	store, err := Open(filepath.Join(t.TempDir(), "cache.sqlite"))
@@ -356,6 +438,15 @@ func TestStoreDeletesRowsOlderThanCutoffAcrossCacheTables(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("PutExpandedChildren(%s) error = %v", namespace, err)
 		}
+		if err := store.PutQueryHistory(ctx, QueryHistoryRecord{
+			Namespace:  namespace,
+			CacheKey:   "project = ABC",
+			JQL:        "project = ABC ORDER BY updated DESC",
+			Source:     QueryHistorySourceDirect,
+			LastUsedAt: now.Add(-2 * time.Hour),
+		}); err != nil {
+			t.Fatalf("PutQueryHistory(%s) error = %v", namespace, err)
+		}
 	}
 
 	oldUpdatedAt := now.Add(-8 * 24 * time.Hour).UnixNano()
@@ -372,6 +463,9 @@ func TestStoreDeletesRowsOlderThanCutoffAcrossCacheTables(t *testing.T) {
 		if _, err := store.db.ExecContext(ctx, "UPDATE "+table+" SET updated_at_unix_nano = ? WHERE namespace = ?", oldUpdatedAt, oldSite); err != nil {
 			t.Fatalf("age %s rows: %v", table, err)
 		}
+	}
+	if _, err := store.db.ExecContext(ctx, "UPDATE query_history SET updated_at_unix_nano = ? WHERE namespace = ?", oldUpdatedAt, oldSite); err != nil {
+		t.Fatalf("age query_history rows: %v", err)
 	}
 
 	deleted, err := store.DeleteRowsUpdatedBefore(ctx, now.Add(-7*24*time.Hour))
@@ -411,6 +505,10 @@ func TestStoreDeletesRowsOlderThanCutoffAcrossCacheTables(t *testing.T) {
 	assertMissing("create fields", ok, err)
 	_, ok, err = store.GetExpandedChildren(ctx, oldSite, "ABC-1", "open")
 	assertMissing("expanded children", ok, err)
+	oldHistory, err := store.ListQueryHistory(ctx, oldSite, 10)
+	if err != nil || len(oldHistory) != 1 {
+		t.Fatalf("old query history should survive cleanup, count=%d err=%v", len(oldHistory), err)
+	}
 
 	_, ok, err = store.GetActiveView(ctx, recentSite, "project = ABC")
 	assertPresent("active view", ok, err)
@@ -428,6 +526,10 @@ func TestStoreDeletesRowsOlderThanCutoffAcrossCacheTables(t *testing.T) {
 	assertPresent("create fields", ok, err)
 	_, ok, err = store.GetExpandedChildren(ctx, recentSite, "ABC-1", "open")
 	assertPresent("expanded children", ok, err)
+	recentHistory, err := store.ListQueryHistory(ctx, recentSite, 10)
+	if err != nil || len(recentHistory) != 1 {
+		t.Fatalf("recent query history count=%d err=%v", len(recentHistory), err)
+	}
 }
 
 func TestStorePersistsIssueEditMetadataRecords(t *testing.T) {
