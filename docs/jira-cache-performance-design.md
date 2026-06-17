@@ -178,8 +178,10 @@ expanded children. These reads now use retained cache records with value, sync t
 boundary backed by `ttlcache`, while the existing maps/slices continue to serve current rendering
 paths. Diagnostics now renders per-cache-family fresh/stale retained-record counts for active
 views, issue detail, comments, transitions, edit metadata, create metadata, and expanded children.
-Remaining write invalidation policies, cache cleanup, and per-record refresh failure summaries are
-still pending.
+Confirmed summary, description, priority, assignee, and status writes now patch retained
+issue-detail and current active-view cache records, and status writes invalidate retained transition
+options because available transitions depend on the current status. Cache cleanup and per-record
+refresh failure summaries are still pending.
 
 ### Slice 4: Optional persistent cache
 

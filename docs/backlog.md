@@ -42,8 +42,10 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
   transitions, edit metadata, create metadata, and expanded children now use retained cache records.
   Selected issue detail prefetch is now bounded for active-view refreshes and table navigation, and
   comments are loaded by explicit detail opens instead of list prefetch. Diagnostics now shows
-  per-cache-family fresh/stale retained-record counts; remaining write invalidation policies, cache
-  cleanup, and more detailed refresh failure summaries still need to land with cache unification.
+  per-cache-family fresh/stale retained-record counts. Confirmed summary, description, priority,
+  assignee, and status writes now patch retained detail/current-view cache records, and status
+  writes invalidate cached transitions; cache cleanup and more detailed refresh failure summaries
+  still need to land with cache unification.
 - Add a generic in-memory TTL cache policy around Jira reads using maintained library support where
   possible: cache typeahead/metadata/detail/view data with per-data TTLs, refresh important entries
   asynchronously on expiry or view timers, use bounded background workers/threads where helpful,

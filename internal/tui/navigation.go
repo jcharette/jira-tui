@@ -305,6 +305,14 @@ func (m *Model) updateIssueStatus(key string, status string) {
 		detail.Issue.Status = status
 		m.details[key] = detail
 	}
+	m.patchRetainedIssueDetail(key, func(detail *jira.IssueDetail) {
+		detail.Status = status
+		detail.Issue.Status = status
+	})
+	m.patchCurrentActiveViewIssue(key, func(issue *jira.Issue) {
+		issue.Status = status
+	})
+	m.invalidateIssueTransitions(key)
 }
 
 func (m *Model) updateIssuePriority(key string, priority string) {
@@ -322,6 +330,13 @@ func (m *Model) updateIssuePriority(key string, priority string) {
 		detail.Issue.Priority = priority
 		m.details[key] = detail
 	}
+	m.patchRetainedIssueDetail(key, func(detail *jira.IssueDetail) {
+		detail.Priority = priority
+		detail.Issue.Priority = priority
+	})
+	m.patchCurrentActiveViewIssue(key, func(issue *jira.Issue) {
+		issue.Priority = priority
+	})
 }
 
 func (m *Model) updateIssueAssignee(key string, assignee string) {
@@ -339,6 +354,13 @@ func (m *Model) updateIssueAssignee(key string, assignee string) {
 		detail.Issue.Assignee = assignee
 		m.details[key] = detail
 	}
+	m.patchRetainedIssueDetail(key, func(detail *jira.IssueDetail) {
+		detail.Assignee = assignee
+		detail.Issue.Assignee = assignee
+	})
+	m.patchCurrentActiveViewIssue(key, func(issue *jira.Issue) {
+		issue.Assignee = assignee
+	})
 }
 
 func (m *Model) updateIssueSummary(key string, summary string) {
@@ -356,6 +378,13 @@ func (m *Model) updateIssueSummary(key string, summary string) {
 		detail.Issue.Summary = summary
 		m.details[key] = detail
 	}
+	m.patchRetainedIssueDetail(key, func(detail *jira.IssueDetail) {
+		detail.Summary = summary
+		detail.Issue.Summary = summary
+	})
+	m.patchCurrentActiveViewIssue(key, func(issue *jira.Issue) {
+		issue.Summary = summary
+	})
 }
 
 func (m *Model) updateIssueDescription(key string, description string) {
@@ -366,6 +395,61 @@ func (m *Model) updateIssueDescription(key string, description string) {
 		detail.Description = description
 		m.details[key] = detail
 	}
+	m.patchRetainedIssueDetail(key, func(detail *jira.IssueDetail) {
+		detail.Description = description
+	})
+}
+
+func (m *Model) patchRetainedIssueDetail(key string, mutate func(*jira.IssueDetail)) {
+	key = strings.TrimSpace(key)
+	if key == "" || mutate == nil {
+		return
+	}
+	record, ok := m.cachedIssueDetail(key)
+	if !ok {
+		return
+	}
+	detail := record.Value
+	mutate(&detail)
+	m.cacheIssueDetail(key, detail, record.SyncedAt)
+}
+
+func (m *Model) patchCurrentActiveViewIssue(key string, mutate func(*jira.Issue)) {
+	key = strings.TrimSpace(key)
+	if key == "" || mutate == nil {
+		return
+	}
+	record, ok := m.cachedActiveIssueView(m.jql)
+	if !ok {
+		return
+	}
+	changed := false
+	issues := append([]jira.Issue(nil), record.Issues...)
+	for index := range issues {
+		if issues[index].Key == key {
+			mutate(&issues[index])
+			changed = true
+			break
+		}
+	}
+	if !changed {
+		return
+	}
+	m.cacheActiveIssueView(m.jql, issues, record.SyncedAt)
+}
+
+func (m *Model) invalidateIssueTransitions(key string) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return
+	}
+	if m.transitions != nil {
+		delete(m.transitions, key)
+	}
+	if m.transitionsCache != nil {
+		m.transitionsCache.Delete(key)
+	}
+	m.deletePersistentIssueTransitions(key)
 }
 
 func orderIssues(issues []jira.Issue, mode sortMode) []jira.Issue {

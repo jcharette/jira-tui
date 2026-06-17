@@ -22,6 +22,7 @@ type activeViewStore interface {
 	DeleteIssueComments(context.Context, string, string) error
 	GetIssueTransitions(context.Context, string, string) (cache.IssueTransitionsRecord, bool, error)
 	PutIssueTransitions(context.Context, cache.IssueTransitionsRecord) error
+	DeleteIssueTransitions(context.Context, string, string) error
 	GetIssueEditMetadata(context.Context, string, string) (cache.IssueEditMetadataRecord, bool, error)
 	PutIssueEditMetadata(context.Context, cache.IssueEditMetadataRecord) error
 	GetCreateIssueTypes(context.Context, string, string) (cache.CreateIssueTypesRecord, bool, error)
@@ -411,6 +412,13 @@ func (m Model) persistIssueTransitions(key string, transitions []jira.Transition
 		SyncedAt:    syncedAt,
 		FreshTill:   syncedAt.Add(issueTransitionsCacheTTL),
 	})
+}
+
+func (m Model) deletePersistentIssueTransitions(key string) {
+	if m.activeViewStore == nil || strings.TrimSpace(m.activeViewNamespace) == "" {
+		return
+	}
+	_ = m.activeViewStore.DeleteIssueTransitions(context.Background(), m.activeViewNamespace, strings.TrimSpace(key))
 }
 
 func (m Model) persistIssueEditMetadata(key string, metadata jira.EditMetadata, syncedAt time.Time) {

@@ -4,6 +4,9 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Patched retained issue-detail and current active-view cache records after confirmed summary,
+  description, priority, assignee, and status writes, and invalidated cached transition options after
+  status changes.
 - Added Diagnostics cache-family summaries that show retained active view, detail, comments,
   transition, metadata, create, and expanded-child cache records as fresh/stale counts.
 - Polished the ticket-detail header so the summary reads as the title, metadata uses compact

@@ -1593,6 +1593,7 @@ type fakeActiveViewStore struct {
 	deletedComments     string
 	transitions         cache.IssueTransitionsRecord
 	putTransitions      cache.IssueTransitionsRecord
+	deletedTransitions  string
 	editMetadata        cache.IssueEditMetadataRecord
 	putEditMetadata     cache.IssueEditMetadataRecord
 	createIssueTypes    cache.CreateIssueTypesRecord
@@ -1657,6 +1658,11 @@ func (f *fakeActiveViewStore) GetIssueTransitions(_ context.Context, namespace s
 
 func (f *fakeActiveViewStore) PutIssueTransitions(_ context.Context, record cache.IssueTransitionsRecord) error {
 	f.putTransitions = record
+	return nil
+}
+
+func (f *fakeActiveViewStore) DeleteIssueTransitions(_ context.Context, _ string, issueKey string) error {
+	f.deletedTransitions = issueKey
 	return nil
 }
 

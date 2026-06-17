@@ -241,6 +241,34 @@ func TestStorePersistsIssueTransitionsRecords(t *testing.T) {
 	}
 }
 
+func TestStoreInvalidatesIssueTransitions(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(filepath.Join(t.TempDir(), "cache.sqlite"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+
+	syncedAt := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	record := IssueTransitionsRecord{
+		Namespace:   "https://example.atlassian.net",
+		IssueKey:    "ABC-1",
+		Transitions: []jira.Transition{{ID: "21", Name: "Start Progress", ToStatus: "In Progress"}},
+		SyncedAt:    syncedAt,
+		FreshTill:   syncedAt.Add(time.Minute),
+	}
+	if err := store.PutIssueTransitions(ctx, record); err != nil {
+		t.Fatalf("PutIssueTransitions() error = %v", err)
+	}
+
+	if err := store.DeleteIssueTransitions(ctx, record.Namespace, record.IssueKey); err != nil {
+		t.Fatalf("DeleteIssueTransitions() error = %v", err)
+	}
+	if _, ok, err := store.GetIssueTransitions(ctx, record.Namespace, record.IssueKey); err != nil || ok {
+		t.Fatalf("deleted transitions ok=%v err=%v", ok, err)
+	}
+}
+
 func TestStorePersistsIssueEditMetadataRecords(t *testing.T) {
 	ctx := context.Background()
 	store, err := Open(filepath.Join(t.TempDir(), "cache.sqlite"))

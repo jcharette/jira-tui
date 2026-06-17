@@ -393,6 +393,22 @@ WHERE namespace = ? AND issue_key = ?
 	}, true, nil
 }
 
+func (s *Store) DeleteIssueTransitions(ctx context.Context, namespace string, issueKey string) error {
+	if s == nil || s.db == nil {
+		return errors.New("cache store is closed")
+	}
+	namespace = strings.TrimSpace(namespace)
+	issueKey = strings.TrimSpace(issueKey)
+	if namespace == "" || issueKey == "" {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `
+DELETE FROM issue_transitions
+WHERE namespace = ? AND issue_key = ?
+`, namespace, issueKey)
+	return err
+}
+
 func (s *Store) PutIssueEditMetadata(ctx context.Context, record IssueEditMetadataRecord) error {
 	if s == nil || s.db == nil {
 		return errors.New("cache store is closed")

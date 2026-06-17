@@ -1,5 +1,38 @@
 # Task Plan
 
+## Write-Side Cache Consistency
+
+- [x] Add focused tests proving summary/priority/assignee/description/status writes patch retained
+  detail and active-view cache records.
+- [x] Patch retained issue-detail cache records when shared `updateIssue*` helpers mutate visible
+  issue data.
+- [x] Patch retained active-view cache records for the current view when visible issue rows change.
+- [x] Invalidate retained transition options after a successful status transition.
+- [x] Update cache performance docs/changelog/backlog.
+- [x] Run focused TUI tests, full TUI tests, `make check`, and install the updated binary.
+
+### Write-Side Cache Consistency Scope
+
+Keep write behavior and Jira requests unchanged. After Jira confirms a write, the local read caches
+must not later rehydrate stale values over the visible mutation. Patch only app-owned retained cache
+records already in memory, persist the patched current active view/detail through existing store
+methods when available, and invalidate transition options after a status change because allowed
+transitions are status-dependent.
+
+### Write-Side Cache Consistency Review
+
+- Added regression coverage for summary, priority, assignee, status, and description mutations
+  patching retained detail/current-view cache records.
+- Added regression coverage and SQLite store support for deleting persisted transition records.
+- Routed shared `updateIssue*` helpers through retained detail/current-view cache patch helpers so
+  direct ticket-detail edits and AI-assisted summary/description applies share the same behavior.
+- Invalidated retained and persisted transition options after status changes because transition
+  availability depends on the current status.
+- Kept Jira write behavior, TTL values, worker scheduling, and background refresh behavior
+  unchanged.
+- Verified with focused write-cache tests, `go test ./internal/tui ./internal/cache -count=1`,
+  `make check`, and `make install-user`.
+
 ## Cache Family Diagnostics Summary
 
 - [x] Add a focused Diagnostics test for per-cache-family record counts and freshness totals.

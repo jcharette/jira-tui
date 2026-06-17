@@ -555,6 +555,97 @@ func TestIssueDetailCacheRecordStoresFreshness(t *testing.T) {
 	}
 }
 
+func TestIssueWritePatchesRetainedIssueCaches(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	store := newFakeActiveViewStore()
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithActiveViewStore(store, "https://example.atlassian.net"),
+	)
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.issues = []jira.Issue{{
+		Key:       "ABC-1",
+		Summary:   "Old summary",
+		Status:    "To Do",
+		Priority:  "Medium",
+		Assignee:  "Old Person",
+		IssueType: "Story",
+	}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {
+			Issue:       model.issues[0],
+			Description: "Old description",
+		},
+	}
+	model.cacheActiveIssueView(model.jql, model.issues, now)
+	model.cacheIssueDetail("ABC-1", model.details["ABC-1"], now)
+
+	model.updateIssueSummary("ABC-1", "New summary")
+	model.updateIssuePriority("ABC-1", "High")
+	model.updateIssueAssignee("ABC-1", "New Person")
+	model.updateIssueStatus("ABC-1", "In Progress")
+	model.updateIssueDescription("ABC-1", "New description")
+
+	detailRecord, ok := model.cachedIssueDetail("ABC-1")
+	if !ok {
+		t.Fatal("expected retained detail cache")
+	}
+	if detailRecord.Value.Summary != "New summary" || detailRecord.Value.Issue.Summary != "New summary" {
+		t.Fatalf("detail summary was not patched: %#v", detailRecord.Value)
+	}
+	if detailRecord.Value.Priority != "High" || detailRecord.Value.Issue.Priority != "High" {
+		t.Fatalf("detail priority was not patched: %#v", detailRecord.Value)
+	}
+	if detailRecord.Value.Assignee != "New Person" || detailRecord.Value.Issue.Assignee != "New Person" {
+		t.Fatalf("detail assignee was not patched: %#v", detailRecord.Value)
+	}
+	if detailRecord.Value.Status != "In Progress" || detailRecord.Value.Issue.Status != "In Progress" {
+		t.Fatalf("detail status was not patched: %#v", detailRecord.Value)
+	}
+	if detailRecord.Value.Description != "New description" {
+		t.Fatalf("detail description was not patched: %#v", detailRecord.Value)
+	}
+
+	viewRecord, ok := model.cachedActiveIssueView(model.jql)
+	if !ok || len(viewRecord.Issues) != 1 {
+		t.Fatalf("active view record ok=%v record=%#v", ok, viewRecord)
+	}
+	got := viewRecord.Issues[0]
+	if got.Summary != "New summary" || got.Priority != "High" || got.Assignee != "New Person" || got.Status != "In Progress" {
+		t.Fatalf("active view issue was not patched: %#v", got)
+	}
+	if store.putDetail.Detail.Description != "New description" || store.putDetail.Detail.Issue.Status != "In Progress" {
+		t.Fatalf("persistent detail was not patched: %#v", store.putDetail)
+	}
+	if len(store.put.Issues) != 1 || store.put.Issues[0].Summary != "New summary" || store.put.Issues[0].Status != "In Progress" {
+		t.Fatalf("persistent active view was not patched: %#v", store.put)
+	}
+}
+
+func TestStatusWriteInvalidatesTransitionCache(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	store := newFakeActiveViewStore()
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithActiveViewStore(store, "https://example.atlassian.net"),
+	)
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.cacheIssueTransitions("ABC-1", []jira.Transition{{ID: "21", Name: "Start Progress"}}, now)
+
+	model.updateIssueStatus("ABC-1", "In Progress")
+
+	if _, ok := model.cachedIssueTransitions("ABC-1"); ok {
+		t.Fatal("status change should invalidate retained transition options")
+	}
+	if store.deletedTransitions != "ABC-1" {
+		t.Fatalf("deleted persistent transitions = %q", store.deletedTransitions)
+	}
+}
+
 func TestLoadedDetailMarksDetailCacheFresh(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()
