@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/jon/jira-tui/internal/cache"
 	"github.com/jon/jira-tui/internal/claude"
+	"github.com/jon/jira-tui/internal/config"
 	"github.com/jon/jira-tui/internal/events"
 )
 
@@ -370,5 +371,111 @@ func TestQueryModalRecentSelectionRunsSelectedJQL(t *testing.T) {
 	}
 	if next.queryOpen {
 		t.Fatal("query modal should close after running recent query")
+	}
+}
+
+func TestQueryModalRecentSaveOpensNamePrompt(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.startQueryModal()
+	model.queryMode = queryModeRecent
+	model.queryHistory = []cache.QueryHistoryRecord{
+		{JQL: "project = ABC AND assignee = currentUser()", Source: cache.QueryHistorySourceAI, Prompt: "my work"},
+	}
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "s", Code: 's'}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("opening saved-view prompt should not submit work")
+	}
+	if !next.querySaveViewOpen {
+		t.Fatal("querySaveViewOpen should be true")
+	}
+	if next.querySaveViewNameValue() != "my work" {
+		t.Fatalf("default save name = %q", next.querySaveViewNameValue())
+	}
+}
+
+func TestQueryModalRecentSavePersistsNamedViewWithoutRunningQuery(t *testing.T) {
+	var saved config.IssueView
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithViews([]config.IssueView{{Name: "Assigned", JQL: "assignee = currentUser()"}}, "Assigned"),
+		WithSavedViewWriter(func(view config.IssueView) error {
+			saved = view
+			return nil
+		}),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.startQueryModal()
+	model.queryMode = queryModeRecent
+	model.queryHistory = []cache.QueryHistoryRecord{
+		{JQL: "project = ABC AND status = \"In Progress\"", Source: cache.QueryHistorySourceDirect},
+	}
+	model.querySaveViewOpen = true
+	model.setQuerySaveViewName("Active Work")
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("saving a named view should not submit Jira work")
+	}
+	if saved.Name != "Active Work" || saved.JQL != "project = ABC AND status = \"In Progress\"" {
+		t.Fatalf("saved view = %#v", saved)
+	}
+	if len(next.views) != 2 || next.views[1].Name != "Active Work" {
+		t.Fatalf("views = %#v", next.views)
+	}
+	if next.jql != model.jql || next.view != model.view {
+		t.Fatalf("save should not change active query/view, jql=%q view=%d", next.jql, next.view)
+	}
+	if next.querySaveViewOpen {
+		t.Fatal("save prompt should close after success")
+	}
+	if !strings.Contains(next.detailNotice, "Saved view") {
+		t.Fatalf("detailNotice = %q", next.detailNotice)
+	}
+}
+
+func TestQueryModalRecentSaveRejectsDuplicateViewName(t *testing.T) {
+	called := false
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithViews([]config.IssueView{{Name: "Assigned", JQL: "assignee = currentUser()"}}, "Assigned"),
+		WithSavedViewWriter(func(view config.IssueView) error {
+			called = true
+			return nil
+		}),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.startQueryModal()
+	model.queryMode = queryModeRecent
+	model.queryHistory = []cache.QueryHistoryRecord{
+		{JQL: "project = ABC AND status = \"In Progress\"", Source: cache.QueryHistorySourceDirect},
+	}
+	model.querySaveViewOpen = true
+	model.setQuerySaveViewName(" assigned ")
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("duplicate save should not submit work")
+	}
+	if called {
+		t.Fatal("writer should not be called for duplicate name")
+	}
+	if !next.querySaveViewOpen {
+		t.Fatal("save prompt should stay open")
+	}
+	if !strings.Contains(next.detailNotice, "already exists") {
+		t.Fatalf("detailNotice = %q", next.detailNotice)
 	}
 }

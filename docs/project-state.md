@@ -282,6 +282,9 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
 - Confirmed direct and AI-generated query runs are stored as recent query history in the SQLite app
   cache, scoped by active Jira cache namespace. The query modal has a `Recent` mode where users can
   select prior queries, copy one back into direct JQL for review, or run the selected recent query.
+- In `Recent` mode, users can save the selected recent query as a named saved view. The view is
+  written through the existing config file, appears in saved-view rotation immediately, and does not
+  run Jira or change the active query while saving.
 - Fetches read-only issue details for the selected issue through the worker pool, caches details by
   issue key, and ignores stale detail responses when selection changes. Issue detail uses
   short-lived TTL freshness tracking via `github.com/jellydator/ttlcache/v3`: fresh cached detail

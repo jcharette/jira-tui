@@ -289,6 +289,25 @@ func Save(path string, cfg Config) error {
 	return nil
 }
 
+func AddSavedView(cfg Config, view IssueView) (Config, error) {
+	view.Name = strings.TrimSpace(view.Name)
+	view.JQL = strings.TrimSpace(view.JQL)
+	if view.Name == "" {
+		return Config{}, errors.New("saved view name is required")
+	}
+	if view.JQL == "" {
+		return Config{}, errors.New("saved view JQL is required")
+	}
+	for _, existing := range cfg.Views {
+		if strings.EqualFold(strings.TrimSpace(existing.Name), view.Name) {
+			return Config{}, fmt.Errorf("saved view %q already exists", view.Name)
+		}
+	}
+	next := cfg
+	next.Views = append(append([]IssueView(nil), cfg.Views...), view)
+	return next, nil
+}
+
 func Validate(cfg Config) error {
 	var problems []string
 	if strings.TrimSpace(cfg.BaseURL) == "" {

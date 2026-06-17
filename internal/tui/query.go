@@ -6,8 +6,10 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/jon/jira-tui/internal/cache"
+	"github.com/jon/jira-tui/internal/config"
 	"github.com/jon/jira-tui/internal/events"
 	"github.com/jon/jira-tui/internal/worker"
 )
@@ -20,6 +22,7 @@ func (m *Model) startQueryModal() {
 	m.queryJQLEditorReady = true
 	m.queryHistory = m.loadQueryHistory()
 	m.queryHistorySelected = min(m.queryHistorySelected, max(0, len(m.queryHistory)-1))
+	m.querySaveViewOpen = false
 	if strings.TrimSpace(m.queryAIPrompt) == "" {
 		m.queryAIEditor = newQueryTextArea("", "Describe the issues you want to see")
 		m.queryAIEditorReady = true
@@ -39,12 +42,32 @@ func (m *Model) setQueryAIPrompt(value string) {
 	m.queryAIEditorReady = true
 }
 
+func (m *Model) setQuerySaveViewName(value string) {
+	m.querySaveViewName = value
+	m.querySaveViewEditor = newQueryNameInput(value, "Saved view name")
+	m.querySaveViewReady = true
+}
+
 func (m Model) updateQueryModal(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if m.queryAILoading {
 		if msg.String() == "esc" {
 			return m.cancelQueryAI(), nil
 		}
 		return m, nil
+	}
+	if m.querySaveViewOpen {
+		switch msg.String() {
+		case "esc":
+			m.querySaveViewOpen = false
+			m.detailNotice = ""
+			return m, nil
+		case "enter", "ctrl+s":
+			return m.saveSelectedRecentQueryAsView(), nil
+		}
+		editor, cmd := m.configuredQuerySaveViewEditor(max(24, m.browserLayout(m.width).contentWidth-12)).Update(msg)
+		m.querySaveViewEditor = editor
+		m.querySaveViewName = m.querySaveViewEditor.Value()
+		return m, cmd
 	}
 	switch msg.String() {
 	case "esc":
@@ -81,6 +104,8 @@ func (m Model) updateQueryModal(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 	if m.queryMode == queryModeRecent {
 		switch msg.String() {
+		case "s":
+			m.openQuerySaveViewPrompt()
 		case "j", "down":
 			if len(m.queryHistory) > 0 {
 				m.queryHistorySelected = min(len(m.queryHistory)-1, m.queryHistorySelected+1)
@@ -204,6 +229,15 @@ func newQueryTextArea(value string, placeholder string) textarea.Model {
 	return editor
 }
 
+func newQueryNameInput(value string, placeholder string) textinput.Model {
+	input := textinput.New()
+	input.Placeholder = placeholder
+	input.SetValue(value)
+	input.Focus()
+	input.CharLimit = 80
+	return input
+}
+
 func (m Model) renderQueryModal(layout browserLayout) string {
 	width := max(40, layout.contentWidth-4)
 	bodyWidth := max(32, width-4)
@@ -221,6 +255,9 @@ func (m Model) renderQueryModal(layout browserLayout) string {
 			lines = append(lines, "", m.theme.Muted.Render("Preview"))
 			lines = append(lines, m.theme.Text.Render(wrapText(m.queryGeneratedJQL, bodyWidth)))
 		}
+	} else if m.querySaveViewOpen {
+		lines = append(lines, m.theme.Muted.Render("Save Selected Recent Query"))
+		lines = append(lines, m.configuredQuerySaveViewEditor(bodyWidth).View())
 	} else if m.queryMode == queryModeRecent {
 		lines = append(lines, m.renderQueryHistory(bodyWidth)...)
 	} else {
@@ -253,6 +290,15 @@ func (m Model) configuredQueryAIEditor(width int, rows int) textarea.Model {
 	return editor
 }
 
+func (m Model) configuredQuerySaveViewEditor(width int) textinput.Model {
+	editor := m.querySaveViewEditor
+	if !m.querySaveViewReady {
+		editor = newQueryNameInput(m.querySaveViewName, "Saved view name")
+	}
+	editor.SetWidth(width)
+	return editor
+}
+
 func (m Model) queryModeLabel() string {
 	switch m.queryMode {
 	case queryModeAI:
@@ -265,6 +311,9 @@ func (m Model) queryModeLabel() string {
 }
 
 func (m Model) queryFooterText() string {
+	if m.querySaveViewOpen {
+		return "ctrl+s save  enter save  esc cancel"
+	}
 	if m.queryMode == queryModeAI {
 		if strings.TrimSpace(m.queryGeneratedJQL) != "" {
 			return "ctrl+s run preview  enter edit preview  tab recent  esc cancel"
@@ -275,7 +324,7 @@ func (m Model) queryFooterText() string {
 		if len(m.queryHistory) == 0 {
 			return "tab direct JQL  esc cancel"
 		}
-		return "j/k select  enter edit  ctrl+s run  tab direct JQL  esc cancel"
+		return "j/k select  enter edit  ctrl+s run  s save view  tab direct JQL  esc cancel"
 	}
 	return "ctrl+s run  tab AI  esc cancel"
 }
@@ -321,6 +370,58 @@ func (m *Model) loadSelectedRecentQueryForReview() {
 	m.queryMode = queryModeJQL
 	m.setQueryJQLDraft(record.JQL)
 	m.detailNotice = "Recent query loaded for review."
+}
+
+func (m *Model) openQuerySaveViewPrompt() {
+	record, ok := m.selectedQueryHistoryRecord()
+	if !ok {
+		m.detailNotice = "No recent queries yet."
+		return
+	}
+	name := strings.TrimSpace(record.Prompt)
+	if name == "" {
+		name = "Recent Query"
+	}
+	m.querySaveViewOpen = true
+	m.setQuerySaveViewName(name)
+	m.detailNotice = ""
+}
+
+func (m Model) querySaveViewNameValue() string {
+	if m.querySaveViewReady {
+		return m.querySaveViewEditor.Value()
+	}
+	return m.querySaveViewName
+}
+
+func (m Model) saveSelectedRecentQueryAsView() Model {
+	record, ok := m.selectedQueryHistoryRecord()
+	if !ok {
+		m.detailNotice = "No recent queries yet."
+		return m
+	}
+	view := config.IssueView{
+		Name: m.querySaveViewNameValue(),
+		JQL:  record.JQL,
+	}
+	cfg, err := config.AddSavedView(config.Config{Views: m.views}, view)
+	if err != nil {
+		m.detailNotice = err.Error()
+		return m
+	}
+	view = cfg.Views[len(cfg.Views)-1]
+	if m.savedViewWriter == nil {
+		m.detailNotice = "Saved-view persistence is not available."
+		return m
+	}
+	if err := m.savedViewWriter(view); err != nil {
+		m.detailNotice = "Saved view failed: " + err.Error()
+		return m
+	}
+	m.views = cfg.Views
+	m.querySaveViewOpen = false
+	m.detailNotice = "Saved view " + view.Name + "."
+	return m
 }
 
 func (m Model) queryAIAvailable() bool {

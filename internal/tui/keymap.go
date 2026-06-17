@@ -200,6 +200,7 @@ func queryBindings() []keyBinding {
 		{Keys: []string{"tab"}, Label: "mode", Description: "Switch between direct JQL, AI-assisted JQL, and recent queries.", Group: "Query", Footer: true},
 		{Keys: []string{"j", "k", "up", "down"}, FooterKey: "j/k", Label: "recent", Description: "Move through recent queries.", Group: "Query"},
 		{Keys: []string{"enter"}, Label: "review", Description: "Copy a generated or recent query into direct JQL for review.", Group: "Query"},
+		{Keys: []string{"s"}, Label: "save view", Description: "Save the selected recent query as a named saved view.", Group: "Query"},
 		{Keys: []string{"ctrl+s"}, Label: "run", Description: "Run direct JQL, generate AI JQL, or run the selected recent query.", Group: "Query", Footer: true},
 		{Keys: []string{"esc"}, Label: "cancel", Description: "Close query input without changing the active query.", Group: "Query", Footer: true},
 	}

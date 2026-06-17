@@ -64,6 +64,10 @@ func runApp() error {
 			return fmt.Errorf("config error: %w", err)
 		}
 	}
+	cfgPath, err := config.PathOrDefault("")
+	if err != nil {
+		return fmt.Errorf("config path error: %w", err)
+	}
 
 	claudeStatus := claude.LocalRunner{}.Check(context.Background(), claude.Config{
 		Enabled: cfg.Claude.Enabled,
@@ -86,6 +90,7 @@ func runApp() error {
 		jiratui.WithTheme(cfg.Theme),
 		jiratui.WithDisplay(cfg.Display),
 		jiratui.WithEventStream(eventStream),
+		jiratui.WithSavedViewWriter(savedViewWriter(cfgPath, &cfg)),
 		jiratui.WithClaudeConfig(jiratui.ClaudeConfig{
 			Enabled:             cfg.Claude.Enabled,
 			TicketPlan:          cfg.Claude.Features.TicketPlan,
@@ -120,6 +125,20 @@ func runApp() error {
 		return fmt.Errorf("runtime error: %w", err)
 	}
 	return nil
+}
+
+func savedViewWriter(path string, cfg *config.Config) jiratui.SavedViewWriter {
+	return func(view config.IssueView) error {
+		next, err := config.AddSavedView(*cfg, view)
+		if err != nil {
+			return err
+		}
+		if err := config.Save(path, next); err != nil {
+			return err
+		}
+		*cfg = next
+		return nil
+	}
 }
 
 func runConfig() (bool, error) {

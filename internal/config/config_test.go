@@ -153,6 +153,60 @@ func TestDefaultViewsIncludeEpicFocusedView(t *testing.T) {
 	}
 }
 
+func TestAddSavedViewAppendsTrimmedViewAndPreservesActiveView(t *testing.T) {
+	cfg := Defaults()
+	cfg.BaseURL = "https://example.atlassian.net"
+	cfg.Email = "person@example.com"
+	cfg.APIToken = "secret"
+	cfg.DefaultProject = "ABC"
+	cfg.Views = []IssueView{{Name: "Assigned", JQL: "assignee = currentUser()"}}
+	cfg.ActiveView = "Assigned"
+
+	next, err := AddSavedView(cfg, IssueView{
+		Name: "  My Active Work  ",
+		JQL:  "  project = ABC AND status = \"In Progress\"  ",
+	})
+	if err != nil {
+		t.Fatalf("AddSavedView() error = %v", err)
+	}
+
+	if next.ActiveView != cfg.ActiveView {
+		t.Fatalf("ActiveView = %q, want %q", next.ActiveView, cfg.ActiveView)
+	}
+	if len(next.Views) != 2 {
+		t.Fatalf("Views count = %d, want 2", len(next.Views))
+	}
+	got := next.Views[1]
+	if got.Name != "My Active Work" || got.JQL != "project = ABC AND status = \"In Progress\"" {
+		t.Fatalf("saved view = %#v", got)
+	}
+	if len(cfg.Views) != 1 {
+		t.Fatalf("original config views mutated: %#v", cfg.Views)
+	}
+}
+
+func TestAddSavedViewRejectsInvalidView(t *testing.T) {
+	cfg := Defaults()
+	cfg.Views = []IssueView{{Name: "Assigned", JQL: "assignee = currentUser()"}}
+
+	for _, tc := range []struct {
+		name string
+		view IssueView
+		want string
+	}{
+		{name: "blank name", view: IssueView{Name: "  ", JQL: "project = ABC"}, want: "name"},
+		{name: "blank jql", view: IssueView{Name: "My View", JQL: "  "}, want: "JQL"},
+		{name: "duplicate name", view: IssueView{Name: " assigned ", JQL: "project = ABC"}, want: "already exists"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := AddSavedView(cfg, tc.view)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("AddSavedView() error = %v, want containing %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func hasView(views []IssueView, name string) bool {
 	_, ok := findView(views, name)
 	return ok

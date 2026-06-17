@@ -224,7 +224,6 @@ carefully confirmed AI assistance.
 - Bulk transitions/assignments/labels with confirmations.
 - Worklog support.
 - More saved filters.
-- Promote recent direct or AI-generated JQL queries into named saved views.
 - Packaging/install story.
 
 ## Near-Term Implementation Plan

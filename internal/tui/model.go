@@ -86,6 +86,10 @@ type Model struct {
 	queryGeneratedPrompt string
 	queryHistory         []cache.QueryHistoryRecord
 	queryHistorySelected int
+	querySaveViewOpen    bool
+	querySaveViewName    string
+	querySaveViewEditor  textinput.Model
+	querySaveViewReady   bool
 	queryAICancel        context.CancelFunc
 	activeQueryAIReqID   int
 
@@ -320,12 +324,14 @@ type Model struct {
 	activeRequestID int
 	theme           ui.Theme
 	symbolMode      issueSymbolMode
+	savedViewWriter SavedViewWriter
 }
 
 type mode int
 type sortMode int
 type issueStatusFilter int
 type queryMode int
+type SavedViewWriter func(config.IssueView) error
 
 const (
 	modeTable mode = iota
@@ -418,6 +424,12 @@ func WithViews(views []config.IssueView, active string) Option {
 			}
 		}
 		m.jql = views[m.view].JQL
+	}
+}
+
+func WithSavedViewWriter(writer SavedViewWriter) Option {
+	return func(m *Model) {
+		m.savedViewWriter = writer
 	}
 }
 

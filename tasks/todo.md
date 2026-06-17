@@ -1,5 +1,32 @@
 # Task Plan
 
+## Saved Query Promotion
+
+- [x] Add a config helper to append a named saved view safely.
+- [x] Add query-modal UX to save a selected recent query as a named view.
+- [x] Wire app startup so saved-query promotion writes through the existing config file.
+- [x] Update docs/changelog/backlog for the user-visible saved-query workflow.
+- [x] Run focused tests, full Go tests, `make check`, and `make install-user`.
+
+### Saved Query Promotion Scope
+
+Users can promote a selected recent direct or AI-generated JQL query into a durable named saved view.
+Saving a recent query should not run Jira, change the active query, or switch the current view. The
+new view should be persisted through the config file and become available in normal saved-view
+rotation immediately.
+
+### Saved Query Promotion Review
+
+- Added `config.AddSavedView` to trim, append, and reject invalid or duplicate saved-view names.
+- Added `s save view` from query modal `Recent` mode with a compact name prompt.
+- Saved selected recent queries through the existing config file via a TUI writer injected by
+  `cmd/jira-tui`.
+- Kept saving separate from query execution: no Jira search command, active query change, or active
+  view switch.
+- Updated project state, changelog, roadmap, and backlog to reflect the shipped workflow.
+- Verified with focused config/query/main tests, `go test ./... -count=1`, `make check`, and
+  `make install-user`.
+
 ## Persisted Query History
 
 - [x] Persist confirmed direct JQL queries between application executions.
