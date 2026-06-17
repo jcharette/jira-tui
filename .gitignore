@@ -1,6 +1,7 @@
 .env
 .DS_Store
 .superpowers/
+.worktrees/
 
 # Go
 bin/
