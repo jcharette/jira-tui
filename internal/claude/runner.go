@@ -154,11 +154,17 @@ func (r LocalRunner) runPromptStreaming(ctx context.Context, command string, pro
 	var finalText strings.Builder
 	var fallbackText strings.Builder
 	var stderrText strings.Builder
+	var progressMu sync.Mutex
+	emitProgress := func(event Event) {
+		progressMu.Lock()
+		defer progressMu.Unlock()
+		progress(event)
+	}
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		scanClaudeStdout(stdout, progress, func(text string, final bool) {
+		scanClaudeStdout(stdout, emitProgress, func(text string, final bool) {
 			mu.Lock()
 			defer mu.Unlock()
 			if final {
@@ -174,7 +180,7 @@ func (r LocalRunner) runPromptStreaming(ctx context.Context, command string, pro
 			if line == "" {
 				return
 			}
-			progress(Event{Kind: "stderr", Text: line})
+			emitProgress(Event{Kind: "stderr", Text: line})
 			mu.Lock()
 			defer mu.Unlock()
 			stderrText.WriteString(line)
