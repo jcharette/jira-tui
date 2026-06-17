@@ -41,6 +41,7 @@ const (
 	activeViewCacheTTL                 = 90 * time.Second
 	activeViewCacheDisplayTTL          = 24 * time.Hour
 	activeViewCacheRetentionTTL        = 30 * time.Minute
+	selectedIssueDetailPrefetchLimit   = 12
 	initialRequestID                   = 1
 	defaultRequestTimeout              = 20 * time.Second
 	defaultWorkerCount                 = 2
@@ -873,7 +874,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.moveSelection(-1)
-			return m.startDetailRequestForSelected()
+			return m.startSelectedIssuePrefetch()
 		case "down", "j":
 			if m.mode == modeDetail {
 				if m.linkFocus {
@@ -920,21 +921,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.moveSelection(1)
-			return m.startDetailRequestForSelected()
+			return m.startSelectedIssuePrefetch()
 		case "pgup", "ctrl+b":
 			if m.mode == modeDetail {
 				m.pageDetail(-1)
 				return m, nil
 			}
 			m.pageSelection(-1)
-			return m.startDetailRequestForSelected()
+			return m.startSelectedIssuePrefetch()
 		case "pgdown", "ctrl+f", " ":
 			if m.mode == modeDetail {
 				m.pageDetail(1)
 				return m, nil
 			}
 			m.pageSelection(1)
-			return m.startDetailRequestForSelected()
+			return m.startSelectedIssuePrefetch()
 		case "home", "g":
 			if m.mode == modeDetail {
 				m.setDetailOffset(0)
@@ -946,7 +947,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.selected = 0
 			m.offset = 0
-			return m.startDetailRequestForSelected()
+			return m.startSelectedIssuePrefetch()
 		case "end", "G":
 			if m.mode == modeDetail {
 				m.scrollDetailToBottom()
@@ -958,7 +959,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.selected = max(0, len(m.issues)-1)
 			m.ensureSelectionVisible(m.currentLayoutRows())
-			return m.startDetailRequestForSelected()
+			return m.startSelectedIssuePrefetch()
 		case "l":
 			if m.mode == modeDetail {
 				m.focusDetailLinks()

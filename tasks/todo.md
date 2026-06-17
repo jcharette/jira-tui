@@ -1,5 +1,35 @@
 # Task Plan
 
+## Large View Prefetch Throttling
+
+- [x] Add focused TUI tests for search-result prefetch behavior.
+- [x] Keep list refreshes from loading comments automatically.
+- [x] Bound missing selected-detail prefetch on large views while keeping explicit detail opens
+  unchanged.
+- [x] Use existing worker priorities for prefetch requests.
+- [x] Update docs/backlog/changelog notes if the behavior changes user-visible diagnostics.
+- [x] Run focused TUI tests, full Go tests, `make check`, and install the updated binary.
+
+### Large View Prefetch Throttling Scope
+
+Reduce Jira API work triggered by active-view refreshes without changing foreground detail behavior.
+Search results may warm the selected issue detail only as low-priority bounded prefetch; comments
+should load when the user opens detail or explicitly navigates detail content, not as part of every
+list refresh.
+
+### Large View Prefetch Throttling Review
+
+- Added a table/list prefetch path separate from the foreground detail loader.
+- Active-view search results and table navigation now skip missing selected-detail prefetch when the
+  visible issue list is larger than the prefetch limit.
+- Comments no longer prefetch from list refreshes or table navigation; explicit detail opens still
+  load detail and comments through foreground worker requests.
+- Updated cache performance docs, backlog, and changelog to record the new behavior.
+- Fixed the ticket-event stream test to assert by event type/key instead of relying on asynchronous
+  event delivery order.
+- Verified with focused TUI regression tests, `go test ./... -count=1`, `make check`, and
+  `make install-user`.
+
 ## Jira Event Stream And Active View Refresh Plan
 
 - [x] Research maintained Go event/pubsub libraries.

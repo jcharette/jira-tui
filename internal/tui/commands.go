@@ -117,15 +117,63 @@ func (m Model) startDetailRequestForSelected() (Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+func (m Model) startSelectedIssuePrefetch() (Model, tea.Cmd) {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		m.detailLoading = false
+		m.detailErr = nil
+		m.detailRequestKey = ""
+		return m, nil
+	}
+
+	m.hydrateIssueDetail(selected.Key)
+	_, hasDetail := m.details[selected.Key]
+	if hasDetail && m.isIssueDetailFresh(selected.Key) {
+		m.recordDiagnosticEvent(diagnosticKindCache, "issue_detail", "hit", selected.Key)
+		if m.detailRequestKey == selected.Key {
+			m.detailLoading = false
+			m.detailErr = nil
+			m.detailRequestKey = ""
+		}
+		return m, nil
+	}
+
+	if m.detailLoading && m.detailRequestKey == selected.Key {
+		return m, nil
+	}
+
+	if !hasDetail && len(m.issues) > selectedIssueDetailPrefetchLimit {
+		m.recordDiagnosticEvent(diagnosticKindCache, "issue_detail", "prefetch_skip", selected.Key)
+		return m, nil
+	}
+
+	status := "miss"
+	if hasDetail {
+		status = "stale"
+	}
+	m.recordDiagnosticEvent(diagnosticKindCache, "issue_detail", status, selected.Key)
+	m.nextRequestID++
+	m.activeDetailRequestID = m.nextRequestID
+	m.detailRequestKey = selected.Key
+	m.detailLoading = true
+	m.detailErr = nil
+	return m, m.submitIssueDetailWithPriority(m.activeDetailRequestID, selected.Key, worker.PriorityPrefetch)
+}
+
 func (m Model) submitIssueDetail(requestID int, key string) tea.Cmd {
+	return m.submitIssueDetailWithPriority(requestID, key, worker.PriorityForeground)
+}
+
+func (m Model) submitIssueDetailWithPriority(requestID int, key string, priority worker.Priority) tea.Cmd {
 	return func() tea.Msg {
 		if key == "" {
 			return noDetailRequestMsg{}
 		}
 		err := m.workers.Submit(worker.Request{
-			ID:      requestID,
-			Kind:    worker.KindGetIssue,
-			Timeout: m.requestTimeout,
+			ID:       requestID,
+			Kind:     worker.KindGetIssue,
+			Timeout:  m.requestTimeout,
+			Priority: priority,
 			GetIssue: &worker.GetIssueRequest{
 				Key: key,
 			},

@@ -4,6 +4,9 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Bounded selected-issue detail prefetch from active-view refreshes and table navigation, and stopped
+  list interactions from prefetching comments so large Jira views stay responsive while explicit
+  detail opens still load detail and comments.
 - Added provider-neutral AI task event payloads and routed existing Claude-backed AI requests through
   an event-publishing adapter for future Claude/Codex/auto provider routing.
 - Added a Watermill GoChannel-backed event stream foundation for Jira/app events, with active-view

@@ -356,7 +356,10 @@ func (m Model) handleSearchResult(result worker.Result) (Model, tea.Cmd) {
 	m.lastSynced = result.SearchIssues.SyncedAt
 	m.viewStale = false
 	m.cacheActiveIssueView(m.jql, m.issues, result.SearchIssues.SyncedAt)
-	return m.startDetailRequestForSelected()
+	if m.mode == modeDetail {
+		return m.startDetailRequestForSelected()
+	}
+	return m.startSelectedIssuePrefetch()
 }
 
 func (m Model) handleDetailResult(result worker.Result) Model {

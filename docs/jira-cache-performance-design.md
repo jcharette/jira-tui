@@ -95,7 +95,7 @@ Introduce request priority at the scheduler boundary, not inside individual TUI 
 | P0 write | add comment, transition issue, update summary/description/priority/assignee, create issue |
 | P1 foreground read | active view search, selected issue detail, selected comments, metadata needed for a visible editor |
 | P2 explicit refresh | user pressed refresh, active view stale-while-refresh |
-| P3 foreground prefetch | selected issue adjacent detail/comments, expanded visible parent children |
+| P3 foreground prefetch | bounded selected issue detail warming, expanded visible parent children |
 | P4 background sync | periodic active view refresh, stale cache refresh, saved-view warming |
 
 Queue rules:

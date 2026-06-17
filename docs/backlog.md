@@ -40,8 +40,9 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
   the same cache record semantics, patch or invalidate affected records after writes, and expose
   queue/cache events in Diagnostics. Issue detail and comments now use retained cache records;
   transitions, edit metadata, create metadata, and expanded children now use retained cache records.
-  Per-cache diagnostics and remaining write invalidation policies still need to land with cache
-  unification.
+  Selected issue detail prefetch is now bounded for active-view refreshes and table navigation, and
+  comments are loaded by explicit detail opens instead of list prefetch. Per-cache diagnostics and
+  remaining write invalidation policies still need to land with cache unification.
 - Add a generic in-memory TTL cache policy around Jira reads using maintained library support where
   possible: cache typeahead/metadata/detail/view data with per-data TTLs, refresh important entries
   asynchronously on expiry or view timers, use bounded background workers/threads where helpful,

@@ -97,6 +97,129 @@ func TestLoadedIssuesPreserveSelectedIssue(t *testing.T) {
 	}
 }
 
+func TestSearchResultDoesNotPrefetchSelectedIssueComments(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.loading = true
+	model.activeRequestID = 7
+	model.cacheIssueDetail("ABC-1", jira.IssueDetail{Issue: jira.Issue{Key: "ABC-1"}, Description: "Cached detail"}, now)
+
+	updated, _ := model.Update(workerResultMsg{
+		result: worker.Result{
+			ID:   7,
+			Kind: worker.KindSearchIssues,
+			SearchIssues: &worker.SearchIssuesResult{
+				Issues:   []jira.Issue{{Key: "ABC-1", Summary: "Loaded issue"}},
+				SyncedAt: now,
+			},
+		},
+	})
+	next := updated.(Model)
+
+	if next.commentsLoading {
+		t.Fatal("commentsLoading should remain false after list refresh")
+	}
+	if next.commentsRequestKey != "" {
+		t.Fatalf("commentsRequestKey = %q", next.commentsRequestKey)
+	}
+}
+
+func TestSearchResultSkipsMissingDetailPrefetchForLargeView(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.loading = true
+	model.activeRequestID = 7
+	issues := make([]jira.Issue, 0, maxIssues)
+	for index := 0; index < maxIssues; index++ {
+		issues = append(issues, jira.Issue{Key: fmt.Sprintf("ABC-%d", index+1)})
+	}
+
+	updated, _ := model.Update(workerResultMsg{
+		result: worker.Result{
+			ID:   7,
+			Kind: worker.KindSearchIssues,
+			SearchIssues: &worker.SearchIssuesResult{
+				Issues:   issues,
+				SyncedAt: now,
+			},
+		},
+	})
+	next := updated.(Model)
+
+	if next.detailLoading {
+		t.Fatal("detailLoading should remain false after large list refresh")
+	}
+	if next.detailRequestKey != "" {
+		t.Fatalf("detailRequestKey = %q", next.detailRequestKey)
+	}
+	if next.commentsLoading {
+		t.Fatal("commentsLoading should remain false after large list refresh")
+	}
+}
+
+func TestSearchResultPrefetchesMissingSelectedDetailForSmallView(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.loading = true
+	model.activeRequestID = 7
+
+	updated, _ := model.Update(workerResultMsg{
+		result: worker.Result{
+			ID:   7,
+			Kind: worker.KindSearchIssues,
+			SearchIssues: &worker.SearchIssuesResult{
+				Issues: []jira.Issue{
+					{Key: "ABC-1", Summary: "Selected issue"},
+					{Key: "ABC-2", Summary: "Second issue"},
+				},
+				SyncedAt: now,
+			},
+		},
+	})
+	next := updated.(Model)
+
+	if !next.detailLoading {
+		t.Fatal("detailLoading should be true while selected detail prefetches")
+	}
+	if next.detailRequestKey != "ABC-1" {
+		t.Fatalf("detailRequestKey = %q", next.detailRequestKey)
+	}
+	if next.commentsLoading {
+		t.Fatal("commentsLoading should remain false after list refresh")
+	}
+}
+
+func TestTableNavigationSkipsMissingDetailPrefetchForLargeView(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	for index := 0; index < maxIssues; index++ {
+		model.issues = append(model.issues, jira.Issue{Key: fmt.Sprintf("ABC-%d", index+1)})
+	}
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
+	next := updated.(Model)
+
+	if next.selected != 1 {
+		t.Fatalf("selected = %d", next.selected)
+	}
+	if cmd != nil {
+		t.Fatal("large table navigation should not submit missing detail prefetch")
+	}
+	if next.detailLoading {
+		t.Fatal("detailLoading should remain false after large table navigation")
+	}
+	if next.commentsLoading {
+		t.Fatal("commentsLoading should remain false after large table navigation")
+	}
+}
+
 func TestSwitchViewUsesFreshCachedIssueViewWithoutRefresh(t *testing.T) {
 	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.Local)
 	model := NewModel(
@@ -281,21 +404,27 @@ func TestSearchResultPublishesTicketEventsForNewAndUpdatedIssues(t *testing.T) {
 	_ = updated.(Model)
 
 	got := collectEventsForTest(t, received, 2)
-	if got[0].Type != events.TypeJiraTicketUpdated || got[0].DedupeKey != "ABC-1" {
-		t.Fatalf("updated event = %#v", got[0])
+	byKey := make(map[string]events.Event, len(got))
+	for _, event := range got {
+		byKey[string(event.Type)+":"+event.DedupeKey] = event
+	}
+	updatedEvent, ok := byKey[string(events.TypeJiraTicketUpdated)+":ABC-1"]
+	if !ok {
+		t.Fatalf("missing updated event, got %#v", got)
 	}
 	var updatedPayload events.TicketPayload
-	if err := json.Unmarshal(got[0].Payload, &updatedPayload); err != nil {
+	if err := json.Unmarshal(updatedEvent.Payload, &updatedPayload); err != nil {
 		t.Fatalf("updated payload decode: %v", err)
 	}
 	if updatedPayload.IssueKey != "ABC-1" || updatedPayload.Previous == nil || updatedPayload.Previous.Summary != "Old summary" || updatedPayload.Current.Summary != "New summary" {
 		t.Fatalf("updated payload = %#v", updatedPayload)
 	}
-	if got[1].Type != events.TypeJiraTicketNew || got[1].DedupeKey != "ABC-2" {
-		t.Fatalf("new event = %#v", got[1])
+	newEvent, ok := byKey[string(events.TypeJiraTicketNew)+":ABC-2"]
+	if !ok {
+		t.Fatalf("missing new event, got %#v", got)
 	}
 	var newPayload events.TicketPayload
-	if err := json.Unmarshal(got[1].Payload, &newPayload); err != nil {
+	if err := json.Unmarshal(newEvent.Payload, &newPayload); err != nil {
 		t.Fatalf("new payload decode: %v", err)
 	}
 	if newPayload.IssueKey != "ABC-2" || newPayload.Previous != nil || newPayload.Current.Summary != "New issue" {
