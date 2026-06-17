@@ -183,7 +183,10 @@ issue-detail and current active-view cache records, and status writes invalidate
 options because available transitions depend on the current status. Persistent SQLite rows not
 updated within the last seven days are cleaned up by a short best-effort startup task. Failed
 refreshes now attach their latest error to retained cache records and Diagnostics reports
-per-cache-family error counts alongside fresh/stale counts.
+per-cache-family error counts alongside fresh/stale counts. Diagnostics also records bounded,
+sanitized API debug rows from worker submissions/results with operation family, request ID,
+issue/project scope, result class, safe counts, elapsed time, and categorized errors without raw
+request bodies, response bodies, tokens, or full JQL strings.
 
 ### Slice 4: Optional persistent cache
 

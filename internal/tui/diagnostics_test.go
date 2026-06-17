@@ -69,7 +69,7 @@ func TestDiagnosticsRecordsWorkerSubmitAndResult(t *testing.T) {
 	}})
 	next = updated.(Model)
 
-	if len(next.diagnosticsEvents) != 2 {
+	if len(next.diagnosticsEvents) != 3 {
 		t.Fatalf("diagnostics events = %#v", next.diagnosticsEvents)
 	}
 	if next.diagnosticsEvents[0].Kind != diagnosticKindWorker || next.diagnosticsEvents[0].Status != "submit" {
@@ -77,6 +77,105 @@ func TestDiagnosticsRecordsWorkerSubmitAndResult(t *testing.T) {
 	}
 	if next.diagnosticsEvents[1].Kind != diagnosticKindWorker || next.diagnosticsEvents[1].Status != "ok" {
 		t.Fatalf("result event = %#v", next.diagnosticsEvents[1])
+	}
+	if next.diagnosticsEvents[2].Kind != diagnosticKindAPI || next.diagnosticsEvents[2].Status != "ok" {
+		t.Fatalf("api event = %#v", next.diagnosticsEvents[2])
+	}
+}
+
+func TestDiagnosticsRecordsSanitizedAPIResult(t *testing.T) {
+	now := time.Date(2026, 6, 16, 14, 0, 0, 0, time.UTC)
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC AND summary ~ \"secret launch\"")
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+
+	updated, _ := model.Update(workSubmittedMsg{
+		kind: worker.KindSearchIssues,
+		id:   42,
+		key:  model.jql,
+	})
+	model = updated.(Model)
+
+	model.now = func() time.Time { return now.Add(150 * time.Millisecond) }
+	updated, _ = model.Update(workerResultMsg{result: worker.Result{
+		ID:   42,
+		Kind: worker.KindSearchIssues,
+		SearchIssues: &worker.SearchIssuesResult{
+			Issues:   []jira.Issue{{Key: "ABC-1"}, {Key: "ABC-2"}},
+			SyncedAt: now,
+		},
+	}})
+	model = updated.(Model)
+
+	event := lastDiagnosticEventOfKindForTest(t, model, diagnosticKindAPI)
+	if event.Label != string(worker.KindSearchIssues) || event.Status != "ok" {
+		t.Fatalf("api diagnostic event = %#v", event)
+	}
+	for _, want := range []string{"#42", "endpoint=search", "scope=jql", "result=success", "issues=2", "empty=false", "elapsed=150ms"} {
+		if !strings.Contains(event.Detail, want) {
+			t.Fatalf("api diagnostic detail = %q, missing %q", event.Detail, want)
+		}
+	}
+	for _, leak := range []string{"secret launch", model.jql} {
+		if strings.Contains(event.Detail, leak) {
+			t.Fatalf("api diagnostic leaked raw query %q in %q", leak, event.Detail)
+		}
+	}
+}
+
+func TestDiagnosticsSummaryCountsAPIRowsSeparately(t *testing.T) {
+	events := []diagnosticEvent{
+		{Kind: diagnosticKindWorker, Label: string(worker.KindSearchIssues), Status: "ok", Detail: "#1"},
+		{Kind: diagnosticKindAPI, Label: string(worker.KindSearchIssues), Status: "ok", Detail: "#1 endpoint=search"},
+	}
+
+	summary := NewModel(&fakeIssueSearcher{}, "project = ABC").renderDiagnosticsSummary(events, 120)
+
+	for _, want := range []string{"Workers 1", "API 1", "Cache 0", "Events 0"} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("summary = %q, missing %q", summary, want)
+		}
+	}
+}
+
+func TestDiagnosticsRecordsSanitizedAPIError(t *testing.T) {
+	now := time.Date(2026, 6, 16, 14, 0, 0, 0, time.UTC)
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+
+	updated, _ := model.Update(workSubmittedMsg{
+		kind: worker.KindUpdateDescription,
+		id:   77,
+		key:  "ABC-1",
+	})
+	model = updated.(Model)
+
+	rawErr := fmt.Errorf("jira returned 400 with body {\"token\":\"secret-token\",\"description\":\"raw body\"}")
+	model.now = func() time.Time { return now.Add(2 * time.Second) }
+	updated, _ = model.Update(workerResultMsg{result: worker.Result{
+		ID:   77,
+		Kind: worker.KindUpdateDescription,
+		Err:  rawErr,
+		UpdateDescription: &worker.UpdateDescriptionResult{
+			Key: "ABC-1",
+		},
+	}})
+	model = updated.(Model)
+
+	event := lastDiagnosticEventOfKindForTest(t, model, diagnosticKindAPI)
+	if event.Label != string(worker.KindUpdateDescription) || event.Status != "error" {
+		t.Fatalf("api diagnostic event = %#v", event)
+	}
+	for _, want := range []string{"#77", "endpoint=issue", "scope=issue:ABC-1", "result=error", "elapsed=2s", "error="} {
+		if !strings.Contains(event.Detail, want) {
+			t.Fatalf("api diagnostic detail = %q, missing %q", event.Detail, want)
+		}
+	}
+	for _, leak := range []string{"secret-token", "raw body", "description"} {
+		if strings.Contains(event.Detail, leak) {
+			t.Fatalf("api diagnostic leaked raw error content %q in %q", leak, event.Detail)
+		}
 	}
 }
 
@@ -101,6 +200,29 @@ func TestDiagnosticsRecordsAppEvents(t *testing.T) {
 	if !strings.Contains(event.Detail, "active_view") || !strings.Contains(event.Detail, "ABC-1") {
 		t.Fatalf("diagnostic detail = %q", event.Detail)
 	}
+}
+
+func lastDiagnosticEventOfKindForTest(t *testing.T, model Model, kind diagnosticKind) diagnosticEvent {
+	t.Helper()
+	for index := len(model.diagnosticsEvents) - 1; index >= 0; index-- {
+		if model.diagnosticsEvents[index].Kind == kind {
+			return model.diagnosticsEvents[index]
+		}
+	}
+	t.Fatalf("missing diagnostic event kind %s in %#v", kind, model.diagnosticsEvents)
+	return diagnosticEvent{}
+}
+
+func lastDiagnosticEventWithLabelForTest(t *testing.T, model Model, kind diagnosticKind, label string) diagnosticEvent {
+	t.Helper()
+	for index := len(model.diagnosticsEvents) - 1; index >= 0; index-- {
+		event := model.diagnosticsEvents[index]
+		if event.Kind == kind && event.Label == label {
+			return event
+		}
+	}
+	t.Fatalf("missing diagnostic event kind %s label %s in %#v", kind, label, model.diagnosticsEvents)
+	return diagnosticEvent{}
 }
 
 func TestDiagnosticsRecordsStreamedAppEvents(t *testing.T) {
@@ -154,7 +276,8 @@ func TestDiagnosticsRecordsCreateIssueTypeResultCount(t *testing.T) {
 	if len(next.diagnosticsEvents) == 0 {
 		t.Fatal("expected diagnostics event")
 	}
-	got := next.diagnosticsEvents[len(next.diagnosticsEvents)-1].Detail
+	event := lastDiagnosticEventWithLabelForTest(t, next, diagnosticKindWorker, string(worker.KindGetCreateIssueTypes))
+	got := event.Detail
 	for _, want := range []string{"#77", "DEVOPS", "types=0"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("diagnostic detail = %q, missing %q", got, want)
@@ -185,7 +308,8 @@ func TestDiagnosticsRecordsCreateFieldSupportSummary(t *testing.T) {
 	if len(next.diagnosticsEvents) == 0 {
 		t.Fatal("expected diagnostics event")
 	}
-	got := next.diagnosticsEvents[len(next.diagnosticsEvents)-1].Detail
+	event := lastDiagnosticEventWithLabelForTest(t, next, diagnosticKindWorker, string(worker.KindGetCreateFields))
+	got := event.Detail
 	for _, want := range []string{"fields=4", "supported=1", "required_unsupported=1", "priority", "customfield_10020"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("diagnostic detail = %q, missing %q", got, want)

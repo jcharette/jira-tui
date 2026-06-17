@@ -35,34 +35,12 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
   compose mode for comments, edit-field mode for metadata-backed forms, transition mode for status
   changes, and an action menu/command palette for less common operations.
 - Add incremental loading strategy for sprint data and future expanded comment/detail workflows.
-- Continue [jira-cache-performance-design.md](jira-cache-performance-design.md) with cache
-  unification and diagnostics: move detail/comments/transitions/metadata/expanded children behind
-  the same cache record semantics, patch or invalidate affected records after writes, and expose
-  queue/cache events in Diagnostics. Issue detail and comments now use retained cache records;
-  transitions, edit metadata, create metadata, and expanded children now use retained cache records.
-  Selected issue detail prefetch is now bounded for active-view refreshes and table navigation, and
-  comments are loaded by explicit detail opens instead of list prefetch. Diagnostics now shows
-  per-cache-family fresh/stale retained-record counts. Confirmed summary, description, priority,
-  assignee, and status writes now patch retained detail/current-view cache records, and status
-  writes invalidate cached transitions. Persistent cache rows not updated in the last seven days are
-  cleaned up from a short background startup task. Failed refreshes now attach their latest error to
-  retained cache records and Diagnostics reports per-cache-family error counts.
-- Add a generic in-memory TTL cache policy around Jira reads using maintained library support where
-  possible: cache typeahead/metadata/detail/view data with per-data TTLs, refresh important entries
-  asynchronously on expiry or view timers, use bounded background workers/threads where helpful,
-  and merge new ticket rows into active views without blocking the TUI.
-- Extend the Diagnostics overlay with queue depth, per-view refresh timestamps, cache expiry/refresh
-  events, and background sync summaries as cache and prefetch tooling grows. Queue running,
-  pending, coalesced, capacity counts, and per-cache-family fresh/stale/error counts are now
-  visible.
-- Extend the SQLite persistent cache beyond active views after the active-view path proves useful:
-  persist remaining metadata with per-site namespaces, schema migrations, and safe cache deletion.
-  Active views, issue detail, comments, transitions, edit metadata, create metadata, and expanded
-  children now persist; conservative updated-at cleanup now removes old disk rows.
-- Add an opt-in sanitized API debug log built on the Diagnostics model: record Jira operation,
-  endpoint family, request ID, project/issue keys, result class, status/error summary, timing, and
-  empty/paged result counts without storing tokens or raw response bodies. Use this later as the
-  source for creating GitHub issues for this app with attached sanitized debugging context.
+- Continue cache and Diagnostics polish only when new Jira read families are added. The current
+  cache foundation uses maintained `ttlcache`, the bounded worker scheduler, and private SQLite
+  persistence for active views, issue detail, comments, transitions, edit metadata, create metadata,
+  and expanded children. Diagnostics now shows queue state, cache family fresh/stale/error counts,
+  and sanitized API debug rows with operation family, request ID, issue/project scope, result class,
+  result counts, timing, and safe error categories.
 - Add saved issue views for assigned to me, reported/created by me, project open, watching, and
   epic-focused drill-down.
 - Improve epic/subtask table grouping beyond current-result grouping by explicitly loading related
@@ -74,13 +52,13 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
 - Add epic and subtask support.
 - Add sprint and board support.
 - Add configuration file support for saved profiles and default queries.
-- Add lightweight caching for issue detail and related data.
-- Add bounded concurrency controls for detail/comment/sprint fetches when parallel loading expands.
+- Add bounded concurrency controls for sprint and board fetches when parallel loading expands beyond
+  the current issue/detail/comment/cache worker paths.
 
 ## Next: Comments And Workflow Actions
 
-- Add issue transition support that fetches available transitions and transition field metadata for
-  the selected issue before rendering choices or moving issue status.
+- Add transition field metadata support for transitions that require extra fields before moving
+  issue status.
 
 ## Later: Creation And Editing
 

@@ -1,5 +1,39 @@
 # Task Plan
 
+## Sanitized API Debug Diagnostics
+
+- [x] Add focused Diagnostics tests for sanitized Jira API debug rows.
+- [x] Track worker request start times without storing raw request bodies or credentials.
+- [x] Render sanitized API rows with operation, endpoint family, request ID, key/project scope,
+  result class, result counts, elapsed time, and short error summaries.
+- [x] Keep the log bounded and in-memory by reusing the existing Diagnostics event buffer.
+- [x] Reconcile completed cache and AI event backlog notes.
+- [x] Run focused Diagnostics tests, full Go tests, `make check`, and install the updated binary.
+
+### Sanitized API Debug Diagnostics Scope
+
+Build the opt-in sanitized API debug log on the existing Diagnostics overlay. This slice should not
+add persistence, raw request/response logging, token capture, a new debug UI, or extra Jira calls.
+Diagnostics may record Jira operation families, request IDs, issue/project keys, result classes,
+counts, elapsed time, and truncated error summaries only.
+
+### Sanitized API Debug Diagnostics Review
+
+- Added focused Diagnostics coverage for sanitized successful search rows and sanitized write-error
+  rows.
+- Added a bounded `api` Diagnostics event kind backed by the existing in-memory event buffer.
+- Kept API-specific sanitization and formatting in `internal/tui/diagnostics_api.go` so
+  `diagnostics.go` does not absorb another workflow.
+- Tracked worker request start times in model-local state so result rows can include elapsed time.
+- Recorded sanitized API row details from typed worker results: endpoint family, request ID, safe
+  scope, result class, counts/empty state where available, elapsed time, and categorized error.
+- Avoided raw JQL strings, raw request bodies, raw response bodies, tokens, and free-form error text
+  in API diagnostic rows.
+- Reconciled stale backlog notes for completed cache persistence/unification and provider-neutral
+  AI event work.
+- Verified with focused Diagnostics tests, `go test ./... -count=1`, `make check`, and
+  `make install-user`.
+
 ## Cache Refresh Failure Diagnostics
 
 - [x] Add focused tests proving failed active-view, issue-detail, and comments refreshes attach
@@ -252,7 +286,7 @@ list refresh.
 - [x] Implement active-view stale-while-revalidate startup behavior.
 - [x] Publish ticket new/updated events from refreshed active views.
 - [x] Add diagnostics as the first event consumer.
-- [ ] Move Claude requests behind provider-agnostic event-stream AI command handling in a later
+- [x] Move Claude requests behind provider-agnostic event-stream AI command handling in a later
   slice.
 - [ ] Add notification consumers in a later slice.
 

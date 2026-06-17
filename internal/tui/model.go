@@ -157,6 +157,7 @@ type Model struct {
 	helpOffset                         int
 	diagnosticsOpen                    bool
 	diagnosticsEvents                  []diagnosticEvent
+	workerRequestStartedAt             map[int]time.Time
 	eventStream                        eventStream
 	eventInbox                         <-chan events.Event
 	claudeConfig                       ClaudeConfig
@@ -509,6 +510,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case workerResultMsg:
 		var cmd tea.Cmd
 		m.recordWorkerResult(resultDiagnosticEvent(msg.result))
+		m.recordAPIResult(msg.result)
 		m, cmd = m.handleWorkerResult(msg.result)
 		return m, tea.Batch(cmd, m.waitForWorkerResult())
 	case appEventMsg:
@@ -559,7 +561,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.detailNotice = linkActionNotice(msg)
 		return m, nil
 	case workSubmittedMsg:
-		m.recordDiagnosticEvent(diagnosticKindWorker, string(msg.kind), "submit", workerDiagnosticDetail(msg.id, msg.key, nil))
+		m.recordWorkerSubmitted(msg.kind, msg.id, msg.key)
 		return m, nil
 	case workerStoppedMsg, noDetailRequestMsg:
 		return m, nil

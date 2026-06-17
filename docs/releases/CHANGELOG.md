@@ -4,6 +4,9 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Added sanitized API debug rows to Diagnostics, showing Jira operation family, request ID,
+  issue/project scope, result class, safe counts, elapsed time, and categorized errors without raw
+  request bodies, response bodies, tokens, or full JQL strings.
 - Added cache refresh failure counts to Diagnostics by retaining the latest refresh error on active
   view, detail, comments, transition, edit metadata, create metadata, and expanded-child cache
   records.

@@ -175,7 +175,10 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   metadata results include sanitized result counts such as issue type and field counts, supported
   create-field counts, unsupported required counts, and short field ID/name/schema samples so empty
   or filtered Jira metadata responses can be diagnosed without logging raw response bodies or
-  credentials.
+  credentials. Worker submissions/results also produce bounded sanitized API debug rows with Jira
+  operation family, request ID, issue/project scope, result class, safe counts, elapsed time, and
+  categorized errors without recording raw request bodies, response bodies, tokens, or full JQL
+  strings.
 - Uses request IDs to ignore stale Jira responses.
 - Preserves the selected issue across refreshes when it still exists in the refreshed list.
 - Bounds Jira calls with a configurable request timeout.

@@ -20,6 +20,7 @@ const (
 	diagnosticKindCache  diagnosticKind = "cache"
 	diagnosticKindClaude diagnosticKind = "claude"
 	diagnosticKindEvent  diagnosticKind = "event"
+	diagnosticKindAPI    diagnosticKind = "api"
 )
 
 type diagnosticEvent struct {
@@ -32,6 +33,7 @@ type diagnosticEvent struct {
 
 type diagnosticStats struct {
 	Workers int
+	API     int
 	Cache   int
 	Events  int
 	Errors  int
@@ -78,7 +80,7 @@ func (m Model) renderDiagnosticsSummary(events []diagnosticEvent, width int) str
 		event := events[len(events)-1]
 		last = strings.TrimSpace(event.Label + " " + event.Status)
 	}
-	summary := fmt.Sprintf("Workers %d   Cache %d   Events %d   Errors %d   Active %d   Last %s", stats.Workers, stats.Cache, stats.Events, stats.Errors, stats.Active, last)
+	summary := fmt.Sprintf("Workers %d   API %d   Cache %d   Events %d   Errors %d   Active %d   Last %s", stats.Workers, stats.API, stats.Cache, stats.Events, stats.Errors, stats.Active, last)
 	bars := fmt.Sprintf("Activity  worker %s  cache  %s", diagnosticActivityBar(stats.Workers, len(events), 12), diagnosticActivityBar(stats.Cache, len(events), 12))
 	return truncate(summary, width) + "\n" + truncate(bars, width)
 }
@@ -223,6 +225,8 @@ func diagnosticStatsFor(events []diagnosticEvent) diagnosticStats {
 			stats.Cache++
 		case diagnosticKindEvent:
 			stats.Events++
+		case diagnosticKindAPI:
+			stats.API++
 		}
 		if event.Status == "error" {
 			stats.Errors++
@@ -311,6 +315,26 @@ func resultDiagnosticEvent(result worker.Result) diagnosticEvent {
 }
 
 func (m *Model) recordWorkerResult(event diagnosticEvent) {
+	m.recordDiagnosticEvent(event.Kind, event.Label, event.Status, event.Detail)
+}
+
+func (m *Model) recordWorkerSubmitted(kind worker.Kind, requestID int, key string) {
+	if m.workerRequestStartedAt == nil {
+		m.workerRequestStartedAt = make(map[int]time.Time)
+	}
+	m.workerRequestStartedAt[requestID] = m.currentTime()
+	m.recordDiagnosticEvent(diagnosticKindWorker, string(kind), "submit", workerDiagnosticDetail(requestID, key, nil))
+}
+
+func (m *Model) recordAPIResult(result worker.Result) {
+	if result.ID <= 0 {
+		return
+	}
+	startedAt, ok := m.workerRequestStartedAt[result.ID]
+	if ok {
+		delete(m.workerRequestStartedAt, result.ID)
+	}
+	event := apiDiagnosticEvent(result, m.currentTime(), startedAt)
 	m.recordDiagnosticEvent(event.Kind, event.Label, event.Status, event.Detail)
 }
 
