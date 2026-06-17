@@ -746,6 +746,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.mode == modeTable {
 				return m.startExpandSelectedIssue(worker.ExpandModeAll)
 			}
+		case "z":
+			if m.mode == modeTable {
+				m.toggleSelectedIssueCollapse()
+				return m, nil
+			}
 		case "[", "shift+tab", "backtab":
 			if m.mode == modeDetail {
 				m.moveDetailFocus(-1)

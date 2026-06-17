@@ -1210,6 +1210,53 @@ func TestVisibleIssueIndexesIncludeMissingParentRoots(t *testing.T) {
 	}
 }
 
+func TestIssueListToggleCollapseFromSelectedNode(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "symbols"}))
+	defer model.workers.Stop()
+	model.height = 30
+	model.width = 120
+	model.selected = 0
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Parent", IssueType: "Epic"},
+		{Key: "ABC-2", Summary: "Child", IssueType: "Story", ParentKey: "ABC-1"},
+	}
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "z", Code: 'z'}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("collapse toggle should not submit work")
+	}
+	if !next.collapsedIssueKeys["ABC-1"] {
+		t.Fatalf("expected ABC-1 collapsed, state=%v", next.collapsedIssueKeys)
+	}
+	if view := next.renderIssueList(next.browserLayout(next.width)); strings.Contains(view, "ABC-2") || !strings.Contains(view, "1 hidden") {
+		t.Fatalf("collapsed view = %q", view)
+	}
+}
+
+func TestIssueListToggleCollapseLeafShowsNotice(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.height = 30
+	model.width = 120
+	model.selected = 0
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Leaf", IssueType: "Task"}}
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "z", Code: 'z'}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("leaf collapse toggle should not submit work")
+	}
+	if len(next.collapsedIssueKeys) != 0 {
+		t.Fatalf("leaf row should not be marked collapsed: %v", next.collapsedIssueKeys)
+	}
+	if !strings.Contains(next.detailNotice, "No loaded child issues") {
+		t.Fatalf("leaf notice = %q", next.detailNotice)
+	}
+}
+
 func TestIssueRenderLinesPreserveIssueIndexForMissingParentChildRow(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "symbols"}))
 	defer model.workers.Stop()
@@ -1574,6 +1621,31 @@ func TestFooterHelpGroupsCommandsAndFitsWidth(t *testing.T) {
 	}
 	if lipgloss.Width(footer) > layout.contentWidth {
 		t.Fatalf("footer width = %d, want <= %d: %q", lipgloss.Width(footer), layout.contentWidth, footer)
+	}
+}
+
+func TestHelpIncludesActiveContextBindings(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 110
+	model.height = 40
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Parent", IssueType: "Epic"},
+		{Key: "ABC-2", Summary: "Child", IssueType: "Story", ParentKey: "ABC-1"},
+	}
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "?", Code: '?'}))
+	next := updated.(Model)
+	if !next.helpOpen {
+		t.Fatal("expected help to open")
+	}
+
+	view := next.render()
+	for _, want := range []string{"Keyboard Help", "Issue Table", "Collapse or expand the selected issue subtree.", "Load open child issues for the selected parent."} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in %q", want, view)
+		}
 	}
 }
 

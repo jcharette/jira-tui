@@ -36,6 +36,10 @@
 - Do not commit every small bug fix by default. Commit only when the user asks, when creating an
   intentional checkpoint, or before a risky transition; otherwise leave verified changes in the
   working tree for review.
+- Do not ask conversational approval again after the user gives run-level approval. Keep moving
+  unless there is a real product ambiguity or the tool sandbox itself requires an approval prompt.
+- Use subagents for dependent implementation tasks as sequential fresh-context review gates, not as
+  parallel speedups. If tasks depend on each other, say that plainly and avoid implying parallelism.
 - For Jira write workflows, do not default to an Actions menu as the primary UX. Prefer making
   existing ticket detail sections and fields directly navigable: move to a field/section, press
   enter to edit or act, then open a metadata-backed dialog populated from Jira.

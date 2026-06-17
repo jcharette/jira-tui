@@ -78,6 +78,32 @@ func (m Model) startExpandSelectedIssue(mode worker.ExpandMode) (Model, tea.Cmd)
 	return m, m.submitExpandIssues(m.activeExpandReqID, issue.Key, mode)
 }
 
+func (m *Model) toggleSelectedIssueCollapse() {
+	issue, ok := m.selectedIssue()
+	if !ok || issue.Key == "" {
+		m.detailNotice = "No issue selected."
+		return
+	}
+	displayTree := buildIssueDisplayTree(m.issues)
+	descendants := m.loadedDescendantCount(displayTree, issue.Key)
+	if descendants == 0 {
+		m.detailNotice = "No loaded child issues for " + issue.Key + "."
+		return
+	}
+	if m.collapsedIssueKeys == nil {
+		m.collapsedIssueKeys = make(map[string]bool)
+	}
+	if m.collapsedIssueKeys[issue.Key] {
+		delete(m.collapsedIssueKeys, issue.Key)
+		m.detailNotice = "Expanded " + issue.Key + "."
+	} else {
+		m.collapsedIssueKeys[issue.Key] = true
+		m.detailNotice = "Collapsed " + issue.Key + "."
+	}
+	m.repairCollapsedSelection()
+	m.ensureSelectionVisible(m.currentLayoutRows())
+}
+
 func (m Model) switchView(delta int) (Model, tea.Cmd) {
 	if len(m.views) == 0 {
 		return m, nil
@@ -332,6 +358,40 @@ func (m Model) selectedIssue() (jira.Issue, bool) {
 		return jira.Issue{}, false
 	}
 	return m.issues[m.selected], true
+}
+
+func (m *Model) repairCollapsedSelection() {
+	if len(m.issues) == 0 {
+		m.selected = 0
+		m.offset = 0
+		return
+	}
+	displayTree := buildIssueDisplayTree(m.issues)
+	visible := m.visibleIssueIndexes(displayTree)
+	for _, index := range visible {
+		if index == m.selected {
+			return
+		}
+	}
+	if m.selected >= 0 && m.selected < len(m.issues) {
+		parentKey := m.issues[m.selected].ParentKey
+		for parentKey != "" {
+			parentIndex, ok := displayTree.indexByKey[parentKey]
+			if !ok {
+				break
+			}
+			if m.issueCollapsed(parentKey) {
+				m.selected = parentIndex
+				return
+			}
+			parentKey = displayTree.issues[parentIndex].ParentKey
+		}
+	}
+	if len(visible) > 0 {
+		m.selected = visible[0]
+		return
+	}
+	m.selected = 0
 }
 
 func (m *Model) replaceIssues(issues []jira.Issue) {

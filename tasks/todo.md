@@ -84,6 +84,26 @@ reveals that node while preserving any deeper collapsed branches.
 - [x] Re-run focused GREEN tests and the broader Task 1 hierarchy command.
 - [x] Append review-fix evidence to the Task 1 report and record the verification package.
 
+### Task 2: Toggle Command And Key Help
+
+- [x] Add the Task 2 collapse-toggle and leaf-notice failing tests.
+- [x] Record that the stalled Task 2 worker did not preserve RED output.
+- [x] Add the table `z` collapse toggle handler and key help binding.
+- [x] Re-run the focused GREEN toggle/help tests.
+- [x] Run the broader Task 2 verification command from the brief.
+- [x] Record Task 2 review notes and verification results.
+
+### Task 2 Review
+
+- Added focused table-mode regression coverage for collapsing a selected parent, rejecting collapse on
+  leaf rows with a notice, and exposing the new `z` binding in the table help overlay.
+- Added a model-local `toggleSelectedIssueCollapse` helper that only mutates presentation state and
+  reuses the existing rendered-tree descendant counting.
+- Wired `z` into the existing table key switch and footer/full-help key bindings without touching
+  Jira reads, worker expansion flows, saved views, cache records, or `m.issues`.
+- Verified the focused Task 2 toggle/help command and the broader Task 2 command after recovering
+  from the stalled worker; the original RED output was not preserved.
+
 ## Assignee And Mention Filter Textinput
 
 - [x] Add focused tests proving Assignee and mention picker filters support cursor-aware editing.
