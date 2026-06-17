@@ -63,12 +63,13 @@ const (
 )
 
 type Model struct {
-	workers *worker.Pool
-	jql     string
-	views   []config.IssueView
-	view    int
-	mode    mode
-	sort    sortMode
+	workers      *worker.Pool
+	jql          string
+	views        []config.IssueView
+	view         int
+	mode         mode
+	sort         sortMode
+	statusFilter issueStatusFilter
 
 	issues                             []jira.Issue
 	selected                           int
@@ -304,6 +305,7 @@ type Model struct {
 
 type mode int
 type sortMode int
+type issueStatusFilter int
 
 const (
 	modeTable mode = iota
@@ -318,6 +320,11 @@ const (
 	sortAssignee
 	sortType
 	sortKey
+)
+
+const (
+	issueStatusFilterAll issueStatusFilter = iota
+	issueStatusFilterActive
 )
 
 const (
@@ -942,6 +949,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.pageSelection(1)
 			return m.startSelectedIssuePrefetch()
+		case "f":
+			if m.mode == modeTable {
+				m.toggleStatusFilter()
+				return m, nil
+			}
 		case "home", "g":
 			if m.mode == modeDetail {
 				m.setDetailOffset(0)
@@ -951,7 +963,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.assigneeFocus = false
 				return m, nil
 			}
-			m.selected = 0
+			displayTree := buildIssueDisplayTree(m.issues)
+			visible := m.visibleIssueIndexes(displayTree)
+			if len(visible) > 0 {
+				m.selected = visible[0]
+			} else {
+				m.selected = 0
+			}
 			m.offset = 0
 			return m.startSelectedIssuePrefetch()
 		case "end", "G":
@@ -963,7 +981,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.assigneeFocus = false
 				return m, nil
 			}
-			m.selected = max(0, len(m.issues)-1)
+			displayTree := buildIssueDisplayTree(m.issues)
+			visible := m.visibleIssueIndexes(displayTree)
+			if len(visible) > 0 {
+				m.selected = visible[len(visible)-1]
+			} else {
+				m.selected = max(0, len(m.issues)-1)
+			}
 			m.ensureSelectionVisible(m.currentLayoutRows())
 			return m.startSelectedIssuePrefetch()
 		case "l":

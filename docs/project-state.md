@@ -268,6 +268,9 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
 - Issue tables support explicit parent expansion without changing the active saved view: `x` loads
   open child issues for the selected parent and `X` loads all child issues, including resolved/done
   children. Expansion runs through the worker pool and merges new child rows into the current list.
+- Issue tables support a local `f` Active filter that hides loaded tickets whose status text looks
+  terminal (`done`, `closed`, `resolved`, `canceled`, or `cancelled`) without changing Jira reads,
+  saved views, cache records, or loaded issue data.
 - Fetches read-only issue details for the selected issue through the worker pool, caches details by
   issue key, and ignores stale detail responses when selection changes. Issue detail uses
   short-lived TTL freshness tracking via `github.com/jellydator/ttlcache/v3`: fresh cached detail

@@ -175,6 +175,7 @@ func tableBindings() []keyBinding {
 		{Keys: []string{"X"}, Label: "expand-all", Description: "Load all child issues for the selected parent, including resolved issues.", Group: "Issue"},
 		{Keys: []string{"r"}, Label: "refresh", Description: "Refresh the active issue view.", Group: "Global", Footer: true},
 		{Keys: []string{"tab", "]", "shift+tab", "["}, FooterKey: "tab", Label: "view", Description: "Switch saved issue views.", Group: "Views", Footer: true},
+		{Keys: []string{"f"}, Label: "active", Description: "Toggle local active-status filtering for loaded issues.", Group: "Views", Footer: true},
 		{Keys: []string{"o", "O"}, Label: "sort", Description: "Cycle issue table sorting forward or backward.", Group: "Views", Footer: true},
 		{Keys: []string{"pgup", "pgdn", "space", "ctrl+b", "ctrl+f"}, FooterKey: "pgup/pgdn", Label: "page", Description: "Page through the issue table.", Group: "Navigation", Footer: true},
 	}

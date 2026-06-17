@@ -1,5 +1,66 @@
 # Task Plan
 
+## Local Active Status Filter
+
+- [x] Confirm UX design for a local active-status issue-table filter.
+- [x] Add focused tests for terminal status classification and active status preservation.
+- [x] Add model-local table filter state without changing JQL, saved views, Jira requests, cache
+  keys, cache records, or loaded issue data.
+- [x] Render `All` by default and toggle `Active` with `f`.
+- [x] Hide only terminal-looking status text in Active mode: done, closed, resolved, canceled, and
+  cancelled.
+- [x] Show active-filter count/empty-state copy in the issue table.
+- [x] Route table navigation, paging, first/last jumps, and selection repair through visible loaded
+  issues.
+- [x] Update project docs/changelog for the user-visible table filter.
+- [x] Run focused issue-list/status-filter tests, full Go tests, `make check`, and
+  `make install-user`.
+
+### Local Active Status Filter Scope
+
+Add a UX-only issue-table filter that toggles between all loaded issues and active loaded issues.
+The active filter hides tickets whose status text looks terminal while preserving the active saved
+view, JQL, Jira reads, caches, issue ordering, and `m.issues`.
+
+### Local Active Status Filter Review
+
+- Added `f` as a table-mode toggle between All and Active loaded issues.
+- Kept JQL, saved views, Jira requests, cache keys, cache records, and `m.issues` unchanged.
+- Hid only locally terminal status text: done, closed, resolved, canceled, and cancelled.
+- Routed rendering, movement, paging, first/last jumps, selection repair, and page indicators
+  through visible loaded issues while the filter is active.
+- Reset the local filter to All when switching saved views so every loaded view starts unfiltered.
+- Added filtered-empty copy that tells users how to return to all loaded issues.
+- Verified with focused issue-list/status-filter tests, `go test ./... -count=1`, `make check`, and
+  `make install-user`.
+
+## Issue List Subtree Collapse
+
+- [x] Confirm UX design/spec for issue-list subtree collapse.
+- [ ] Audit issue-table key bindings and choose one low-conflict collapse toggle.
+- [ ] Add focused tests for default expanded rendering, subtree collapse, subtree re-expand,
+  preserved deeper collapse state, hidden-selection repair, visible-row navigation, and explicit
+  child expansion compatibility.
+- [ ] Add model-local collapse state keyed by issue key without changing Jira reads, caches, saved
+  views, issue ordering, or `m.issues`.
+- [ ] Derive visible issue rows from the existing tree plus collapse state.
+- [ ] Render a compact hidden-descendant count on collapsed nodes.
+- [ ] Route issue-list navigation and selection visibility through visible rows.
+- [ ] Update project docs/changelog for the user-visible issue-list behavior.
+- [ ] Run focused issue-list/navigation tests, full Go tests, `make check`, and
+  `make install-user`.
+
+### Issue List Subtree Collapse Scope
+
+Add purely local issue-table collapse/expand behavior so a selected node can hide or reveal its
+loaded descendant subtree. The default view remains expanded, explicit `x`/`X` Jira child loading
+keeps using the existing worker path, and the loaded ticket data stays unchanged. Expanding a node
+reveals that node while preserving any deeper collapsed branches.
+
+### Issue List Subtree Collapse Review
+
+- Pending implementation.
+
 ## Assignee And Mention Filter Textinput
 
 - [x] Add focused tests proving Assignee and mention picker filters support cursor-aware editing.

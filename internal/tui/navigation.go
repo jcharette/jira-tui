@@ -86,6 +86,7 @@ func (m Model) switchView(delta int) (Model, tea.Cmd) {
 	m.jql = m.views[m.view].JQL
 	m.selected = 0
 	m.offset = 0
+	m.statusFilter = issueStatusFilterAll
 	m.issues = nil
 	m.err = nil
 	m.mode = modeTable
@@ -153,6 +154,45 @@ func (m *Model) switchSort(delta int) {
 	m.ensureSelectionVisible(m.currentLayoutRows())
 }
 
+func (m *Model) toggleStatusFilter() {
+	if m.statusFilter == issueStatusFilterActive {
+		m.statusFilter = issueStatusFilterAll
+		m.detailNotice = "Showing all loaded issues."
+	} else {
+		m.statusFilter = issueStatusFilterActive
+		m.detailNotice = "Showing active loaded issues."
+	}
+	m.repairStatusFilterSelection()
+	m.ensureSelectionVisible(m.currentLayoutRows())
+}
+
+func (m *Model) repairStatusFilterSelection() {
+	if len(m.issues) == 0 {
+		m.selected = 0
+		m.offset = 0
+		return
+	}
+	displayTree := buildIssueDisplayTree(m.issues)
+	visible := m.visibleIssueIndexes(displayTree)
+	if len(visible) == 0 {
+		m.selected = 0
+		m.offset = 0
+		return
+	}
+	for _, index := range visible {
+		if index == m.selected {
+			return
+		}
+	}
+	for _, index := range visible {
+		if index >= m.selected {
+			m.selected = index
+			return
+		}
+	}
+	m.selected = visible[len(visible)-1]
+}
+
 func (m Model) activeViewName() string {
 	if len(m.views) == 0 || m.view < 0 || m.view >= len(m.views) {
 		return "Default"
@@ -166,7 +206,16 @@ func (m *Model) moveSelection(delta int) {
 		m.offset = 0
 		return
 	}
-	m.selected = clamp(m.selected+delta, 0, len(m.issues)-1)
+	displayTree := buildIssueDisplayTree(m.issues)
+	visible := m.visibleIssueIndexes(displayTree)
+	if len(visible) == 0 {
+		m.selected = 0
+		m.offset = 0
+		return
+	}
+	position := m.visibleSelectionPosition(visible)
+	position = clamp(position+delta, 0, len(visible)-1)
+	m.selected = visible[position]
 	m.resetDetailScroll()
 	m.ensureSelectionVisible(m.currentLayoutRows())
 }
@@ -177,11 +226,32 @@ func (m *Model) pageSelection(delta int) {
 		m.offset = 0
 		return
 	}
+	displayTree := buildIssueDisplayTree(m.issues)
+	visible := m.visibleIssueIndexes(displayTree)
+	if len(visible) == 0 {
+		m.selected = 0
+		m.offset = 0
+		return
+	}
 	rows := m.currentLayoutRows()
 	step := max(1, rows-1)
-	m.selected = clamp(m.selected+(delta*step), 0, len(m.issues)-1)
+	position := m.visibleSelectionPosition(visible)
+	position = clamp(position+(delta*step), 0, len(visible)-1)
+	m.selected = visible[position]
 	m.resetDetailScroll()
 	m.ensureSelectionVisible(rows)
+}
+
+func (m Model) visibleSelectionPosition(visible []int) int {
+	if len(visible) == 0 {
+		return 0
+	}
+	for position, index := range visible {
+		if index == m.selected {
+			return position
+		}
+	}
+	return 0
 }
 
 func (m *Model) scrollDetail(delta int) {

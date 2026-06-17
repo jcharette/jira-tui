@@ -85,7 +85,7 @@ func (m Model) renderIssueList(layout browserLayout) string {
 
 	b.WriteString(m.issueListHeader(layout))
 	b.WriteByte('\n')
-	if len(m.issues) > 0 {
+	if len(rows) > 0 {
 		vp := viewport.New(
 			viewport.WithWidth(max(1, layout.listWidth-4)),
 			viewport.WithHeight(max(1, rowCount)),
@@ -95,6 +95,8 @@ func (m Model) renderIssueList(layout browserLayout) string {
 		vp.SetContent(strings.Join(rows, "\n"))
 		vp.SetYOffset(start)
 		b.WriteString(strings.TrimRight(vp.View(), "\n "))
+	} else if len(m.issues) > 0 && m.statusFilter == issueStatusFilterActive {
+		b.WriteString(m.theme.Muted.Render("Active filter hides all loaded issues. Press f show all."))
 	} else {
 		b.WriteString(m.theme.Muted.Render("No issues found for this view."))
 	}
@@ -102,7 +104,7 @@ func (m Model) renderIssueList(layout browserLayout) string {
 	title := m.issueListTitle(len(rows), rowCount, start, end)
 	content := m.issueListTitleLine(title, layout) + "\n" + strings.TrimRight(b.String(), "\n")
 	if len(rows) > rowCount {
-		content += "\n" + m.theme.Muted.Render(m.pageIndicator(start, end))
+		content += "\n" + m.theme.Muted.Render(m.pageIndicator(start, end, len(rows)))
 	}
 	return m.theme.ActivePane.Width(layout.listWidth).Render(content)
 }
@@ -111,8 +113,11 @@ func (m Model) issueListTitle(rowTotal int, rowCount int, start int, end int) st
 	title := "0 issues"
 	if len(m.issues) > 0 {
 		title = fmt.Sprintf("%d issues", len(m.issues))
+		if m.statusFilter == issueStatusFilterActive {
+			title += fmt.Sprintf("  Active %d shown", rowTotal)
+		}
 		if rowTotal > rowCount {
-			title = fmt.Sprintf("%d issues  rows %d-%d", len(m.issues), start+1, end)
+			title += fmt.Sprintf("  rows %d-%d", start+1, end)
 		}
 	}
 	return title
@@ -139,7 +144,37 @@ func (m Model) issueListMetaHeader(layout browserLayout) string {
 	return m.issueListMetaPlain(columns, "STATUS", "PRI", "OWNER")
 }
 
+func terminalIssueStatus(status string) bool {
+	normalized := strings.Join(strings.Fields(strings.ToLower(status)), " ")
+	if normalized == "" || normalized == "unknown" {
+		return false
+	}
+	for _, terminal := range []string{"done", "closed", "resolved", "canceled", "cancelled"} {
+		if strings.Contains(normalized, terminal) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m Model) issueVisibleByStatus(issue jira.Issue) bool {
+	if m.statusFilter != issueStatusFilterActive {
+		return true
+	}
+	return !terminalIssueStatus(issue.Status)
+}
+
+func (m Model) activeStatusFilterLabel() string {
+	if m.statusFilter == issueStatusFilterActive {
+		return "Active"
+	}
+	return "All"
+}
+
 func (m Model) issueRows(layout browserLayout) []string {
+	if m.statusFilter == issueStatusFilterActive {
+		return m.filteredIssueRows(layout)
+	}
 	displayTree := buildIssueDisplayTree(m.issues)
 	var rows []string
 	for _, root := range displayTree.roots {
@@ -148,6 +183,48 @@ func (m Model) issueRows(layout browserLayout) []string {
 			continue
 		}
 		rows = append(rows, m.issueTreeRows(displayTree, root.issueIndex, "", true, layout)...)
+	}
+	return rows
+}
+
+func (m Model) visibleIssueIndexes(displayTree issueDisplayTree) []int {
+	indexes := make([]int, 0, len(displayTree.issues))
+	for _, root := range displayTree.roots {
+		if root.missingParentKey != "" {
+			for _, child := range displayTree.missingParents[root.missingParentKey].children {
+				indexes = m.appendVisibleIssueIndexes(indexes, displayTree, child)
+			}
+			continue
+		}
+		indexes = m.appendVisibleIssueIndexes(indexes, displayTree, root.issueIndex)
+	}
+	return indexes
+}
+
+func (m Model) appendVisibleIssueIndexes(indexes []int, displayTree issueDisplayTree, index int) []int {
+	issue := displayTree.issues[index]
+	if m.issueVisibleByStatus(issue) {
+		indexes = append(indexes, index)
+	}
+	for _, child := range displayTree.children[issue.Key] {
+		indexes = m.appendVisibleIssueIndexes(indexes, displayTree, child)
+	}
+	return indexes
+}
+
+func (m Model) filteredIssueRows(layout browserLayout) []string {
+	displayTree := buildIssueDisplayTree(m.issues)
+	visible := make(map[int]bool, len(m.issues))
+	for _, index := range m.visibleIssueIndexes(displayTree) {
+		visible[index] = true
+	}
+	var rows []string
+	for _, root := range displayTree.roots {
+		if root.missingParentKey != "" {
+			rows = append(rows, m.filteredMissingParentRows(displayTree, root.missingParentKey, visible, layout)...)
+			continue
+		}
+		rows = append(rows, m.filteredIssueTreeRows(displayTree, root.issueIndex, "", true, visible, layout)...)
 	}
 	return rows
 }
@@ -210,7 +287,49 @@ func (m Model) missingParentRows(displayTree issueDisplayTree, parentKey string,
 	return rows
 }
 
+func (m Model) filteredMissingParentRows(displayTree issueDisplayTree, parentKey string, visible map[int]bool, layout browserLayout) []string {
+	group := displayTree.missingParents[parentKey]
+	var childRows []string
+	for index, child := range group.children {
+		childRows = append(childRows, m.filteredIssueTreeRows(displayTree, child, "  ", index == len(group.children)-1, visible, layout)...)
+	}
+	if len(childRows) == 0 {
+		return nil
+	}
+	label := "Parent outside view: " + parentKey
+	if group.summary != "" {
+		label += "  " + group.summary
+	}
+	gutterWidth := issueTreeGutterWidth(layout)
+	rows := []string{m.theme.Muted.Render(padRight("  ◇", gutterWidth) + truncate(label, max(20, layout.listWidth-gutterWidth-2)))}
+	rows = append(rows, childRows...)
+	return rows
+}
+
 func (m Model) issueTreeRows(displayTree issueDisplayTree, index int, prefix string, last bool, layout browserLayout) []string {
+	rows := m.issueTreeCurrentRows(displayTree, index, prefix, last, layout)
+	children := displayTree.children[displayTree.issues[index].Key]
+	nextPrefix := nextIssueTreePrefix(prefix, last, len(children))
+	for childPosition, childIndex := range children {
+		rows = append(rows, m.issueTreeRows(displayTree, childIndex, nextPrefix, childPosition == len(children)-1, layout)...)
+	}
+	return rows
+}
+
+func (m Model) filteredIssueTreeRows(displayTree issueDisplayTree, index int, prefix string, last bool, visible map[int]bool, layout browserLayout) []string {
+	var rows []string
+	if visible[index] {
+		rows = append(rows, m.issueTreeCurrentRows(displayTree, index, prefix, last, layout)...)
+	}
+	children := displayTree.children[displayTree.issues[index].Key]
+	nextPrefix := nextIssueTreePrefix(prefix, last, len(children))
+	for childPosition, childIndex := range children {
+		rows = append(rows, m.filteredIssueTreeRows(displayTree, childIndex, nextPrefix, childPosition == len(children)-1, visible, layout)...)
+	}
+	return rows
+}
+
+func (m Model) issueTreeCurrentRows(displayTree issueDisplayTree, index int, prefix string, last bool, layout browserLayout) []string {
 	row := displayTree.issueRow(index)
 	gutter := issueTreeGutter(prefix, last, index == m.selected, layout)
 	label := m.renderIssueDisplayRow(row, gutter, layout)
@@ -221,19 +340,19 @@ func (m Model) issueTreeRows(displayTree issueDisplayTree, index int, prefix str
 		}
 	}
 	rows := strings.Split(label, "\n")
-	children := displayTree.children[row.issue.Key]
+	return rows
+}
+
+func nextIssueTreePrefix(prefix string, last bool, childCount int) string {
 	nextPrefix := prefix
-	if prefix != "" || len(children) > 0 {
+	if prefix != "" || childCount > 0 {
 		if last {
 			nextPrefix += "  "
 		} else {
 			nextPrefix += "│ "
 		}
 	}
-	for childPosition, childIndex := range children {
-		rows = append(rows, m.issueTreeRows(displayTree, childIndex, nextPrefix, childPosition == len(children)-1, layout)...)
-	}
-	return rows
+	return nextPrefix
 }
 
 func issueTreeGutter(prefix string, last bool, selected bool, layout browserLayout) string {

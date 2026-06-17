@@ -35,6 +35,22 @@ func collectEventsForTest(t *testing.T, received <-chan events.Event, count int)
 	return got
 }
 
+func TestTerminalIssueStatusMatchesCommonTerminalStatuses(t *testing.T) {
+	for _, status := range []string{"Done", "Resolved", "Closed", "Canceled", "Cancelled", "done - deployed"} {
+		if !terminalIssueStatus(status) {
+			t.Fatalf("status %q should be terminal", status)
+		}
+	}
+}
+
+func TestTerminalIssueStatusKeepsActiveStatusesVisible(t *testing.T) {
+	for _, status := range []string{"", "Unknown", "To Do", "Open", "Ready", "In Progress", "Review", "Blocked", "Waiting", "On Hold"} {
+		if terminalIssueStatus(status) {
+			t.Fatalf("status %q should remain active", status)
+		}
+	}
+}
+
 func TestLoadedIssuesIgnoreStaleRequest(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "symbols"}))
 	defer model.workers.Stop()
@@ -673,6 +689,207 @@ func TestIssueListViewportUsesRenderedTreeRows(t *testing.T) {
 	}
 	if strings.Contains(view, "rows 1-") {
 		t.Fatalf("expanded tree should scroll by rendered rows, view = %q", view)
+	}
+}
+
+func TestIssueListStatusFilterDefaultsToAll(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.height = 30
+	model.width = 120
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Build it", Status: "In Progress", IssueType: "Task"},
+		{Key: "ABC-2", Summary: "Finished", Status: "Done", IssueType: "Task"},
+	}
+
+	view := model.renderIssueList(model.browserLayout(model.width))
+
+	if !strings.Contains(view, "ABC-1") || !strings.Contains(view, "ABC-2") {
+		t.Fatalf("all mode should render active and terminal issues: %q", view)
+	}
+}
+
+func TestIssueListActiveStatusFilterHidesTerminalIssues(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.height = 30
+	model.width = 120
+	model.statusFilter = issueStatusFilterActive
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Ready", Status: "To Do", IssueType: "Task"},
+		{Key: "ABC-2", Summary: "Build it", Status: "In Progress", IssueType: "Task"},
+		{Key: "ABC-3", Summary: "Finished", Status: "Done", IssueType: "Task"},
+		{Key: "ABC-4", Summary: "Cancelled", Status: "Canceled", IssueType: "Task"},
+	}
+
+	view := model.renderIssueList(model.browserLayout(model.width))
+
+	for _, want := range []string{"ABC-1", "ABC-2", "Active", "2 shown"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("filtered view missing %q: %q", want, view)
+		}
+	}
+	for _, hidden := range []string{"ABC-3", "ABC-4"} {
+		if strings.Contains(view, hidden) {
+			t.Fatalf("filtered view should hide %s: %q", hidden, view)
+		}
+	}
+}
+
+func TestIssueListActiveStatusFilterEmptyState(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.height = 30
+	model.width = 120
+	model.statusFilter = issueStatusFilterActive
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Finished", Status: "Done", IssueType: "Task"},
+	}
+
+	view := model.renderIssueList(model.browserLayout(model.width))
+
+	for _, want := range []string{"Active filter hides all loaded issues", "f show all"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("filtered empty state missing %q: %q", want, view)
+		}
+	}
+}
+
+func TestIssueListStatusFilterToggleUsesF(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.height = 30
+	model.width = 120
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Active", Status: "To Do", IssueType: "Task"},
+		{Key: "ABC-2", Summary: "Done", Status: "Done", IssueType: "Task"},
+	}
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "f", Code: 'f'}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("local status filter toggle should not submit work")
+	}
+	if next.statusFilter != issueStatusFilterActive {
+		t.Fatalf("statusFilter = %v, want active", next.statusFilter)
+	}
+	if view := next.renderIssueList(next.browserLayout(next.width)); strings.Contains(view, "ABC-2") {
+		t.Fatalf("active filter should hide terminal row: %q", view)
+	}
+}
+
+func TestIssueListStatusFilterRepairsHiddenSelection(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.height = 30
+	model.width = 120
+	model.selected = 1
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Active", Status: "To Do", IssueType: "Task"},
+		{Key: "ABC-2", Summary: "Done", Status: "Done", IssueType: "Task"},
+	}
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "f", Code: 'f'}))
+	next := updated.(Model)
+
+	if got := next.issues[next.selected].Key; got != "ABC-1" {
+		t.Fatalf("selected issue = %s, want ABC-1", got)
+	}
+}
+
+func TestIssueListStatusFilterNavigationSkipsHiddenRows(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.height = 30
+	model.width = 120
+	model.statusFilter = issueStatusFilterActive
+	model.selected = 0
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Active 1", Status: "To Do", IssueType: "Task"},
+		{Key: "ABC-2", Summary: "Done", Status: "Done", IssueType: "Task"},
+		{Key: "ABC-3", Summary: "Active 2", Status: "In Progress", IssueType: "Task"},
+	}
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
+	next := updated.(Model)
+
+	if got := next.issues[next.selected].Key; got != "ABC-3" {
+		t.Fatalf("selection after j = %s, want ABC-3", got)
+	}
+}
+
+func TestIssueListStatusFilterHomeEndUseVisibleRows(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.height = 30
+	model.width = 120
+	model.statusFilter = issueStatusFilterActive
+	model.selected = 2
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Done first", Status: "Done", IssueType: "Task"},
+		{Key: "ABC-2", Summary: "Active first", Status: "To Do", IssueType: "Task"},
+		{Key: "ABC-3", Summary: "Active last", Status: "Review", IssueType: "Task"},
+		{Key: "ABC-4", Summary: "Done last", Status: "Closed", IssueType: "Task"},
+	}
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "g", Code: 'g'}))
+	next := updated.(Model)
+	if got := next.issues[next.selected].Key; got != "ABC-2" {
+		t.Fatalf("home selected = %s, want ABC-2", got)
+	}
+
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "G", Code: 'G'}))
+	next = updated.(Model)
+	if got := next.issues[next.selected].Key; got != "ABC-3" {
+		t.Fatalf("end selected = %s, want ABC-3", got)
+	}
+}
+
+func TestIssueListStatusFilterPageIndicatorUsesVisibleRows(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.height = 20
+	model.width = 120
+	model.statusFilter = issueStatusFilterActive
+	for i := 0; i < 12; i++ {
+		model.issues = append(model.issues, jira.Issue{
+			Key:       fmt.Sprintf("ABC-%d", i+1),
+			Summary:   "Active issue",
+			Status:    "To Do",
+			IssueType: "Task",
+		})
+	}
+	for i := 0; i < 20; i++ {
+		model.issues = append(model.issues, jira.Issue{
+			Key:       fmt.Sprintf("ABC-DONE-%d", i+1),
+			Summary:   "Done issue",
+			Status:    "Done",
+			IssueType: "Task",
+		})
+	}
+	model.offset = 7
+
+	view := model.renderIssueList(model.browserLayout(model.width))
+
+	if strings.Contains(view, "PgDn next") {
+		t.Fatalf("filtered page indicator should not use hidden rows as next page: %q", view)
+	}
+}
+
+func TestIssueListStatusFilterResetsWhenSwitchingSavedViews(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithViews([]config.IssueView{
+		{Name: "Assigned", JQL: "project = ABC"},
+		{Name: "Watching", JQL: "watcher = currentUser()"},
+	}, "Assigned"))
+	defer model.workers.Stop()
+	model.statusFilter = issueStatusFilterActive
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "tab", Code: tea.KeyTab}))
+	next := updated.(Model)
+
+	if next.statusFilter != issueStatusFilterAll {
+		t.Fatalf("statusFilter after view switch = %v, want all", next.statusFilter)
 	}
 }
 

@@ -1,5 +1,11 @@
 # Lessons
 
+- Before recommending backlog work, verify whether the behavior already exists in code/tests. Treat
+  stale unchecked task notes as a signal to reconcile docs, not as proof that implementation is
+  missing.
+- Use task handoffs only when work can be parallelized cleanly across independent files or
+  subsystems. For sequential UI changes where state, rendering, navigation, and docs build on each
+  other, execute inline with checkpoints instead of splitting artificial handoff tasks.
 - Missing hierarchy context rows in the issue list must be explicitly labeled as placeholders, not
   styled like greyed-out tickets. If a parent issue is outside the current result set, say that in
   the row text so muted styling does not imply the ticket itself is disabled, stale, or closed.

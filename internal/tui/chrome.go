@@ -496,13 +496,13 @@ func (m Model) sortLabel() string {
 	}
 }
 
-func (m Model) pageIndicator(start, end int) string {
+func (m Model) pageIndicator(start, end, total int) string {
 	left := ""
 	right := ""
 	if start > 0 {
 		left = "PgUp previous"
 	}
-	if end < len(m.issues) {
+	if end < total {
 		right = "PgDn next"
 	}
 	switch {

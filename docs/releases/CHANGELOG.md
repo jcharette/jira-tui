@@ -4,6 +4,8 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Added a local issue-table Active filter with `f`, hiding loaded terminal-status tickets without
+  changing saved views, JQL, Jira reads, or cached issue data.
 - Moved Assignee and mention picker filters onto Bubbles `textinput` while preserving Jira user
   search, cached lookup, and shared choice-list rendering behavior.
 - Added a default `Epics` saved view scoped to the configured default project.
