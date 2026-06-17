@@ -29,11 +29,10 @@ Last updated: 2026-06-13
 
 - Header bands:
   - issue identity: key, status, type
-  - standalone summary
-  - metadata row: assignee, priority, updated, reporter when available
-  - subtle divider
-  - tab bar
-- The tab bar is the single strong section-focus indicator.
+  - title-style summary
+  - compact metadata row: assignee, priority, updated, reporter when available
+  - plain-marker tab bar
+- The tab bar uses a plain `>` marker as the single strong section-focus indicator.
 - Body section headers are content headings, not selected controls.
 - The body renders only the selected section.
 - Inactive section names and badges live only in the tab bar.

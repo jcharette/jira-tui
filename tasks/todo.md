@@ -1,5 +1,89 @@
 # Task Plan
 
+## Ticket Detail Visual Hierarchy Polish
+
+- [x] Add focused tests for summary-as-title header behavior and plain active tab markers.
+- [x] Promote the ticket summary to standalone title text without a redundant `Summary:` label.
+- [x] Render header metadata as compact label/value segments without heavy pipe dividers.
+- [x] Replace filled active tab styling with a plain selected marker while preserving badges.
+- [x] Update changelog/project notes for the user-visible detail polish.
+- [x] Run focused detail tests, full TUI tests, `make check`, and install the updated binary.
+
+### Ticket Detail Visual Hierarchy Polish Scope
+
+Make the ticket detail panel easier to scan without changing navigation, key handling, worker-backed
+Jira reads, or section activation behavior. This pass focuses on the header and section tabs first:
+summary should read as the issue title, metadata should stay compact, and tabs should use the same
+plain selected-marker pattern as other compact TUI controls.
+
+### Ticket Detail Visual Hierarchy Polish Review
+
+- Promoted the ticket summary to a standalone title line and removed the redundant `Summary:` label
+  from the normal detail header.
+- Tightened header spacing by placing compact metadata directly under the summary and removing the
+  divider row before tabs.
+- Replaced filled active detail tab styling with a plain `>` marker while preserving full/compact
+  labels and section badges.
+- Updated focused and existing regression tests for the new header/tab contract while preserving
+  detail focus, overlay, and action behavior.
+- Updated project docs and changelog to reflect the new ticket-detail header grammar.
+- Verified with focused detail tests, `go test ./internal/tui -count=1`, `make check`, and
+  `make install-user`.
+
+## Header Background Activity Indicator
+
+- [x] Add focused header tests for active AI, active Jira work, recent event bursts, and idle state.
+- [x] Implement a compact background activity label derived from existing worker stats,
+  diagnostics events, refresh state, and AI loading flags.
+- [x] Render the label in the header only when background activity is active or recent.
+- [x] Update docs/changelog if the user-visible header changes.
+- [x] Run focused TUI tests, full TUI tests, `make check`, and install the updated binary.
+
+### Header Background Activity Indicator Scope
+
+Add a quiet always-available activity hint to the header without adding timers, animation, new
+event infrastructure, or footer noise. Diagnostics remains the detailed background activity view.
+
+### Header Background Activity Indicator Review
+
+- Added compact header labels for active AI work, active Jira sync/work, recent ticket updates,
+  recent generic events, and recent background errors.
+- Kept idle headers quiet; the label only appears for active or recent activity and drops first on
+  narrow widths.
+- Derived the label from existing model flags, worker stats, and diagnostics events without adding
+  new infrastructure.
+- Removed `bg` implementation language from user-facing labels and avoided duplicate
+  `refreshing`/`syncing` wording.
+- Added focused header tests for active AI, active Jira work, recent ticket updates, generic events,
+  error priority, width priority, and idle state.
+- Updated the changelog and installed the updated user binary.
+- Saved the UX rule as a memory note: compact feedback for background work matters.
+- Verified with focused header tests, `go test ./internal/tui -count=1`, `make check`, and
+  `make install-user`.
+
+## Missing Parent Placeholder Clarity
+
+- [x] Add a focused issue-list test for missing parent placeholder wording.
+- [x] Change missing parent rows so they are explicitly labeled as parent context outside the
+  current view.
+- [x] Update the lesson from this correction.
+- [x] Run focused TUI tests and install the updated binary.
+
+### Missing Parent Placeholder Clarity Scope
+
+Keep the hierarchy behavior unchanged. Only adjust the placeholder row text so users can distinguish
+an unloaded parent context row from a real greyed-out ticket.
+
+### Missing Parent Placeholder Clarity Review
+
+- Missing parent rows now render as `Parent outside view: KEY Summary` instead of a muted
+  key/summary-only row.
+- Added a regression test that ensures the placeholder label is explicit and does not include normal
+  loaded issue metadata.
+- Recorded the correction in `tasks/lessons.md`.
+- Verified with `go test ./internal/tui -run TestIssueListLabelsMissingParentPlaceholder -count=1`,
+  `go test ./internal/tui -count=1`, and `make install-user`.
+
 ## Large View Prefetch Throttling
 
 - [x] Add focused TUI tests for search-result prefetch behavior.

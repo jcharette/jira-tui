@@ -1,5 +1,8 @@
 # Lessons
 
+- Missing hierarchy context rows in the issue list must be explicitly labeled as placeholders, not
+  styled like greyed-out tickets. If a parent issue is outside the current result set, say that in
+  the row text so muted styling does not imply the ticket itself is disabled, stale, or closed.
 - Prefer maintained third-party libraries for reusable infrastructure when they fit the Go TUI
   stack. Before feature or fix work, ask whether a library can reduce hand-rolled cache, sync,
   concurrency, parsing, or UI primitive code; hand-roll only when library options are a poor fit.

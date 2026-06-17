@@ -340,17 +340,19 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   focused detail section remembers its own scroll offset while viewing the same issue, so switching
   between long descriptions, links, hierarchy, comments, and actions restores the last position for
   that section.
-- Focused ticket detail keeps key ticket identity and compact metadata in the panel header, then
+- Focused ticket detail keeps key ticket identity, title-style summary text, and compact metadata in
+  the panel header, then
   renders Description, Links, Hierarchy, Comments, Actions, and Status as consistent workspace sections
   with shared ruled headers. Section tabs and headers expose useful
   context badges such as child issue counts, discovered links, and comment count/loading/error
-  state. The focused section is marked in the tab bar and footer context label, while section
+  state. The focused section is marked with a plain `>` tab marker and footer context label, while section
   headers remain content headings. Section scroll positions are driven by the same reusable section descriptors. Moving section focus with
   `tab`/`shift+tab` changes the selected section; `enter` activates interactive sections. The
   body renders only the selected section, while inactive section names and badges stay in the tab
   bar.
 - The ticket detail panel header separates issue identity (key, status, type), a standalone summary
-  band, metadata, a subtle divider, and tabs so navigation no longer competes with the ticket title.
+  title, compact metadata, and plain-marker tabs so navigation no longer competes with the ticket
+  title.
 - The always-visible ticket detail footer is intentionally limited to primary actions (`esc`,
   `j`/`k`, `tab`, `a`, and `b`); secondary section jumps and copy actions remain in `? help`.
   When an interactive section is selected but not yet activated, the footer swaps in the visible

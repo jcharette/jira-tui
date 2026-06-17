@@ -661,7 +661,7 @@ func TestRenderFullDetailShowsPersistentIssueIdentity(t *testing.T) {
 
 	view := model.render()
 
-	for _, want := range []string{"ABC-1", "In Progress", "Story", "Fix production thing", "Assignee: A D.", "Priority: High"} {
+	for _, want := range []string{"ABC-1", "In Progress", "Story", "Fix production thing", "Assignee A D.", "Priority High"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing persistent detail identity %q in %q", want, view)
 		}
@@ -684,17 +684,10 @@ func TestRenderFullDetailSeparatesMetadataFromTabs(t *testing.T) {
 
 	view := model.render()
 	summaryIndex := strings.Index(view, "Fix production thing")
-	metaIndex := strings.Index(view, "Priority: High")
-	dividerIndex := -1
-	if metaIndex >= 0 {
-		dividerOffset := strings.Index(view[metaIndex:], "────")
-		if dividerOffset >= 0 {
-			dividerIndex = metaIndex + dividerOffset
-		}
-	}
+	metaIndex := strings.Index(view, "Priority High")
 	tabsIndex := strings.Index(view, "Description")
-	if summaryIndex < 0 || metaIndex < 0 || dividerIndex < 0 || tabsIndex < 0 {
-		t.Fatalf("expected summary, metadata, divider, and tabs in %q", view)
+	if summaryIndex < 0 || metaIndex < 0 || tabsIndex < 0 {
+		t.Fatalf("expected summary, metadata, and tabs in %q", view)
 	}
 	lines := strings.Split(view, "\n")
 	summaryLine, metaLine := -1, -1
@@ -702,15 +695,15 @@ func TestRenderFullDetailSeparatesMetadataFromTabs(t *testing.T) {
 		if strings.Contains(line, "Fix production thing") {
 			summaryLine = index
 		}
-		if strings.Contains(line, "Priority: High") {
+		if strings.Contains(line, "Priority High") {
 			metaLine = index
 		}
 	}
-	if summaryLine < 0 || metaLine < 0 || metaLine-summaryLine != 2 {
-		t.Fatalf("expected spacer between summary and metadata in %q", view)
+	if summaryLine < 0 || metaLine < 0 || metaLine-summaryLine != 1 {
+		t.Fatalf("expected metadata directly after summary in %q", view)
 	}
-	if !(metaIndex < dividerIndex && dividerIndex < tabsIndex) {
-		t.Fatalf("expected divider between metadata and tabs: meta=%d divider=%d tabs=%d view=%q", metaIndex, dividerIndex, tabsIndex, view)
+	if !(metaIndex < tabsIndex) {
+		t.Fatalf("expected tabs after metadata: meta=%d tabs=%d view=%q", metaIndex, tabsIndex, view)
 	}
 }
 

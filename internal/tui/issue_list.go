@@ -198,7 +198,7 @@ func buildIssueDisplayTree(issues []jira.Issue) issueDisplayTree {
 
 func (m Model) missingParentRows(displayTree issueDisplayTree, parentKey string, layout browserLayout) []string {
 	group := displayTree.missingParents[parentKey]
-	label := parentKey
+	label := "Parent outside view: " + parentKey
 	if group.summary != "" {
 		label += "  " + group.summary
 	}

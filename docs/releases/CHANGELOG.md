@@ -4,6 +4,11 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Polished the ticket-detail header so the summary reads as the title, metadata uses compact
+  label/value spacing, and the active section tab uses a plain selected marker instead of filled tab
+  styling.
+- Added a quiet header background activity indicator for active Jira refreshes, active AI work,
+  recent background event bursts, and recent background errors.
 - Bounded selected-issue detail prefetch from active-view refreshes and table navigation, and stopped
   list interactions from prefetching comments so large Jira views stay responsive while explicit
   detail opens still load detail and comments.

@@ -48,7 +48,7 @@ func TestDetailTabFocusesEditableFieldsBeforeSections(t *testing.T) {
 		t.Fatalf("initial target = %#v ok=%v", target, ok)
 	}
 	view := model.render()
-	if !strings.Contains(view, "Summary: Story") || !strings.Contains(view, "enter edit") {
+	if !strings.Contains(view, "Story") || !strings.Contains(view, "enter edit") {
 		t.Fatalf("initial field focus should expose summary edit affordance: %q", view)
 	}
 
@@ -927,7 +927,7 @@ func TestDetailTabsMoveFocusAndActivateSection(t *testing.T) {
 	if strings.Contains(view, " Summary ") {
 		t.Fatalf("summary should not be a detail section tab anymore: %q", view)
 	}
-	if !strings.Contains(view, "Summary:") {
+	if !strings.Contains(view, "Fix production thing") {
 		t.Fatalf("expected focused summary field in %q", view)
 	}
 
@@ -1105,6 +1105,74 @@ func TestFullDetailContentRendersFocusedSectionWithPreviews(t *testing.T) {
 	for _, notWant := range []string{"Collapsed:", "Hierarchy 1", "Comments 1", "Actions"} {
 		if strings.Contains(content, notWant) {
 			t.Fatalf("inactive sections should stay in the tab bar, found %q in %q", notWant, content)
+		}
+	}
+}
+
+func TestDetailHeaderPromotesSummaryAsTitle(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.width = 120
+	model.height = 32
+	model.issues = []jira.Issue{{
+		Key:       "ABC-1",
+		Summary:   "Create slack alert on data provisioner migration fail",
+		Status:    "In Progress",
+		Priority:  "P4",
+		IssueType: "Story",
+		Assignee:  "Mike Person",
+	}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {
+			Issue:    model.issues[0],
+			Reporter: "Jane Reporter",
+			Updated:  time.Date(2026, 6, 16, 21, 58, 0, 0, time.Local),
+		},
+	}
+
+	view := model.renderFullDetail(model.browserLayout(model.width))
+
+	if strings.Contains(view, "Summary:") {
+		t.Fatalf("summary label should not compete with the title line: %q", view)
+	}
+	identityIndex := strings.Index(view, "ABC-1")
+	summaryIndex := strings.Index(view, "Create slack alert on data provisioner migration fail")
+	metaIndex := strings.Index(view, "Assignee")
+	if identityIndex < 0 || summaryIndex < 0 || metaIndex < 0 {
+		t.Fatalf("missing expected header text in %q", view)
+	}
+	if !(identityIndex < summaryIndex && summaryIndex < metaIndex) {
+		t.Fatalf("header should render identity, then summary title, then metadata: %q", view)
+	}
+	if strings.Contains(view, "  |  ") {
+		t.Fatalf("metadata should use compact spacing instead of pipe dividers: %q", view)
+	}
+}
+
+func TestDetailTabsUsePlainActiveMarker(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.width = 120
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Fix production thing", Status: "In Progress", Priority: "High", IssueType: "Story", Assignee: "A Developer"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {
+			Issue:       model.issues[0],
+			Description: "First line.",
+		},
+	}
+	focusDetailSectionForTest(t, &model, "Description")
+
+	tabs := model.renderDetailTabs(100)
+
+	if !strings.Contains(tabs, "> Description") {
+		t.Fatalf("active tab should use a plain selected marker: %q", tabs)
+	}
+	for _, want := range []string{"Hierarchy", "Comments", "Actions"} {
+		if !strings.Contains(tabs, want) {
+			t.Fatalf("missing inactive tab %q in %q", want, tabs)
 		}
 	}
 }
@@ -2315,10 +2383,13 @@ func TestSummaryEditorRendersAsOverlayDialog(t *testing.T) {
 			t.Fatalf("missing %q in %q", want, view)
 		}
 	}
-	if !strings.Contains(view, "Summary: Original story") {
+	headerIndex := strings.Index(view, "Original story")
+	dialogIndex := strings.Index(view, "Edit Summary")
+	draftIndex := strings.Index(view, "Draft story")
+	if headerIndex < 0 {
 		t.Fatalf("detail header should keep saved summary behind overlay: %q", view)
 	}
-	if strings.Contains(view, "Summary: Draft story") {
+	if dialogIndex < 0 || draftIndex < 0 || !(headerIndex < dialogIndex && dialogIndex < draftIndex) {
 		t.Fatalf("draft should render inside overlay instead of replacing detail header: %q", view)
 	}
 }

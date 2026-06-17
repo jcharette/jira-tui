@@ -952,6 +952,28 @@ func TestIssueListDoesNotSuppressSubtaskMetadata(t *testing.T) {
 	}
 }
 
+func TestIssueListLabelsMissingParentPlaceholder(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "symbols"}))
+	defer model.workers.Stop()
+	model.height = 30
+	model.width = 120
+	model.issues = []jira.Issue{
+		{Key: "ABC-2", Summary: "Child story", Status: "To Do", Priority: "Low", IssueType: "Story", Assignee: "Yogi Singh", ParentKey: "ABC-1", ParentSummary: "Parent outside filter"},
+	}
+
+	view := model.renderIssueList(model.browserLayout(model.width))
+	parentLine := lineContaining(view, "ABC-1")
+	if parentLine == "" {
+		t.Fatalf("missing parent placeholder in %q", view)
+	}
+	if !strings.Contains(parentLine, "Parent outside view: ABC-1") {
+		t.Fatalf("missing parent row should be explicit, got %q", parentLine)
+	}
+	if strings.Contains(parentLine, "To Do") || strings.Contains(parentLine, "P4") || strings.Contains(parentLine, "Yogi") {
+		t.Fatalf("missing parent placeholder should not look like a loaded issue row: %q", parentLine)
+	}
+}
+
 func TestSelectedParentDoesNotRepeatVisibleChildCount(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "symbols"}))
 	defer model.workers.Stop()
@@ -1029,6 +1051,158 @@ func TestHeaderShowsStaleAndFailedRefreshFreshness(t *testing.T) {
 	header = model.renderHeader(model.browserLayout(model.width))
 	if !strings.Contains(header, "refresh failed 10:15:00") {
 		t.Fatalf("header = %q", header)
+	}
+}
+
+func TestHeaderShowsBackgroundActivityForActiveAI(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 140
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1"}}
+	model.claudePlanLoading = true
+
+	header := model.renderHeader(model.browserLayout(model.width))
+
+	if !strings.Contains(header, "AI working") {
+		t.Fatalf("header = %q", header)
+	}
+	if strings.Contains(header, "bg ") {
+		t.Fatalf("header should use product wording, got %q", header)
+	}
+}
+
+func TestHeaderShowsBackgroundActivityForActiveJiraWork(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.refreshing = true
+	model.width = 140
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1"}}
+
+	header := model.renderHeader(model.browserLayout(model.width))
+
+	if !strings.Contains(header, "syncing") {
+		t.Fatalf("header = %q", header)
+	}
+	if strings.Contains(header, "refreshing") {
+		t.Fatalf("header should not duplicate refresh state: %q", header)
+	}
+}
+
+func TestHeaderShowsRecentTicketUpdates(t *testing.T) {
+	now := time.Date(2026, 6, 16, 22, 0, 0, 0, time.UTC)
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.loading = false
+	model.width = 140
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1"}}
+	model.diagnosticsEvents = []diagnosticEvent{
+		{At: now.Add(-2 * time.Second), Kind: diagnosticKindEvent, Label: "jira.ticket.new", Status: "published", Detail: "ABC-1"},
+		{At: now.Add(-time.Second), Kind: diagnosticKindEvent, Label: "jira.ticket.updated", Status: "published", Detail: "ABC-2"},
+	}
+
+	header := model.renderHeader(model.browserLayout(model.width))
+
+	if !strings.Contains(header, "2 ticket updates") {
+		t.Fatalf("header = %q", header)
+	}
+	if strings.Contains(header, "bg ") || strings.Contains(header, "events") {
+		t.Fatalf("header should use ticket wording, got %q", header)
+	}
+}
+
+func TestHeaderFallsBackForRecentNonTicketEvents(t *testing.T) {
+	now := time.Date(2026, 6, 16, 22, 0, 0, 0, time.UTC)
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.loading = false
+	model.width = 140
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1"}}
+	model.diagnosticsEvents = []diagnosticEvent{
+		{At: now.Add(-time.Second), Kind: diagnosticKindEvent, Label: "ai.task.completed", Status: "published", Detail: "ticket_plan"},
+	}
+
+	header := model.renderHeader(model.browserLayout(model.width))
+
+	if !strings.Contains(header, "1 event") {
+		t.Fatalf("header = %q", header)
+	}
+}
+
+func TestHeaderPrioritizesRecentErrorsOverTicketUpdates(t *testing.T) {
+	now := time.Date(2026, 6, 16, 22, 0, 0, 0, time.UTC)
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.loading = false
+	model.width = 140
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1"}}
+	model.diagnosticsEvents = []diagnosticEvent{
+		{At: now.Add(-2 * time.Second), Kind: diagnosticKindEvent, Label: "jira.ticket.new", Status: "published", Detail: "ABC-1"},
+		{At: now.Add(-time.Second), Kind: diagnosticKindWorker, Label: "search_issues", Status: "error", Detail: "jira unavailable"},
+	}
+
+	header := model.renderHeader(model.browserLayout(model.width))
+
+	if !strings.Contains(header, "1 error") {
+		t.Fatalf("header = %q", header)
+	}
+	if strings.Contains(header, "ticket updates") {
+		t.Fatalf("error should take priority over ticket updates: %q", header)
+	}
+}
+
+func TestHeaderDropsBackgroundActivityWhenWidthIsTight(t *testing.T) {
+	now := time.Date(2026, 6, 16, 22, 0, 0, 0, time.UTC)
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.loading = false
+	model.width = 74
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1"}}
+	model.diagnosticsEvents = []diagnosticEvent{
+		{At: now.Add(-time.Second), Kind: diagnosticKindEvent, Label: "jira.ticket.new", Status: "published", Detail: "ABC-1"},
+	}
+
+	header := model.renderHeader(model.browserLayout(model.width))
+
+	if strings.Contains(header, "ticket updates") {
+		t.Fatalf("tight header should drop recent activity first: %q", header)
+	}
+	if !strings.Contains(header, "1 issues") || !strings.Contains(header, "not synced") {
+		t.Fatalf("tight header should keep issue count and freshness: %q", header)
+	}
+	if lipgloss.Width(header) != model.browserLayout(model.width).contentWidth {
+		t.Fatalf("header width = %d, want %d: %q", lipgloss.Width(header), model.browserLayout(model.width).contentWidth, header)
+	}
+}
+
+func TestHeaderHidesBackgroundActivityWhenIdle(t *testing.T) {
+	now := time.Date(2026, 6, 16, 22, 0, 0, 0, time.UTC)
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.loading = false
+	model.width = 140
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1"}}
+	model.diagnosticsEvents = []diagnosticEvent{
+		{At: now.Add(-time.Minute), Kind: diagnosticKindEvent, Label: "jira.ticket.new", Status: "published", Detail: "ABC-1"},
+	}
+
+	header := model.renderHeader(model.browserLayout(model.width))
+
+	if strings.Contains(header, "bg ") {
+		t.Fatalf("idle header should stay quiet: %q", header)
 	}
 }
 

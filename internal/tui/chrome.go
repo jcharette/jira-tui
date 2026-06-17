@@ -3,12 +3,15 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	bubbleshelp "charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jon/jira-tui/internal/ui"
 )
+
+const backgroundActivityRecentWindow = 10 * time.Second
 
 type browserLayout struct {
 	contentWidth int
@@ -20,18 +23,122 @@ func (m Model) renderHeader(layout browserLayout) string {
 	status := "ready"
 	if m.loading {
 		status = "loading"
-	} else if m.refreshing {
-		status = "refreshing"
 	}
 
 	left := m.theme.Header.Render("Jira") + " " + m.theme.Subtitle.Render(status) + " " + m.theme.Selected.Render(m.activeViewName())
-	right := m.theme.Muted.Render(fmt.Sprintf("%d issues  %s", len(m.issues), m.viewFreshnessLabel()))
+	rightText := fmt.Sprintf("%d issues  %s", len(m.issues), m.viewFreshnessLabel())
+	right := m.theme.Muted.Render(rightText)
+	if activity := m.backgroundActivityLabel(); activity != "" {
+		withActivity := right + "  " + m.renderBackgroundActivityLabel(activity)
+		if lipgloss.Width(withActivity) <= max(0, layout.contentWidth-lipgloss.Width(left)-1) {
+			right = withActivity
+		}
+	}
 	rightColumn := lipgloss.PlaceHorizontal(
 		max(0, layout.contentWidth-lipgloss.Width(left)-1),
 		lipgloss.Right,
 		right,
 	)
 	return lipgloss.NewStyle().Width(layout.contentWidth).Render(left + " " + rightColumn)
+}
+
+func (m Model) backgroundActivityLabel() string {
+	switch {
+	case m.backgroundAIActive():
+		return "AI working"
+	case m.backgroundJiraActive():
+		return "syncing"
+	}
+	counts := m.recentBackgroundActivityCounts()
+	switch {
+	case counts.Errors > 0:
+		return fmt.Sprintf("%d %s", counts.Errors, pluralize("error", counts.Errors))
+	case counts.TicketUpdates > 0:
+		return fmt.Sprintf("%d ticket %s", counts.TicketUpdates, pluralize("update", counts.TicketUpdates))
+	case counts.Events > 0:
+		return fmt.Sprintf("%d %s", counts.Events, pluralize("event", counts.Events))
+	default:
+		return ""
+	}
+}
+
+func (m Model) renderBackgroundActivityLabel(label string) string {
+	if strings.Contains(label, "error") {
+		return m.theme.Error.Render(label)
+	}
+	return m.theme.Selected.Render(label)
+}
+
+func (m Model) backgroundAIActive() bool {
+	return m.claudePlanLoading || m.claudeAssistLoading || m.createAIPromptLoading
+}
+
+func (m Model) backgroundJiraActive() bool {
+	if m.loading || m.refreshing {
+		return true
+	}
+	stats := m.workerStats()
+	if stats.Running > 0 || stats.Pending > 0 {
+		return true
+	}
+	return m.detailLoading ||
+		m.commentsLoading ||
+		m.commentSubmitting ||
+		m.mentionSearchLoading ||
+		m.assigneeSearchLoading ||
+		m.assigneeSubmitting ||
+		m.createIssueTypesLoading ||
+		m.createFieldsLoading ||
+		m.createSubmitting ||
+		m.expandLoading ||
+		m.transitionLoading ||
+		m.transitionSubmitting ||
+		m.summaryMetadataLoading ||
+		m.summarySubmitting ||
+		m.priorityMetadataLoading ||
+		m.prioritySubmitting
+}
+
+type backgroundActivityCounts struct {
+	Errors        int
+	TicketUpdates int
+	Events        int
+}
+
+func (m Model) recentBackgroundActivityCounts() backgroundActivityCounts {
+	if len(m.diagnosticsEvents) == 0 {
+		return backgroundActivityCounts{}
+	}
+	cutoff := m.now().Add(-backgroundActivityRecentWindow)
+	var counts backgroundActivityCounts
+	for _, event := range m.diagnosticsEvents {
+		if event.At.IsZero() || event.At.Before(cutoff) {
+			continue
+		}
+		if event.Status == "error" {
+			counts.Errors++
+			continue
+		}
+		if event.Kind == diagnosticKindEvent {
+			if isTicketEventLabel(event.Label) {
+				counts.TicketUpdates++
+			} else {
+				counts.Events++
+			}
+		}
+	}
+	return counts
+}
+
+func isTicketEventLabel(label string) bool {
+	return label == "jira.ticket.new" || label == "jira.ticket.updated"
+}
+
+func pluralize(word string, count int) string {
+	if count == 1 {
+		return word
+	}
+	return word + "s"
 }
 
 func (m Model) viewFreshnessLabel() string {

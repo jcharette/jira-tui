@@ -57,9 +57,7 @@ func (m Model) renderFullDetail(layout browserLayout) string {
 	headerWidth := max(32, layout.contentWidth-4)
 	header := m.renderDetailTitleLine(headerWidth) + "\n" +
 		m.renderDetailSummaryLine(headerWidth) + "\n" +
-		"\n" +
 		m.renderDetailHeaderMeta(headerWidth) + "\n" +
-		m.renderDetailHeaderDivider(headerWidth) + "\n" +
 		m.renderDetailTabs(headerWidth)
 	if overlay := m.renderDetailOverlay(layout); overlay != "" {
 		body = placeDetailOverlay(body, overlay, m.fullDetailRows())
@@ -402,12 +400,11 @@ func (m Model) renderDetailSummaryLine(width int) string {
 	}
 	detail, hasDetail := m.details[selected.Key]
 	display := m.displayIssueForDetail(selected, detail, hasDetail)
-	label := "Summary: "
 	value := displayValue(display.Summary, "No summary")
 	if strings.TrimSpace(value) == "" {
 		value = " "
 	}
-	style := m.theme.Text
+	style := m.theme.Text.Bold(true)
 	if m.summaryFocus || m.focusedDetailTargetID() == "summary" {
 		style = m.theme.Selected
 	}
@@ -417,8 +414,7 @@ func (m Model) renderDetailSummaryLine(width int) string {
 	if m.summarySubmitting && m.summarySubmitKey == display.Key {
 		value = "Updating summary..."
 	}
-	available := max(12, width-lipgloss.Width(label))
-	return m.theme.Muted.Render(label) + style.Render(truncate(value, available))
+	return style.Render(truncate(value, max(12, width)))
 }
 
 func (m Model) renderDetailHeaderMeta(width int) string {
@@ -440,7 +436,7 @@ func (m Model) renderDetailHeaderMeta(width int) string {
 	if hasDetail && strings.TrimSpace(detail.Reporter) != "" && detail.Reporter != "Unknown" {
 		parts = append(parts, m.detailMetaPart("Reporter", shortName(detail.Reporter)))
 	}
-	separator := m.theme.Muted.Render("  |  ")
+	separator := m.theme.Muted.Render("   ")
 	for len(parts) > 0 {
 		line := strings.Join(parts, separator)
 		if lipgloss.Width(line) <= width {
@@ -451,15 +447,8 @@ func (m Model) renderDetailHeaderMeta(width int) string {
 	return ""
 }
 
-func (m Model) renderDetailHeaderDivider(width int) string {
-	if width <= 0 {
-		return ""
-	}
-	return m.theme.Muted.Render(strings.Repeat("─", width))
-}
-
 func (m Model) detailMetaPart(label string, value string) string {
-	return m.theme.Muted.Render(label+": ") + m.theme.Text.Render(value)
+	return m.theme.Muted.Render(label+" ") + m.theme.Text.Render(value)
 }
 
 func (m Model) detailMetaPartWithStyle(label string, value string, selected bool) string {
@@ -467,7 +456,7 @@ func (m Model) detailMetaPartWithStyle(label string, value string, selected bool
 	if selected {
 		style = m.theme.Selected
 	}
-	return m.theme.Muted.Render(label+": ") + style.Render(value)
+	return m.theme.Muted.Render(label+" ") + style.Render(value)
 }
 
 func (m Model) displayIssueForDetail(selected jira.Issue, detail jira.IssueDetail, hasDetail bool) jira.Issue {
@@ -621,27 +610,16 @@ func (m Model) detailTabsLine(sections []detailSection, width int, compact bool)
 		focusedSectionID = section.ID
 	}
 	for _, section := range sections {
-		label := section.Label
-		if compact {
-			label = section.Short
-		}
-		if section.Badge != "" {
-			label += " " + section.Badge
-		}
-		if section.ID == focusedSectionID {
-			parts = append(parts, m.theme.TabActive.Render(label))
-		} else {
-			parts = append(parts, m.theme.TabInactive.Render(label))
-		}
+		parts = append(parts, m.renderDetailTab(section, section.ID == focusedSectionID, compact))
 	}
-	return strings.Join(parts, m.theme.Muted.Render(" "))
+	return strings.Join(parts, m.theme.Muted.Render("   "))
 }
 
 func (m Model) detailTabsWrapped(sections []detailSection, width int) string {
 	if len(sections) == 0 {
 		return ""
 	}
-	separator := m.theme.Muted.Render(" ")
+	separator := m.theme.Muted.Render("   ")
 	var rows []string
 	var current string
 	focusedSectionID := ""
@@ -649,14 +627,7 @@ func (m Model) detailTabsWrapped(sections []detailSection, width int) string {
 		focusedSectionID = section.ID
 	}
 	for _, section := range sections {
-		label := section.Short
-		if section.Badge != "" {
-			label += " " + section.Badge
-		}
-		part := m.theme.TabInactive.Render(label)
-		if section.ID == focusedSectionID {
-			part = m.theme.TabActive.Render(label)
-		}
+		part := m.renderDetailTab(section, section.ID == focusedSectionID, true)
 		candidate := part
 		if current != "" {
 			candidate = current + separator + part
@@ -672,6 +643,20 @@ func (m Model) detailTabsWrapped(sections []detailSection, width int) string {
 		rows = append(rows, current)
 	}
 	return strings.Join(rows, "\n")
+}
+
+func (m Model) renderDetailTab(section detailSection, active bool, compact bool) string {
+	label := section.Label
+	if compact {
+		label = section.Short
+	}
+	if section.Badge != "" {
+		label += " " + section.Badge
+	}
+	if active {
+		return m.theme.Selected.Render("> " + label)
+	}
+	return m.theme.Muted.Render(label)
 }
 
 func (m *Model) moveDetailFocus(delta int) {
