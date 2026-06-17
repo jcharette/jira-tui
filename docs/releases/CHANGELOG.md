@@ -4,6 +4,7 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Added a default `Epics` saved view scoped to the configured default project.
 - Added sanitized API debug rows to Diagnostics, showing Jira operation family, request ID,
   issue/project scope, result class, safe counts, elapsed time, and categorized errors without raw
   request bodies, response bodies, tokens, or full JQL strings.
@@ -422,8 +423,8 @@ All notable changes to this project should be recorded here.
 - Added focused detail scrolling so long ticket descriptions can be read without changing the
   selected ticket.
 - Prioritized rich ticket detail rendering and navigation before additional workflow features.
-- Planned saved issue views for assigned, reported/created, project open, watching, and epic workflows.
-- Added default saved views for assigned, created/reported, project open, current sprint, and watching.
+- Added default saved views for assigned, created/reported, project open, current sprint, watching,
+  and epics.
 - Added watch UI view switching with `tab`/`]` and `shift+tab`/`[`.
 - Added explicit issue table pagination with visible ranges, page up/down, and first/last controls.
 - Added local issue table sorting by Jira order, priority, status, assignee, type, and key.

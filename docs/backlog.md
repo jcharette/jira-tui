@@ -41,8 +41,6 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
   and expanded children. Diagnostics now shows queue state, cache family fresh/stale/error counts,
   and sanitized API debug rows with operation family, request ID, issue/project scope, result class,
   result counts, timing, and safe error categories.
-- Add saved issue views for assigned to me, reported/created by me, project open, watching, and
-  epic-focused drill-down.
 - Improve epic/subtask table grouping beyond current-result grouping by explicitly loading related
   children when the selected view needs them.
 

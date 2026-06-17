@@ -99,6 +99,10 @@ jql = "project = ABC AND sprint in openSprints() AND resolution = Unresolved ORD
 name = "Watching"
 jql = "project = ABC AND watcher = currentUser() AND resolution = Unresolved ORDER BY updated DESC"
 
+[[views.saved]]
+name = "Epics"
+jql = "project = ABC AND issuetype = Epic AND resolution = Unresolved ORDER BY updated DESC"
+
 [appearance]
 primary = "#7DD3FC"
 secondary = "#A78BFA"
@@ -415,8 +419,8 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
 
 ## Known Constraints
 
-- Saved views are generated from the default project today; custom view editing in config is not
-  exposed yet.
+- Saved views are generated from the default project today for assigned, created/reported, project
+  open, current sprint, watching, and epics; custom view editing in config is not exposed yet.
 - Jira write workflows must be metadata-driven. Creation, editing, assignment, transitions, board
   and sprint movement, priorities, statuses, issue types, field options, required fields, users, and
   custom fields should come from Jira metadata for the active site/project/issue, not hard-coded

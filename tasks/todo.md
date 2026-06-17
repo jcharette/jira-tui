@@ -1,5 +1,27 @@
 # Task Plan
 
+## Default Epic Saved View
+
+- [x] Add focused config test coverage for the default Epics saved view.
+- [x] Add an `Epics` saved view scoped to the default project.
+- [x] Update docs/backlog/changelog notes.
+- [x] Run focused config tests, full Go tests, `make check`, and install the updated binary.
+
+### Default Epic Saved View Scope
+
+Finish the existing saved-view backlog item without adding a new epic workspace. This slice only
+adds the missing default Epics JQL view alongside the existing assigned, created/reported, project
+open, current sprint, and watching views.
+
+### Default Epic Saved View Review
+
+- Added regression coverage that default project views include `Epics`.
+- Added `project = <key> AND issuetype = Epic AND resolution = Unresolved ORDER BY updated DESC`
+  as the generated default Epics view.
+- Removed the completed saved-view backlog item and updated current-state/changelog docs.
+- Verified with focused config tests, `go test ./... -count=1`, `make check`, and
+  `make install-user`.
+
 ## Sanitized API Debug Diagnostics
 
 - [x] Add focused Diagnostics tests for sanitized Jira API debug rows.

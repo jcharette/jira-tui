@@ -134,13 +134,37 @@ func TestDefaultsDisableClaudeWithSafeGates(t *testing.T) {
 	}
 }
 
-func hasView(views []IssueView, name string) bool {
-	for _, view := range views {
-		if view.Name == name {
-			return true
+func TestDefaultViewsIncludeEpicFocusedView(t *testing.T) {
+	views := DefaultViews("ABC")
+
+	for _, name := range []string{"Assigned", "Created/Reported", "Project Open", "Current Sprint", "Watching", "Epics"} {
+		if !hasView(views, name) {
+			t.Fatalf("missing view %q in %#v", name, views)
 		}
 	}
-	return false
+	epics, ok := findView(views, "Epics")
+	if !ok {
+		t.Fatalf("missing Epics view in %#v", views)
+	}
+	for _, want := range []string{"project = ABC", "issuetype = Epic", "resolution = Unresolved", "ORDER BY updated DESC"} {
+		if !strings.Contains(epics.JQL, want) {
+			t.Fatalf("Epics JQL = %q, missing %q", epics.JQL, want)
+		}
+	}
+}
+
+func hasView(views []IssueView, name string) bool {
+	_, ok := findView(views, name)
+	return ok
+}
+
+func findView(views []IssueView, name string) (IssueView, bool) {
+	for _, view := range views {
+		if view.Name == name {
+			return view, true
+		}
+	}
+	return IssueView{}, false
 }
 
 func TestLoadIgnoresEnvironmentVariables(t *testing.T) {

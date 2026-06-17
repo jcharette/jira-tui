@@ -584,6 +584,10 @@ func DefaultViews(project string) []IssueView {
 			Name: "Watching",
 			JQL:  fmt.Sprintf("project = %s AND watcher = currentUser() AND resolution = Unresolved ORDER BY updated DESC", project),
 		},
+		{
+			Name: "Epics",
+			JQL:  fmt.Sprintf("project = %s AND issuetype = Epic AND resolution = Unresolved ORDER BY updated DESC", project),
+		},
 	}
 }
 
