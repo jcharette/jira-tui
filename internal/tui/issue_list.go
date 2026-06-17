@@ -453,8 +453,42 @@ func (m Model) renderIssueDisplayRowWithHidden(row issueDisplayRow, gutter strin
 	if hiddenDescendants <= 0 {
 		return m.renderIssueDisplayRow(row, gutter, layout)
 	}
-	row.issue.Summary = strings.TrimSpace(row.issue.Summary + "  " + fmt.Sprintf("%d hidden", hiddenDescendants))
-	return m.renderIssueDisplayRow(row, gutter, layout)
+	issue := row.issue
+	kind := m.issueKindSymbol(issue)
+	columns := m.issueListColumns(layout)
+	gutter = fitIssueTreeGutter(gutter, layout)
+	kind = fitRight(kind, columns.typeWidth)
+	keyText := truncate(issue.Key, columns.keyWidth)
+	key := m.theme.Key.Render(fmt.Sprintf("%-*s", columns.keyWidth, keyText))
+	statusText := truncate(issue.Status, columns.statusWidth)
+	if statusText == "" {
+		statusText = "Unknown"
+	}
+	status := statusStyle(m.theme, issue.Status).Render(fmt.Sprintf("%-*s", columns.statusWidth, statusText))
+	priorityText := priorityBadge(issue.Priority)
+	priority := priorityStyle(m.theme, issue.Priority).Render(fmt.Sprintf("%-*s", columns.priorityWidth, truncate(priorityText, columns.priorityWidth)))
+	assigneeText := truncate(shortName(displayValue(issue.Assignee, "Unassigned")), columns.assigneeWidth)
+	assignee := m.theme.Muted.Render(fmt.Sprintf("%-*s", columns.assigneeWidth, assigneeText))
+	right := m.issueListMeta(columns, status, priority, assignee)
+
+	leftPlain := fmt.Sprintf("%s %s %-*s  ", gutter, kind, columns.keyWidth, keyText)
+	summaryWidth := max(12, columns.width-lipgloss.Width(leftPlain)-lipgloss.Width(m.issueListMetaPlain(columns, statusText, truncate(priorityText, columns.priorityWidth), assigneeText))-1)
+	summary := hiddenDescendantSummary(issue.Summary, hiddenDescendants, summaryWidth)
+	left := fmt.Sprintf("%s %s %s  %s", m.theme.Muted.Render(gutter), m.theme.Muted.Render(kind), key, summary)
+	spacer := max(1, columns.width-lipgloss.Width(left)-lipgloss.Width(right))
+	return left + strings.Repeat(" ", spacer) + right
+}
+
+func hiddenDescendantSummary(summary string, hiddenDescendants int, width int) string {
+	hiddenLabel := fmt.Sprintf("%d hidden", hiddenDescendants)
+	if width <= lipgloss.Width(hiddenLabel) {
+		return hiddenLabel
+	}
+	summary = truncate(summary, max(0, width-lipgloss.Width(hiddenLabel)-2))
+	if summary == "" {
+		return hiddenLabel
+	}
+	return summary + "  " + hiddenLabel
 }
 
 func fitIssueTreeGutter(gutter string, layout browserLayout) string {

@@ -38,16 +38,16 @@ view, JQL, Jira reads, caches, issue ordering, and `m.issues`.
 
 - [x] Confirm UX design/spec for issue-list subtree collapse.
 - [ ] Audit issue-table key bindings and choose one low-conflict collapse toggle.
-- [x] Add focused tests for default expanded rendering, subtree collapse, subtree re-expand,
-  preserved deeper collapse state, hidden-selection repair, visible-row navigation, and explicit
-  child expansion compatibility.
+- [x] Add focused tests for default expanded rendering and subtree collapse projection.
+- [ ] Add focused tests for subtree re-expand, preserved deeper collapse state, hidden-selection
+  repair, visible-row navigation, and explicit child expansion compatibility.
 - [x] Add model-local collapse state keyed by issue key without changing Jira reads, caches, saved
   views, issue ordering, or `m.issues`.
 - [x] Derive visible issue rows from the existing tree plus collapse state.
 - [x] Render a compact hidden-descendant count on collapsed nodes.
 - [ ] Route issue-list navigation and selection visibility through visible rows.
 - [ ] Update project docs/changelog for the user-visible issue-list behavior.
-- [ ] Run focused issue-list/navigation tests, full Go tests, `make check`, and
+- [ ] Run focused issue-list/navigation tests, broader Go verification, `make check`, and
   `make install-user`.
 
 ### Issue List Subtree Collapse Scope
@@ -74,6 +74,15 @@ reveals that node while preserving any deeper collapsed branches.
 - [x] Run the Task 1 focused GREEN issue-list render tests.
 - [x] Run the broader Task 1 hierarchy regression command.
 - [x] Record Task 1 review notes and verification results.
+
+### Task 1 Review Fixes
+
+- [x] Add failing focused tests for narrow collapsed-row hidden counts and direct visible-index projection.
+- [x] Capture RED output for the Task 1 review-fix tests.
+- [x] Fix collapsed-row rendering so the hidden-descendant cue survives summary truncation.
+- [x] Add direct `visibleIssueIndexes` assertions for collapsed branches, including missing-parent roots.
+- [x] Re-run focused GREEN tests and the broader Task 1 hierarchy command.
+- [x] Append review-fix evidence to the Task 1 report and commit the fix.
 
 ## Assignee And Mention Filter Textinput
 

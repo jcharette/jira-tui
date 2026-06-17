@@ -1144,6 +1144,72 @@ func TestIssueListCollapsedParentHidesLoadedDescendants(t *testing.T) {
 	}
 }
 
+func TestIssueListCollapsedParentKeepsHiddenCountOnNarrowTerminal(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "symbols"}))
+	defer model.workers.Stop()
+	model.height = 30
+	model.width = 76
+	model.collapsedIssueKeys = map[string]bool{"ABC-1": true}
+	model.issues = []jira.Issue{
+		{
+			Key:       "ABC-1",
+			Summary:   "Parent summary that is intentionally long enough to force truncation before the hidden badge would fit normally",
+			IssueType: "Epic",
+		},
+		{Key: "ABC-2", Summary: "Child", IssueType: "Story", ParentKey: "ABC-1"},
+		{Key: "ABC-3", Summary: "Grandchild", IssueType: "Task", ParentKey: "ABC-2"},
+	}
+
+	view := model.renderIssueList(model.browserLayout(model.width))
+	parentLine := lineContaining(view, "ABC-1")
+
+	if parentLine == "" {
+		t.Fatalf("missing collapsed parent row in %q", view)
+	}
+	if !strings.Contains(parentLine, "2 hidden") {
+		t.Fatalf("collapsed parent should keep hidden count when summary truncates: %q", parentLine)
+	}
+}
+
+func TestVisibleIssueIndexesSkipCollapsedDescendants(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "symbols"}))
+	defer model.workers.Stop()
+	model.collapsedIssueKeys = map[string]bool{"ABC-1": true}
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Parent", IssueType: "Epic"},
+		{Key: "ABC-2", Summary: "Child", IssueType: "Story", ParentKey: "ABC-1"},
+		{Key: "ABC-3", Summary: "Grandchild", IssueType: "Task", ParentKey: "ABC-2"},
+		{Key: "ABC-4", Summary: "Peer", IssueType: "Task"},
+	}
+
+	displayTree := buildIssueDisplayTree(model.issues)
+	got := model.visibleIssueIndexes(displayTree)
+
+	want := []int{0, 3}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("visible issue indexes = %v, want %v", got, want)
+	}
+}
+
+func TestVisibleIssueIndexesIncludeMissingParentRoots(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "symbols"}))
+	defer model.workers.Stop()
+	model.collapsedIssueKeys = map[string]bool{"ABC-2": true}
+	model.issues = []jira.Issue{
+		{Key: "ABC-2", Summary: "Child with missing parent", IssueType: "Story", ParentKey: "MISSING-1", ParentSummary: "Missing parent"},
+		{Key: "ABC-3", Summary: "Grandchild", IssueType: "Task", ParentKey: "ABC-2"},
+		{Key: "ABC-4", Summary: "Standalone", IssueType: "Task"},
+	}
+
+	displayTree := buildIssueDisplayTree(model.issues)
+	got := model.visibleIssueIndexes(displayTree)
+
+	want := []int{0, 2}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("visible issue indexes = %v, want %v", got, want)
+	}
+}
+
 func TestIssueListKeepsShallowHierarchyOnNarrowTerminals(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "symbols"}))
 	defer model.workers.Stop()
