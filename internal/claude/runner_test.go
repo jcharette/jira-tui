@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -151,19 +151,28 @@ func TestRunReturnsDeadlineExceededAfterConfiguredTimeout(t *testing.T) {
 }
 
 func TestRunStreamsProgressAndStderrFromClaudeCLI(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("shell script test helper is Unix-only")
-	}
 	dir := t.TempDir()
 	command := filepath.Join(dir, "fake-claude")
-	script := `#!/bin/sh
-printf '{"type":"system","message":"starting"}\n'
-printf '{"type":"assistant","message":{"content":[{"type":"text","text":"partial plan"}]}}\n'
-printf 'auth warning\n' >&2
-printf '{"type":"result","result":"final plan"}\n'
+	source := filepath.Join(dir, "main.go")
+	helper := `package main
+
+import (
+	"fmt"
+	"os"
+)
+
+func main() {
+	fmt.Fprintln(os.Stdout, "{\"type\":\"system\",\"message\":\"starting\"}")
+	fmt.Fprintln(os.Stdout, "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"partial plan\"}]}}")
+	fmt.Fprintln(os.Stderr, "auth warning")
+	fmt.Fprintln(os.Stdout, "{\"type\":\"result\",\"result\":\"final plan\"}")
+}
 `
-	if err := os.WriteFile(command, []byte(script), 0o755); err != nil {
-		t.Fatalf("write fake claude: %v", err)
+	if err := os.WriteFile(source, []byte(helper), 0o644); err != nil {
+		t.Fatalf("write fake claude source: %v", err)
+	}
+	if output, err := exec.Command("go", "build", "-o", command, source).CombinedOutput(); err != nil {
+		t.Fatalf("build fake claude: %v\n%s", err, output)
 	}
 	var events []Event
 	runner := LocalRunner{}
