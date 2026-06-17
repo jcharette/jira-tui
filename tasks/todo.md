@@ -1,5 +1,35 @@
 # Task Plan
 
+## JQL Query UX
+
+- [x] Add direct raw JQL entry in the TUI without restarting.
+- [x] Add AI-assisted JQL generation through the existing provider-neutral AI path.
+- [x] Show generated JQL as a preview before it can run.
+- [x] Support user feedback/revision by resubmitting the AI prompt with current preview context.
+- [x] Require explicit confirmation before direct or generated JQL changes the active query.
+- [x] Update docs/changelog/backlog for the shipped query workflow.
+- [x] Run focused query tests, full Go tests, `make check`, and `make install-user`.
+
+### JQL Query UX Scope
+
+Build a table-level query modal opened with `/`. The modal supports direct JQL editing for power
+users and AI-assisted JQL generation for natural-language requests. AI-generated JQL must be
+previewed and confirmed before running. Query execution must reuse the existing worker-backed issue
+search path, cache behavior, and stale-result guards.
+
+### JQL Query UX Review
+
+- Added `/` in the issue table to open a query modal.
+- Added direct raw JQL editing with explicit `ctrl+s` confirmation.
+- Added AI-assisted JQL generation through the existing provider-neutral AI request adapter and a
+  new `generate_jql` event operation.
+- Kept generated JQL preview-only until the user confirms it, and treated edited AI prompts as
+  revision requests instead of accidental runs.
+- Kept Jira reads on the existing worker-backed issue search path.
+- Updated backlog, project state, and changelog notes.
+- Verified with focused query/help tests, `go test ./... -count=1`, `make check`, and
+  `make install-user`.
+
 ## JQL Query UX Backlog Note
 
 - [x] Record direct raw JQL entry as a required query workflow.

@@ -275,6 +275,10 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   loaded descendants without changing Jira reads, saved views, cache records, issue ordering, or the
   loaded issue data. Collapsed rows show a compact hidden-descendant count, and navigation skips
   hidden rows until the ancestor is expanded.
+- Issue tables support an in-app query modal with `/`. Users can enter direct raw JQL and run it
+  with `ctrl+s`, or switch to AI-assisted JQL generation, preview the generated query, revise the
+  prompt, and explicitly confirm before the generated JQL changes the active query or triggers Jira
+  reads.
 - Fetches read-only issue details for the selected issue through the worker pool, caches details by
   issue key, and ignores stale detail responses when selection changes. Issue detail uses
   short-lived TTL freshness tracking via `github.com/jellydator/ttlcache/v3`: fresh cached detail

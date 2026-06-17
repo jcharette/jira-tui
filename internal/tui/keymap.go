@@ -24,6 +24,7 @@ const (
 	keyContextHelp           keyContext = "Help"
 	keyContextDiagnostics    keyContext = "Diagnostics"
 	keyContextCreate         keyContext = "Create Ticket"
+	keyContextQuery          keyContext = "Query"
 )
 
 type keyBinding struct {
@@ -70,6 +71,8 @@ func activeKeyContext(m Model) keyContext {
 		return keyContextMentionPicker
 	case m.mode == modeComment && m.commentConfirm:
 		return keyContextCommentConfirm
+	case m.queryOpen:
+		return keyContextQuery
 	case m.createOpen:
 		return keyContextCreate
 	case m.mode == modeComment:
@@ -138,6 +141,8 @@ func keyBindings(context keyContext) []keyBinding {
 		bindings = append(bindings, diagnosticsBindings()...)
 	case keyContextCreate:
 		bindings = append(bindings, createBindings()...)
+	case keyContextQuery:
+		bindings = append(bindings, queryBindings()...)
 	}
 	return bindings
 }
@@ -147,6 +152,12 @@ func globalBindings(context keyContext) []keyBinding {
 		return nil
 	}
 	if context == keyContextCreate {
+		return []keyBinding{
+			{Keys: []string{"?"}, Label: "help", Description: "Open the keyboard help screen.", Group: "Global", Footer: true},
+			{Keys: []string{"ctrl+c"}, Label: "quit", Description: "Quit Jira.", Group: "Global"},
+		}
+	}
+	if context == keyContextQuery {
 		return []keyBinding{
 			{Keys: []string{"?"}, Label: "help", Description: "Open the keyboard help screen.", Group: "Global", Footer: true},
 			{Keys: []string{"ctrl+c"}, Label: "quit", Description: "Quit Jira.", Group: "Global"},
@@ -175,10 +186,19 @@ func tableBindings() []keyBinding {
 		{Keys: []string{"x"}, Label: "expand-open", Description: "Load open child issues for the selected parent.", Group: "Issue", Footer: true},
 		{Keys: []string{"X"}, Label: "expand-all", Description: "Load all child issues for the selected parent, including resolved issues.", Group: "Issue"},
 		{Keys: []string{"r"}, Label: "refresh", Description: "Refresh the active issue view.", Group: "Global", Footer: true},
+		{Keys: []string{"/"}, Label: "query", Description: "Open direct JQL and AI-assisted JQL query input.", Group: "Views", Footer: true},
 		{Keys: []string{"tab", "]", "shift+tab", "["}, FooterKey: "tab", Label: "view", Description: "Switch saved issue views.", Group: "Views", Footer: true},
 		{Keys: []string{"f"}, Label: "active", Description: "Toggle local active-status filtering for loaded issues.", Group: "Views", Footer: true},
 		{Keys: []string{"o", "O"}, Label: "sort", Description: "Cycle issue table sorting forward or backward.", Group: "Views", Footer: true},
 		{Keys: []string{"pgup", "pgdn", "space", "ctrl+b", "ctrl+f"}, FooterKey: "pgup/pgdn", Label: "page", Description: "Page through the issue table.", Group: "Navigation", Footer: true},
+	}
+}
+
+func queryBindings() []keyBinding {
+	return []keyBinding{
+		{Keys: []string{"type"}, Label: "edit", Description: "Edit the query text.", Group: "Query", Footer: true},
+		{Keys: []string{"ctrl+s"}, Label: "run", Description: "Run the direct JQL query.", Group: "Query", Footer: true},
+		{Keys: []string{"esc"}, Label: "cancel", Description: "Close query input without changing the active query.", Group: "Query", Footer: true},
 	}
 }
 

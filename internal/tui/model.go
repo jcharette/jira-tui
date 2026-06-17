@@ -71,6 +71,21 @@ type Model struct {
 	sort         sortMode
 	statusFilter issueStatusFilter
 
+	queryOpen            bool
+	queryMode            queryMode
+	queryJQLDraft        string
+	queryJQLEditor       textarea.Model
+	queryJQLEditorReady  bool
+	queryAIPrompt        string
+	queryAIEditor        textarea.Model
+	queryAIEditorReady   bool
+	queryAILoading       bool
+	queryAIErr           error
+	queryGeneratedJQL    string
+	queryGeneratedPrompt string
+	queryAICancel        context.CancelFunc
+	activeQueryAIReqID   int
+
 	issues                             []jira.Issue
 	collapsedIssueKeys                 map[string]bool
 	selected                           int
@@ -307,6 +322,7 @@ type Model struct {
 type mode int
 type sortMode int
 type issueStatusFilter int
+type queryMode int
 
 const (
 	modeTable mode = iota
@@ -326,6 +342,11 @@ const (
 const (
 	issueStatusFilterAll issueStatusFilter = iota
 	issueStatusFilterActive
+)
+
+const (
+	queryModeJQL queryMode = iota
+	queryModeAI
 )
 
 const (
@@ -446,6 +467,12 @@ type linkActionMsg struct {
 
 type appEventMsg struct {
 	event events.Event
+}
+
+type queryAIResultMsg struct {
+	id   int
+	text string
+	err  error
 }
 
 func NewModel(client worker.JiraClient, jql string, options ...Option) Model {
@@ -569,6 +596,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.waitForCreateAIPromptProgress(msg.id)
 		}
 		return m, nil
+	case queryAIResultMsg:
+		m = m.handleQueryAIResult(msg)
+		return m, nil
 	case linkActionMsg:
 		m.detailNotice = linkActionNotice(msg)
 		return m, nil
@@ -620,6 +650,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "ctrl+d" {
 			m.diagnosticsOpen = true
 			return m, nil
+		}
+		if m.queryOpen {
+			return m.updateQueryModal(msg)
 		}
 		if m.claudePlanOpen && msg.String() == "esc" {
 			if m.claudePlanLoading {
@@ -736,6 +769,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "r":
 			m.err = nil
 			return m.startRefresh()
+		case "/":
+			if m.mode == modeTable {
+				m.startQueryModal()
+				return m, nil
+			}
 		case "n":
 			return m.startCreateIssue()
 		case "x":
@@ -1082,6 +1120,13 @@ func (m Model) render() string {
 		b.WriteString(m.renderDiagnostics(layout))
 		b.WriteString("\n\n")
 		b.WriteString(m.renderFooterHelp(keyContextDiagnostics, layout))
+		return b.String()
+	}
+
+	if m.queryOpen {
+		b.WriteString(m.renderQueryModal(layout))
+		b.WriteString("\n\n")
+		b.WriteString(m.renderModelFooterHelp(layout))
 		return b.String()
 	}
 

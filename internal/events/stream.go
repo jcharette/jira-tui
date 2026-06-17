@@ -67,6 +67,7 @@ const (
 	AIOperationInlineAssist       AIOperation = "inline_assist"
 	AIOperationCreateDraft        AIOperation = "create_draft"
 	AIOperationRefineDraft        AIOperation = "refine_draft"
+	AIOperationGenerateJQL        AIOperation = "generate_jql"
 	AIOperationCodeReview         AIOperation = "code_review"
 	AIOperationImplementationPlan AIOperation = "implementation_plan"
 )
