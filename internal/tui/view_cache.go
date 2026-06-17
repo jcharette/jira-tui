@@ -102,19 +102,7 @@ func (m *Model) markActiveIssueViewCacheError(jql string, err error) {
 }
 
 func (m *Model) applyActiveIssueView(record issueViewCacheRecord, stale bool) {
-	selectedKey := ""
-	if selected, ok := m.selectedIssue(); ok {
-		selectedKey = selected.Key
-	}
 	m.replaceIssues(append([]jira.Issue(nil), record.Issues...))
-	if selectedKey != "" {
-		for index, issue := range m.issues {
-			if issue.Key == selectedKey {
-				m.selected = index
-				break
-			}
-		}
-	}
 	m.loading = false
 	m.refreshing = false
 	m.err = nil

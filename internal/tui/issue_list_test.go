@@ -1385,6 +1385,33 @@ func TestIssueListReplaceIssuesRepairsSelectionHiddenByPreservedCollapse(t *test
 	}
 }
 
+func TestApplyActiveIssueViewRepairsSelectionHiddenByPreservedCollapse(t *testing.T) {
+	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.height = 30
+	model.width = 120
+	model.selected = 1
+	model.collapsedIssueKeys = map[string]bool{"ABC-1": true}
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Parent", IssueType: "Epic"},
+		{Key: "ABC-2", Summary: "Child", IssueType: "Story", ParentKey: "ABC-1"},
+	}
+
+	model.applyActiveIssueView(issueViewCacheRecord{
+		Issues: []jira.Issue{
+			{Key: "ABC-1", Summary: "Parent cached", IssueType: "Epic"},
+			{Key: "ABC-2", Summary: "Child cached", IssueType: "Story", ParentKey: "ABC-1"},
+		},
+		SyncedAt:  now,
+		FreshTill: now.Add(activeViewCacheTTL),
+	}, false)
+
+	if got := model.issues[model.selected].Key; got != "ABC-1" {
+		t.Fatalf("selection after cached view apply = %s, want collapsed parent ABC-1", got)
+	}
+}
+
 func TestIssueRenderLinesPreserveIssueIndexForMissingParentChildRow(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "symbols"}))
 	defer model.workers.Stop()
