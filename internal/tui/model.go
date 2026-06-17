@@ -72,6 +72,7 @@ type Model struct {
 	statusFilter issueStatusFilter
 
 	issues                             []jira.Issue
+	collapsedIssueKeys                 map[string]bool
 	selected                           int
 	offset                             int
 	detailOffset                       int

@@ -38,13 +38,13 @@ view, JQL, Jira reads, caches, issue ordering, and `m.issues`.
 
 - [x] Confirm UX design/spec for issue-list subtree collapse.
 - [ ] Audit issue-table key bindings and choose one low-conflict collapse toggle.
-- [ ] Add focused tests for default expanded rendering, subtree collapse, subtree re-expand,
+- [x] Add focused tests for default expanded rendering, subtree collapse, subtree re-expand,
   preserved deeper collapse state, hidden-selection repair, visible-row navigation, and explicit
   child expansion compatibility.
-- [ ] Add model-local collapse state keyed by issue key without changing Jira reads, caches, saved
+- [x] Add model-local collapse state keyed by issue key without changing Jira reads, caches, saved
   views, issue ordering, or `m.issues`.
-- [ ] Derive visible issue rows from the existing tree plus collapse state.
-- [ ] Render a compact hidden-descendant count on collapsed nodes.
+- [x] Derive visible issue rows from the existing tree plus collapse state.
+- [x] Render a compact hidden-descendant count on collapsed nodes.
 - [ ] Route issue-list navigation and selection visibility through visible rows.
 - [ ] Update project docs/changelog for the user-visible issue-list behavior.
 - [ ] Run focused issue-list/navigation tests, full Go tests, `make check`, and
@@ -59,7 +59,21 @@ reveals that node while preserving any deeper collapsed branches.
 
 ### Issue List Subtree Collapse Review
 
-- Pending implementation.
+- Task 1 added render-level regression coverage for default-expanded and collapsed-parent behavior.
+- Collapse state remains model-local and presentation-only; `m.issues`, Jira reads, worker flows,
+  saved views, and cache records remain untouched in this slice.
+- The render path now projects issue rows through collapse-aware render lines and shows compact
+  hidden-descendant counts on collapsed parents.
+- Verified with focused Task 1 collapse tests and the broader hierarchy-focused issue-list command.
+
+### Task 1: Collapse State And Rendered Projection
+
+- [x] Add the Task 1 default-expanded and collapsed-render regression tests.
+- [x] Capture focused RED output for the Task 1 collapse render tests.
+- [x] Add model-local collapse state and rendered projection helpers without changing issue data.
+- [x] Run the Task 1 focused GREEN issue-list render tests.
+- [x] Run the broader Task 1 hierarchy regression command.
+- [x] Record Task 1 review notes and verification results.
 
 ## Assignee And Mention Filter Textinput
 

@@ -1098,6 +1098,52 @@ func TestIssueListNestedTreeKeepsConnectorsNearRows(t *testing.T) {
 	}
 }
 
+func TestIssueListCollapseDefaultsExpanded(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "symbols"}))
+	defer model.workers.Stop()
+	model.height = 30
+	model.width = 120
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Parent", IssueType: "Epic"},
+		{Key: "ABC-2", Summary: "Child", IssueType: "Story", ParentKey: "ABC-1"},
+	}
+
+	view := model.renderIssueList(model.browserLayout(model.width))
+
+	if !strings.Contains(view, "ABC-1") || !strings.Contains(view, "ABC-2") {
+		t.Fatalf("default issue tree should remain expanded: %q", view)
+	}
+	if strings.Contains(view, "hidden") {
+		t.Fatalf("default expanded tree should not show hidden count: %q", view)
+	}
+}
+
+func TestIssueListCollapsedParentHidesLoadedDescendants(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "symbols"}))
+	defer model.workers.Stop()
+	model.height = 30
+	model.width = 120
+	model.collapsedIssueKeys = map[string]bool{"ABC-1": true}
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Parent", IssueType: "Epic"},
+		{Key: "ABC-2", Summary: "Child", IssueType: "Story", ParentKey: "ABC-1"},
+		{Key: "ABC-3", Summary: "Grandchild", IssueType: "Task", ParentKey: "ABC-2"},
+		{Key: "ABC-4", Summary: "Peer", IssueType: "Task"},
+	}
+
+	view := model.renderIssueList(model.browserLayout(model.width))
+
+	if !strings.Contains(view, "ABC-1") || !strings.Contains(view, "ABC-4") {
+		t.Fatalf("collapsed parent and peer should remain visible: %q", view)
+	}
+	if strings.Contains(view, "ABC-2") || strings.Contains(view, "ABC-3") {
+		t.Fatalf("collapsed descendants should be hidden: %q", view)
+	}
+	if !strings.Contains(lineContaining(view, "ABC-1"), "2 hidden") {
+		t.Fatalf("collapsed parent should show hidden descendant count: %q", view)
+	}
+}
+
 func TestIssueListKeepsShallowHierarchyOnNarrowTerminals(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "symbols"}))
 	defer model.workers.Stop()
