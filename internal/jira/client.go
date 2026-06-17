@@ -12,9 +12,9 @@ import (
 	atlassian "github.com/ctreminiom/go-atlassian/v2/jira/v3"
 	model "github.com/ctreminiom/go-atlassian/v2/pkg/infra/models"
 	jiraservice "github.com/ctreminiom/go-atlassian/v2/service/jira"
-	"github.com/jon/jira-tui/internal/adf"
-	"github.com/jon/jira-tui/internal/config"
-	"github.com/jon/jira-tui/internal/linkdetect"
+	"github.com/jcharette/jira-tui/internal/adf"
+	"github.com/jcharette/jira-tui/internal/config"
+	"github.com/jcharette/jira-tui/internal/linkdetect"
 	"github.com/tidwall/gjson"
 )
 

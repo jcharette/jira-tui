@@ -8,9 +8,9 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/jon/jira-tui/internal/events"
-	"github.com/jon/jira-tui/internal/jira"
-	"github.com/jon/jira-tui/internal/worker"
+	"github.com/jcharette/jira-tui/internal/events"
+	"github.com/jcharette/jira-tui/internal/jira"
+	"github.com/jcharette/jira-tui/internal/worker"
 )
 
 func TestDiagnosticsOverlayTogglesWithoutChangingMode(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jon/jira-tui/internal/jira"
+	"github.com/jcharette/jira-tui/internal/jira"
 	"github.com/panjf2000/ants/v2"
 )
 

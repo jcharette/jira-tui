@@ -5,11 +5,38 @@ A terminal-first Jira client for people who do not want to live in the Jira web 
 The current app authenticates with Jira Cloud, loads saved JQL views, and browses matching issues in
 a Bubble Tea table with a selected-issue detail pane.
 
-## Setup
+## Install
+
+Download a release archive from
+[GitHub Releases](https://github.com/jcharette/jira-tui/releases), unpack it, and move the `jira`
+binary somewhere on your `PATH`.
+
+Example for Apple Silicon:
+
+```bash
+curl -LO https://github.com/jcharette/jira-tui/releases/download/v0.2.1/jira-tui_0.2.1_darwin_arm64.tar.gz
+tar -xzf jira-tui_0.2.1_darwin_arm64.tar.gz
+install -m 0755 jira ~/bin/jira
+```
+
+Or install with Go:
+
+```bash
+go install github.com/jcharette/jira-tui/cmd/jira@v0.2.1
+```
+
+Go installs the binary as `jira`.
+
+From a source checkout:
 
 ```bash
 go mod download
 make install-user
+```
+
+## Setup
+
+```bash
 jira config
 jira
 ```

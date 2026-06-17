@@ -78,7 +78,7 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
 - Sprint/board views.
 - Saved filters.
 - Multi-site Jira profiles.
-- Packaging/install story: Homebrew tap, release binaries, or `go install`.
+- Homebrew tap/formula after the release binary and `go install` paths are stable.
 
 ## Later: Security And Auth
 

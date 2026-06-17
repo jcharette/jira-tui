@@ -9,7 +9,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
-	"github.com/jon/jira-tui/internal/jira"
+	"github.com/jcharette/jira-tui/internal/jira"
 )
 
 const topicAll = "jira-tui.events"

@@ -8,10 +8,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/jon/jira-tui/internal/cache"
-	"github.com/jon/jira-tui/internal/claude"
-	"github.com/jon/jira-tui/internal/jira"
-	"github.com/jon/jira-tui/internal/worker"
+	"github.com/jcharette/jira-tui/internal/cache"
+	"github.com/jcharette/jira-tui/internal/claude"
+	"github.com/jcharette/jira-tui/internal/jira"
+	"github.com/jcharette/jira-tui/internal/worker"
 )
 
 func withLinkActions(t *testing.T, open func(string) error, copy func(string) error) {

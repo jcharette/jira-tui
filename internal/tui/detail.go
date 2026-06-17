@@ -8,8 +8,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 	lipglosstable "github.com/charmbracelet/lipgloss/table"
-	"github.com/jon/jira-tui/internal/jira"
-	"github.com/jon/jira-tui/internal/linkdetect"
+	"github.com/jcharette/jira-tui/internal/jira"
+	"github.com/jcharette/jira-tui/internal/linkdetect"
 )
 
 type detailLink = linkdetect.Link

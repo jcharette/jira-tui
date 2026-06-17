@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/jcharette/jira-tui/internal/jira"
+	"github.com/jcharette/jira-tui/internal/worker"
 	"github.com/jellydator/ttlcache/v3"
-	"github.com/jon/jira-tui/internal/jira"
-	"github.com/jon/jira-tui/internal/worker"
 )
 
 const maxDiagnosticsEvents = 80

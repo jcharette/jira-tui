@@ -7,10 +7,10 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/jon/jira-tui/internal/cache"
-	"github.com/jon/jira-tui/internal/claude"
-	"github.com/jon/jira-tui/internal/config"
-	"github.com/jon/jira-tui/internal/events"
+	"github.com/jcharette/jira-tui/internal/cache"
+	"github.com/jcharette/jira-tui/internal/claude"
+	"github.com/jcharette/jira-tui/internal/config"
+	"github.com/jcharette/jira-tui/internal/events"
 )
 
 func TestQueryModalOpensWithCurrentJQLFromTable(t *testing.T) {

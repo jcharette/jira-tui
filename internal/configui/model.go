@@ -11,9 +11,9 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/jon/jira-tui/internal/config"
-	"github.com/jon/jira-tui/internal/jira"
-	"github.com/jon/jira-tui/internal/ui"
+	"github.com/jcharette/jira-tui/internal/config"
+	"github.com/jcharette/jira-tui/internal/jira"
+	"github.com/jcharette/jira-tui/internal/ui"
 )
 
 type Model struct {

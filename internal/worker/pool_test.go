@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jon/jira-tui/internal/jira"
+	"github.com/jcharette/jira-tui/internal/jira"
 )
 
 func TestPoolSearchIssuesSuccess(t *testing.T) {

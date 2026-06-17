@@ -4,6 +4,9 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Added a `cmd/jira` package for versioned `go install` installs, corrected the Go module path to
+  the actual GitHub repository, and documented release binary, Go, and source install paths.
+
 ## 0.2.0 - 2026-06-17
 
 - Added an in-app query modal with direct JQL entry and AI-assisted JQL generation, including

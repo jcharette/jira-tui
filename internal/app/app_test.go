@@ -1,11 +1,21 @@
-package main
+package app
 
 import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jon/jira-tui/internal/config"
+	"github.com/jcharette/jira-tui/internal/config"
 )
+
+func TestNewRootCommandUsesJiraCommandName(t *testing.T) {
+	cmd := NewRootCommand()
+	if cmd.Use != "jira" {
+		t.Fatalf("Use = %q", cmd.Use)
+	}
+	if cmd.CommandPath() != "jira" {
+		t.Fatalf("CommandPath() = %q", cmd.CommandPath())
+	}
+}
 
 func TestSavedViewWriterPersistsViewToConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")

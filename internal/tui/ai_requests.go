@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/jon/jira-tui/internal/claude"
-	"github.com/jon/jira-tui/internal/events"
+	"github.com/jcharette/jira-tui/internal/claude"
+	"github.com/jcharette/jira-tui/internal/events"
 )
 
 type aiTaskRequest struct {

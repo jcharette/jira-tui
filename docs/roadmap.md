@@ -224,7 +224,7 @@ carefully confirmed AI assistance.
 - Bulk transitions/assignments/labels with confirmations.
 - Worklog support.
 - More saved filters.
-- Packaging/install story.
+- Homebrew tap/formula.
 
 ## Near-Term Implementation Plan
 

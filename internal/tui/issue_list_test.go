@@ -12,12 +12,12 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/jon/jira-tui/internal/cache"
-	"github.com/jon/jira-tui/internal/config"
-	"github.com/jon/jira-tui/internal/events"
-	"github.com/jon/jira-tui/internal/jira"
-	"github.com/jon/jira-tui/internal/ui"
-	"github.com/jon/jira-tui/internal/worker"
+	"github.com/jcharette/jira-tui/internal/cache"
+	"github.com/jcharette/jira-tui/internal/config"
+	"github.com/jcharette/jira-tui/internal/events"
+	"github.com/jcharette/jira-tui/internal/jira"
+	"github.com/jcharette/jira-tui/internal/ui"
+	"github.com/jcharette/jira-tui/internal/worker"
 )
 
 func collectEventsForTest(t *testing.T, received <-chan events.Event, count int) []events.Event {

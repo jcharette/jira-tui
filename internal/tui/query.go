@@ -8,10 +8,10 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
-	"github.com/jon/jira-tui/internal/cache"
-	"github.com/jon/jira-tui/internal/config"
-	"github.com/jon/jira-tui/internal/events"
-	"github.com/jon/jira-tui/internal/worker"
+	"github.com/jcharette/jira-tui/internal/cache"
+	"github.com/jcharette/jira-tui/internal/config"
+	"github.com/jcharette/jira-tui/internal/events"
+	"github.com/jcharette/jira-tui/internal/worker"
 )
 
 func (m *Model) startQueryModal() {

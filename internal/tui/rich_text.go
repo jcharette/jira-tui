@@ -5,8 +5,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	lipglosstable "github.com/charmbracelet/lipgloss/table"
-	"github.com/jon/jira-tui/internal/linkdetect"
-	"github.com/jon/jira-tui/internal/ui"
+	"github.com/jcharette/jira-tui/internal/linkdetect"
+	"github.com/jcharette/jira-tui/internal/ui"
 )
 
 func (m Model) renderRichDescriptionBody(value string, width int) string {

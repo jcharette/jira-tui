@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/jon/jira-tui/internal/jira"
-	"github.com/jon/jira-tui/internal/ui"
+	"github.com/jcharette/jira-tui/internal/jira"
+	"github.com/jcharette/jira-tui/internal/ui"
 )
 
 func priorityBadge(priority string) string {

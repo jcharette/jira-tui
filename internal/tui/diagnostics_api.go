@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jon/jira-tui/internal/worker"
+	"github.com/jcharette/jira-tui/internal/worker"
 )
 
 func apiDiagnosticEvent(result worker.Result, now time.Time, startedAt time.Time) diagnosticEvent {

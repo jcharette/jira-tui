@@ -7,8 +7,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/jon/jira-tui/internal/events"
-	"github.com/jon/jira-tui/internal/jira"
+	"github.com/jcharette/jira-tui/internal/events"
+	"github.com/jcharette/jira-tui/internal/jira"
 )
 
 type eventStream interface {

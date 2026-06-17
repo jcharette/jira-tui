@@ -8,8 +8,8 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/jon/jira-tui/internal/jira"
-	"github.com/jon/jira-tui/internal/mentiondetect"
+	"github.com/jcharette/jira-tui/internal/jira"
+	"github.com/jcharette/jira-tui/internal/mentiondetect"
 )
 
 func (m Model) commentEditorRows() int {

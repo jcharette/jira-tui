@@ -11,14 +11,14 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/jcharette/jira-tui/internal/cache"
+	"github.com/jcharette/jira-tui/internal/claude"
+	"github.com/jcharette/jira-tui/internal/config"
+	"github.com/jcharette/jira-tui/internal/events"
+	"github.com/jcharette/jira-tui/internal/jira"
+	"github.com/jcharette/jira-tui/internal/ui"
+	"github.com/jcharette/jira-tui/internal/worker"
 	"github.com/jellydator/ttlcache/v3"
-	"github.com/jon/jira-tui/internal/cache"
-	"github.com/jon/jira-tui/internal/claude"
-	"github.com/jon/jira-tui/internal/config"
-	"github.com/jon/jira-tui/internal/events"
-	"github.com/jon/jira-tui/internal/jira"
-	"github.com/jon/jira-tui/internal/ui"
-	"github.com/jon/jira-tui/internal/worker"
 )
 
 const (

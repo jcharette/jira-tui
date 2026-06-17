@@ -8,7 +8,7 @@ import (
 	"time"
 
 	model "github.com/ctreminiom/go-atlassian/v2/pkg/infra/models"
-	"github.com/jon/jira-tui/internal/adf"
+	"github.com/jcharette/jira-tui/internal/adf"
 	"github.com/tidwall/gjson"
 )
 

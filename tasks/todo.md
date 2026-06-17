@@ -1,5 +1,39 @@
 # Task Plan
 
+## Packaging Install Story
+
+- [x] Add a `cmd/jira` package for versioned `go install` so the installed binary is named `jira`.
+- [x] Update the Go module/import path to the actual GitHub remote so `go install` can resolve.
+- [x] Move shared CLI startup wiring out of `cmd/jira-tui` without changing runtime behavior.
+- [x] Document release binary, `go install`, and source install paths.
+- [x] Keep Homebrew as the remaining packaging follow-up.
+- [x] Update changelog, project state, roadmap, and backlog.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+- [ ] Merge, push, and cut a patch release so the documented versioned install path resolves.
+
+### Packaging Install Story Scope
+
+Complete the easy packaging/install slice by documenting existing release binaries and source
+installs, then adding a Go package path that makes `go install` produce `jira` rather than
+`jira-tui`. Because the old module path does not resolve to the GitHub repository, this slice also
+updates the module/import path to `github.com/jcharette/jira-tui`. Do not add Homebrew automation in
+this slice; leave it as the remaining distribution follow-up.
+
+### Packaging Install Story Review
+
+- Added `cmd/jira` as the Go-install command package while keeping `cmd/jira-tui` for existing
+  Makefile and release build paths.
+- Moved shared Cobra startup and app bootstrapping into `internal/app` so both command packages run
+  the same code.
+- Corrected the module/import path to `github.com/jcharette/jira-tui` after verifying
+  `github.com/jon/jira-tui` does not resolve and the actual remote module path lists existing tags.
+- Documented release archives, versioned `go install`, and source checkout installs.
+- Moved the broad packaging backlog item to a Homebrew-only follow-up.
+- Verified with `go build -o /tmp/jira-go-install-check ./cmd/jira`,
+  `go list -m -versions github.com/jcharette/jira-tui`,
+  `go test ./cmd/jira ./cmd/jira-tui ./internal/app -count=1`,
+  `go test ./... -count=1`, `make check`, and `make install-user`.
+
 ## Saved Query Promotion
 
 - [x] Add a config helper to append a named saved view safely.

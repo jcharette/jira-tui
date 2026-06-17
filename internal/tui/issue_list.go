@@ -7,7 +7,7 @@ import (
 
 	"charm.land/bubbles/v2/viewport"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/jon/jira-tui/internal/jira"
+	"github.com/jcharette/jira-tui/internal/jira"
 )
 
 type issueDisplayRow struct {

@@ -8,9 +8,9 @@ import (
 	"strings"
 
 	model "github.com/ctreminiom/go-atlassian/v2/pkg/infra/models"
-	adffixture "github.com/jon/jira-tui/internal/adf/fixture"
-	"github.com/jon/jira-tui/internal/config"
-	"github.com/jon/jira-tui/internal/jira"
+	adffixture "github.com/jcharette/jira-tui/internal/adf/fixture"
+	"github.com/jcharette/jira-tui/internal/config"
+	"github.com/jcharette/jira-tui/internal/jira"
 	"github.com/spf13/cobra"
 )
 

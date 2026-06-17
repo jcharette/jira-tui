@@ -6,9 +6,9 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/jcharette/jira-tui/internal/jira"
+	"github.com/jcharette/jira-tui/internal/worker"
 	"github.com/jellydator/ttlcache/v3"
-	"github.com/jon/jira-tui/internal/jira"
-	"github.com/jon/jira-tui/internal/worker"
 )
 
 func (m Model) handleWorkerResult(result worker.Result) (Model, tea.Cmd) {

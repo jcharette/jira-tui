@@ -7,9 +7,9 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/jon/jira-tui/internal/cache"
-	"github.com/jon/jira-tui/internal/jira"
-	"github.com/jon/jira-tui/internal/worker"
+	"github.com/jcharette/jira-tui/internal/cache"
+	"github.com/jcharette/jira-tui/internal/jira"
+	"github.com/jcharette/jira-tui/internal/worker"
 )
 
 func TestDetailFooterKeepsSecondaryCopyActionsInHelp(t *testing.T) {

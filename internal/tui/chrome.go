@@ -8,7 +8,7 @@ import (
 	bubbleshelp "charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/jon/jira-tui/internal/ui"
+	"github.com/jcharette/jira-tui/internal/ui"
 )
 
 const backgroundActivityRecentWindow = 10 * time.Second

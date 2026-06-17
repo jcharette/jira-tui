@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jcharette/jira-tui/internal/cache"
+	"github.com/jcharette/jira-tui/internal/jira"
+	"github.com/jcharette/jira-tui/internal/worker"
 	"github.com/jellydator/ttlcache/v3"
-	"github.com/jon/jira-tui/internal/cache"
-	"github.com/jon/jira-tui/internal/jira"
-	"github.com/jon/jira-tui/internal/worker"
 )
 
 type activeViewStore interface {

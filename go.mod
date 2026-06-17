@@ -1,4 +1,4 @@
-module github.com/jon/jira-tui
+module github.com/jcharette/jira-tui
 
 go 1.25.5
 

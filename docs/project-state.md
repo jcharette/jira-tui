@@ -1,6 +1,6 @@
 # Project State
 
-Last updated: 2026-06-16
+Last updated: 2026-06-17
 
 ## Goal
 
@@ -24,6 +24,16 @@ The feature roadmap and dependency-aware milestones live in [roadmap.md](roadmap
 - Configuration: TOML config file
 
 ## Current Commands
+
+Install a tagged release with Go:
+
+```bash
+go install github.com/jcharette/jira-tui/cmd/jira@v0.2.1
+```
+
+Release archives are published at
+[GitHub Releases](https://github.com/jcharette/jira-tui/releases) with names such as
+`jira-tui_0.2.1_darwin_arm64.tar.gz` and include a `jira` binary.
 
 Run from the project root:
 

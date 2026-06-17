@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/jon/jira-tui/internal/config"
+	"github.com/jcharette/jira-tui/internal/config"
 )
 
 type Theme struct {
