@@ -10,6 +10,7 @@ import (
 	"github.com/jon/jira-tui/internal/claude"
 	"github.com/jon/jira-tui/internal/config"
 	"github.com/jon/jira-tui/internal/configui"
+	"github.com/jon/jira-tui/internal/events"
 	"github.com/jon/jira-tui/internal/jira"
 	jiratui "github.com/jon/jira-tui/internal/tui"
 	"github.com/spf13/cobra"
@@ -72,6 +73,8 @@ func runApp() error {
 	if claudeCommand == "" {
 		claudeCommand = cfg.Claude.Command
 	}
+	eventStream := events.NewStream()
+	defer eventStream.Close()
 	client := jira.NewClient(cfg)
 	options := []jiratui.Option{
 		jiratui.WithViews(cfg.Views, cfg.ActiveView),
@@ -81,6 +84,7 @@ func runApp() error {
 		jiratui.WithQueueSize(cfg.QueueSize),
 		jiratui.WithTheme(cfg.Theme),
 		jiratui.WithDisplay(cfg.Display),
+		jiratui.WithEventStream(eventStream),
 		jiratui.WithClaudeConfig(jiratui.ClaudeConfig{
 			Enabled:             cfg.Claude.Enabled,
 			TicketPlan:          cfg.Claude.Features.TicketPlan,

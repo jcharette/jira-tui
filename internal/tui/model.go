@@ -14,6 +14,7 @@ import (
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/jon/jira-tui/internal/claude"
 	"github.com/jon/jira-tui/internal/config"
+	"github.com/jon/jira-tui/internal/events"
 	"github.com/jon/jira-tui/internal/jira"
 	"github.com/jon/jira-tui/internal/ui"
 	"github.com/jon/jira-tui/internal/worker"
@@ -38,6 +39,7 @@ const (
 	expandedChildrenCacheTTL           = 90 * time.Second
 	expandedChildrenCacheRetentionTTL  = 15 * time.Minute
 	activeViewCacheTTL                 = 90 * time.Second
+	activeViewCacheDisplayTTL          = 24 * time.Hour
 	activeViewCacheRetentionTTL        = 30 * time.Minute
 	initialRequestID                   = 1
 	defaultRequestTimeout              = 20 * time.Second
@@ -154,6 +156,8 @@ type Model struct {
 	helpOffset                         int
 	diagnosticsOpen                    bool
 	diagnosticsEvents                  []diagnosticEvent
+	eventStream                        eventStream
+	eventInbox                         <-chan events.Event
 	claudeConfig                       ClaudeConfig
 	claudeStatus                       ClaudeStatus
 	claudeRunner                       claudeRunner
@@ -385,6 +389,28 @@ func WithActiveViewStore(store activeViewStore, namespace string) Option {
 	}
 }
 
+func WithEventStream(stream eventStream) Option {
+	return func(m *Model) {
+		if stream == nil {
+			return
+		}
+		inbox, err := stream.Subscribe(context.Background())
+		if err != nil {
+			return
+		}
+		m.eventStream = stream
+		m.eventInbox = inbox
+	}
+}
+
+func WithNow(now func() time.Time) Option {
+	return func(m *Model) {
+		if now != nil {
+			m.now = now
+		}
+	}
+}
+
 type refreshTickMsg struct{}
 type workSubmittedMsg struct {
 	kind worker.Kind
@@ -402,6 +428,10 @@ type linkActionMsg struct {
 	action string
 	target string
 	err    error
+}
+
+type appEventMsg struct {
+	event events.Event
 }
 
 func NewModel(client worker.JiraClient, jql string, options ...Option) Model {
@@ -449,8 +479,15 @@ func (m Model) Init() tea.Cmd {
 		m.waitForWorkerResult(),
 		m.scheduleRefresh(),
 	}
+	if m.eventInbox != nil {
+		cmds = append(cmds, m.waitForAppEvent())
+	}
 	if m.loading || m.viewStale || len(m.issues) == 0 {
-		cmds = append(cmds, m.submitIssueSearch(m.activeRequestID, worker.PriorityForeground))
+		priority := worker.PriorityForeground
+		if len(m.issues) > 0 && !m.loading {
+			priority = worker.PriorityBackground
+		}
+		cmds = append(cmds, m.submitIssueSearch(m.activeRequestID, priority))
 	}
 	return tea.Batch(cmds...)
 }
@@ -473,6 +510,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.recordWorkerResult(resultDiagnosticEvent(msg.result))
 		m, cmd = m.handleWorkerResult(msg.result)
 		return m, tea.Batch(cmd, m.waitForWorkerResult())
+	case appEventMsg:
+		m.recordAppEvent(msg.event)
+		return m, m.waitForAppEvent()
 	case claudePlanResultMsg:
 		m = m.handleClaudePlanResult(msg)
 		return m, nil

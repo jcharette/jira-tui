@@ -1,12 +1,14 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/jon/jira-tui/internal/events"
 	"github.com/jon/jira-tui/internal/jira"
 	"github.com/jon/jira-tui/internal/worker"
 )
@@ -75,6 +77,64 @@ func TestDiagnosticsRecordsWorkerSubmitAndResult(t *testing.T) {
 	}
 	if next.diagnosticsEvents[1].Kind != diagnosticKindWorker || next.diagnosticsEvents[1].Status != "ok" {
 		t.Fatalf("result event = %#v", next.diagnosticsEvents[1])
+	}
+}
+
+func TestDiagnosticsRecordsAppEvents(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+
+	updated, _ := model.Update(appEventMsg{event: events.Event{
+		Type:      events.TypeJiraTicketUpdated,
+		Source:    "active_view",
+		DedupeKey: "ABC-1",
+	}})
+	next := updated.(Model)
+
+	if len(next.diagnosticsEvents) != 1 {
+		t.Fatalf("diagnostics events = %#v", next.diagnosticsEvents)
+	}
+	event := next.diagnosticsEvents[0]
+	if event.Kind != diagnosticKindEvent || event.Label != string(events.TypeJiraTicketUpdated) || event.Status != "published" {
+		t.Fatalf("diagnostic event = %#v", event)
+	}
+	if !strings.Contains(event.Detail, "active_view") || !strings.Contains(event.Detail, "ABC-1") {
+		t.Fatalf("diagnostic detail = %q", event.Detail)
+	}
+}
+
+func TestDiagnosticsRecordsStreamedAppEvents(t *testing.T) {
+	stream := events.NewStream()
+	defer stream.Close()
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithEventStream(stream))
+	defer model.workers.Stop()
+
+	cmd := model.waitForAppEvent()
+	messages := make(chan tea.Msg, 1)
+	go func() {
+		messages <- cmd()
+	}()
+	if err := stream.Publish(context.Background(), events.Event{
+		Type:      events.TypeJiraTicketUpdated,
+		Source:    "active_view",
+		DedupeKey: "ABC-1",
+	}); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+
+	select {
+	case msg := <-messages:
+		updated, _ := model.Update(msg)
+		next := updated.(Model)
+		if len(next.diagnosticsEvents) != 1 {
+			t.Fatalf("diagnostics events = %#v", next.diagnosticsEvents)
+		}
+		event := next.diagnosticsEvents[0]
+		if event.Kind != diagnosticKindEvent || event.Label != string(events.TypeJiraTicketUpdated) || event.Status != "published" {
+			t.Fatalf("diagnostic event = %#v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for streamed app event")
 	}
 }
 

@@ -351,6 +351,7 @@ func (m Model) handleSearchResult(result worker.Result) (Model, tea.Cmd) {
 	}
 
 	m.err = nil
+	m.publishTicketEvents(result.SearchIssues.Issues, result.SearchIssues.SyncedAt)
 	m.replaceIssues(result.SearchIssues.Issues)
 	m.lastSynced = result.SearchIssues.SyncedAt
 	m.viewStale = false

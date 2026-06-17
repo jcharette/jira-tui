@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -13,10 +14,26 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jon/jira-tui/internal/cache"
 	"github.com/jon/jira-tui/internal/config"
+	"github.com/jon/jira-tui/internal/events"
 	"github.com/jon/jira-tui/internal/jira"
 	"github.com/jon/jira-tui/internal/ui"
 	"github.com/jon/jira-tui/internal/worker"
 )
+
+func collectEventsForTest(t *testing.T, received <-chan events.Event, count int) []events.Event {
+	t.Helper()
+	got := make([]events.Event, 0, count)
+	deadline := time.After(time.Second)
+	for len(got) < count {
+		select {
+		case event := <-received:
+			got = append(got, event)
+		case <-deadline:
+			t.Fatalf("timed out waiting for %d events, got %#v", count, got)
+		}
+	}
+	return got
+}
 
 func TestLoadedIssuesIgnoreStaleRequest(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "symbols"}))
@@ -142,6 +159,51 @@ func TestNewModelHydratesFreshPersistentActiveView(t *testing.T) {
 	}
 }
 
+func TestNewModelHydratesStalePersistentActiveViewAndRefreshesInBackground(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.Local)
+	store := newFakeActiveViewStore()
+	store.record = cache.ActiveViewRecord{
+		Namespace: "https://example.atlassian.net",
+		CacheKey:  activeViewCacheKey("project = ABC"),
+		Issues:    []jira.Issue{{Key: "ABC-9", Summary: "Stale persistent cached issue"}},
+		SyncedAt:  now.Add(-2 * time.Hour),
+		FreshTill: now.Add(-2*time.Hour + activeViewCacheTTL),
+	}
+
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithActiveViewStore(store, "https://example.atlassian.net"),
+		WithNow(func() time.Time { return now }),
+	)
+	defer model.workers.Stop()
+
+	if model.loading {
+		t.Fatal("stale hydrated model should render cached rows instead of initial loading")
+	}
+	if !model.viewStale {
+		t.Fatal("stale hydrated model should mark the view stale")
+	}
+	if !model.refreshing {
+		t.Fatal("stale hydrated model should mark that a background refresh is pending")
+	}
+	if len(model.issues) != 1 || model.issues[0].Key != "ABC-9" {
+		t.Fatalf("issues = %#v", model.issues)
+	}
+	if len(model.diagnosticsEvents) == 0 {
+		t.Fatal("expected cache hydration diagnostic")
+	}
+	event := model.diagnosticsEvents[len(model.diagnosticsEvents)-1]
+	if event.Kind != diagnosticKindCache || event.Label != "active_view" || event.Status != "hydrate_stale" {
+		t.Fatalf("diagnostic event = %#v", event)
+	}
+	for _, want := range []string{"Default", "issues=1", "age=2h0m0s", "refresh=background"} {
+		if !strings.Contains(event.Detail, want) {
+			t.Fatalf("diagnostic detail = %q, missing %q", event.Detail, want)
+		}
+	}
+}
+
 func TestSearchResultPersistsActiveView(t *testing.T) {
 	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.Local)
 	store := newFakeActiveViewStore()
@@ -177,6 +239,105 @@ func TestSearchResultPersistsActiveView(t *testing.T) {
 	}
 	if !store.put.SyncedAt.Equal(now) || !store.put.FreshTill.Equal(now.Add(activeViewCacheTTL)) {
 		t.Fatalf("persisted timestamps = %s/%s", store.put.SyncedAt, store.put.FreshTill)
+	}
+}
+
+func TestSearchResultPublishesTicketEventsForNewAndUpdatedIssues(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.Local)
+	stream := events.NewStream(events.WithNow(func() time.Time { return now }))
+	defer stream.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	received, err := stream.Subscribe(ctx)
+	if err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithEventStream(stream),
+		WithNow(func() time.Time { return now }),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.activeRequestID = 7
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Old summary", Status: "To Do"},
+	}
+
+	updated, _ := model.Update(workerResultMsg{
+		result: worker.Result{
+			ID:   7,
+			Kind: worker.KindSearchIssues,
+			SearchIssues: &worker.SearchIssuesResult{
+				Issues: []jira.Issue{
+					{Key: "ABC-1", Summary: "New summary", Status: "In Progress"},
+					{Key: "ABC-2", Summary: "New issue", Status: "To Do"},
+				},
+				SyncedAt: now,
+			},
+		},
+	})
+	_ = updated.(Model)
+
+	got := collectEventsForTest(t, received, 2)
+	if got[0].Type != events.TypeJiraTicketUpdated || got[0].DedupeKey != "ABC-1" {
+		t.Fatalf("updated event = %#v", got[0])
+	}
+	var updatedPayload events.TicketPayload
+	if err := json.Unmarshal(got[0].Payload, &updatedPayload); err != nil {
+		t.Fatalf("updated payload decode: %v", err)
+	}
+	if updatedPayload.IssueKey != "ABC-1" || updatedPayload.Previous == nil || updatedPayload.Previous.Summary != "Old summary" || updatedPayload.Current.Summary != "New summary" {
+		t.Fatalf("updated payload = %#v", updatedPayload)
+	}
+	if got[1].Type != events.TypeJiraTicketNew || got[1].DedupeKey != "ABC-2" {
+		t.Fatalf("new event = %#v", got[1])
+	}
+	var newPayload events.TicketPayload
+	if err := json.Unmarshal(got[1].Payload, &newPayload); err != nil {
+		t.Fatalf("new payload decode: %v", err)
+	}
+	if newPayload.IssueKey != "ABC-2" || newPayload.Previous != nil || newPayload.Current.Summary != "New issue" {
+		t.Fatalf("new payload = %#v", newPayload)
+	}
+}
+
+func TestColdSearchResultDoesNotPublishTicketEvents(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.Local)
+	stream := events.NewStream(events.WithNow(func() time.Time { return now }))
+	defer stream.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	received, err := stream.Subscribe(ctx)
+	if err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithEventStream(stream),
+		WithNow(func() time.Time { return now }),
+	)
+	defer model.workers.Stop()
+	model.activeRequestID = 7
+
+	updated, _ := model.Update(workerResultMsg{
+		result: worker.Result{
+			ID:   7,
+			Kind: worker.KindSearchIssues,
+			SearchIssues: &worker.SearchIssuesResult{
+				Issues:   []jira.Issue{{Key: "ABC-1", Summary: "Initial cold load"}},
+				SyncedAt: now,
+			},
+		},
+	})
+	_ = updated.(Model)
+
+	select {
+	case event := <-received:
+		t.Fatalf("cold load published unexpected event: %#v", event)
+	case <-time.After(100 * time.Millisecond):
 	}
 }
 

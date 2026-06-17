@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"time"
 
@@ -60,6 +61,10 @@ func (m Model) activeIssueViewCacheFresh(record issueViewCacheRecord) bool {
 	return !record.FreshTill.IsZero() && m.currentTime().Before(record.FreshTill)
 }
 
+func (m Model) activeIssueViewCacheDisplayable(record issueViewCacheRecord) bool {
+	return !record.SyncedAt.IsZero() && m.currentTime().Before(record.SyncedAt.Add(activeViewCacheDisplayTTL))
+}
+
 func (m *Model) cacheActiveIssueView(jql string, issues []jira.Issue, syncedAt time.Time) {
 	if m.activeViewCache == nil {
 		return
@@ -107,7 +112,16 @@ func (m *Model) hydrateActiveIssueView() {
 	if !ok {
 		return
 	}
-	m.applyActiveIssueView(record, !m.activeIssueViewCacheFresh(record))
+	stale := !m.activeIssueViewCacheFresh(record)
+	m.applyActiveIssueView(record, stale)
+	status := "hydrate_hit"
+	refresh := "none"
+	if stale {
+		status = "hydrate_stale"
+		refresh = "background"
+		m.refreshing = true
+	}
+	m.recordDiagnosticEvent(diagnosticKindCache, "active_view", status, m.activeViewCacheDiagnosticDetail(record, refresh))
 }
 
 func (m Model) cachedPersistentActiveIssueView(jql string) (issueViewCacheRecord, bool) {
@@ -123,10 +137,30 @@ func (m Model) cachedPersistentActiveIssueView(jql string) (issueViewCacheRecord
 		SyncedAt:  record.SyncedAt,
 		FreshTill: record.FreshTill,
 	}
+	if !m.activeIssueViewCacheDisplayable(cached) {
+		return issueViewCacheRecord{}, false
+	}
 	if m.activeViewCache != nil {
 		m.activeViewCache.Set(activeViewCacheKey(jql), cached, ttlcache.DefaultTTL)
 	}
 	return cached, true
+}
+
+func (m Model) activeViewCacheDiagnosticDetail(record issueViewCacheRecord, refresh string) string {
+	age := m.currentTime().Sub(record.SyncedAt)
+	if age < 0 {
+		age = 0
+	}
+	age = age.Truncate(time.Second)
+	if refresh == "" {
+		refresh = "none"
+	}
+	return strings.Join([]string{
+		m.activeViewName(),
+		"issues=" + strconv.Itoa(len(record.Issues)),
+		"age=" + age.String(),
+		"refresh=" + refresh,
+	}, " ")
 }
 
 func (m Model) persistActiveIssueView(jql string, record issueViewCacheRecord) {

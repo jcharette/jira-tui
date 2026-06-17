@@ -4,6 +4,10 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Added a Watermill GoChannel-backed event stream foundation for Jira/app events, with active-view
+  ticket `new`/`updated` events routed into Diagnostics as the first consumer.
+- Changed persisted active-view startup behavior to stale-while-revalidate: displayable cached rows
+  render immediately, stale rows are marked refreshing, and Jira refresh happens in the background.
 - Extended the SQLite persistent cache to explicit expanded child issue reads used by hierarchy
   expansion.
 - Extended the SQLite persistent cache to create issue type and create field metadata used by the

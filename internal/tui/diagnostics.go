@@ -17,6 +17,7 @@ const (
 	diagnosticKindWorker diagnosticKind = "worker"
 	diagnosticKindCache  diagnosticKind = "cache"
 	diagnosticKindClaude diagnosticKind = "claude"
+	diagnosticKindEvent  diagnosticKind = "event"
 )
 
 type diagnosticEvent struct {
@@ -30,6 +31,7 @@ type diagnosticEvent struct {
 type diagnosticStats struct {
 	Workers int
 	Cache   int
+	Events  int
 	Errors  int
 	Active  int
 }
@@ -66,7 +68,7 @@ func (m Model) renderDiagnosticsSummary(events []diagnosticEvent, width int) str
 		event := events[len(events)-1]
 		last = strings.TrimSpace(event.Label + " " + event.Status)
 	}
-	summary := fmt.Sprintf("Workers %d   Cache %d   Errors %d   Active %d   Last %s", stats.Workers, stats.Cache, stats.Errors, stats.Active, last)
+	summary := fmt.Sprintf("Workers %d   Cache %d   Events %d   Errors %d   Active %d   Last %s", stats.Workers, stats.Cache, stats.Events, stats.Errors, stats.Active, last)
 	bars := fmt.Sprintf("Activity  worker %s  cache  %s", diagnosticActivityBar(stats.Workers, len(events), 12), diagnosticActivityBar(stats.Cache, len(events), 12))
 	return truncate(summary, width) + "\n" + truncate(bars, width)
 }
@@ -112,6 +114,8 @@ func diagnosticStatsFor(events []diagnosticEvent) diagnosticStats {
 			}
 		case diagnosticKindCache:
 			stats.Cache++
+		case diagnosticKindEvent:
+			stats.Events++
 		}
 		if event.Status == "error" {
 			stats.Errors++

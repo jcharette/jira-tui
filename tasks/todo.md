@@ -1,5 +1,33 @@
 # Task Plan
 
+## Jira Event Stream And Active View Refresh Plan
+
+- [x] Research maintained Go event/pubsub libraries.
+- [x] Choose a recommended event-stream foundation.
+- [x] Define initial Jira ticket event types and payload boundaries.
+- [x] Capture internal command/scheduler events as a first-class future use case.
+- [x] Capture provider-agnostic AI command events as a future stream consumer.
+- [x] Define active-view stale-while-revalidate cache behavior.
+- [x] Define implementation slices for event stream, active-view refresh, ticket diffing, and
+  future notifications.
+- [x] Implement Watermill-backed event stream adapter.
+- [x] Implement active-view stale-while-revalidate startup behavior.
+- [x] Publish ticket new/updated events from refreshed active views.
+- [x] Add diagnostics as the first event consumer.
+- [ ] Move Claude requests behind provider-agnostic event-stream AI command handling in a later
+  slice.
+- [ ] Add notification consumers in a later slice.
+
+### Jira Event Stream And Active View Refresh Plan Review
+
+- Recommended Watermill with GoChannel for the first in-process background stream.
+- Deferred macOS notification and in-app dialog delivery behind future consumers.
+- Captured the full design in `docs/jira-event-stream-design.md`.
+- Added `internal/events` as the app-owned adapter around Watermill GoChannel.
+- Hydrated displayable stale active-view rows immediately and refreshed them in the background.
+- Published active-view `jira.ticket.new` and `jira.ticket.updated` events from refreshed rows.
+- Routed app events into Diagnostics as the first non-blocking consumer.
+
 ## Persistent Expanded Children Cache
 
 - [x] Add retained hot-cache records for explicit expanded children by parent key and expand mode.
