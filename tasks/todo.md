@@ -7,7 +7,7 @@
 - [x] Preserve existing shortcuts and focused-field edit behavior.
 - [x] Update backlog/changelog/project docs for the completed Actions field-edit slice.
 - [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
-- [ ] Merge and push the completed slice.
+- [x] Merge and push the completed slice.
 
 ### Actions Field Edits Scope
 
