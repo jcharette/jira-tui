@@ -1047,7 +1047,8 @@ func (m Model) detailActions() []detailAction {
 		{ID: "browser", Label: "Open In Browser", Description: "Open this ticket in Jira.", Enabled: true},
 		{ID: "copy-key", Label: "Copy Key", Description: "Copy the ticket key.", Enabled: true},
 		{ID: "copy-url", Label: "Copy URL", Description: "Copy the Jira URL.", Enabled: true},
-		{ID: "edit-fields", Label: "Edit Fields", Description: "Will use Jira edit metadata before rendering fields.", Enabled: false},
+		{ID: "summary", Label: "Edit Summary", Description: "Load Jira edit metadata and update summary.", Enabled: true},
+		{ID: "priority", Label: "Change Priority", Description: "Load Jira priority options and update priority.", Enabled: true},
 		{ID: "transition", Label: "Transition Status", Description: "Load available Jira transitions and change status.", Enabled: true},
 		{ID: "assign", Label: "Assign", Description: "Search assignable Jira users and change assignee.", Enabled: true},
 		{ID: "subtask", Label: "Create Subtask", Description: "Will use Jira create metadata for required fields.", Enabled: false},
@@ -1092,6 +1093,10 @@ func (m Model) runSelectedDetailAction() (Model, tea.Cmd) {
 		return m.copySelectedIssueKey()
 	case "copy-url":
 		return m.copySelectedIssueURL()
+	case "summary":
+		return m.startSummaryEditor()
+	case "priority":
+		return m.startPriorityEditor()
 	case "transition":
 		return m.startStatusTransitionPicker()
 	case "assign":

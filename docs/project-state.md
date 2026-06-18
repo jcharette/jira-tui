@@ -417,8 +417,11 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   tables share one renderer so future pane/table styling stays centralized.
 - Focused ticket detail does not append a permanent hierarchy/URL footer under every section;
   hierarchy data lives in the Hierarchy section and issue URL workflows live in actions/key bindings.
-- The Actions section uses a compact table with action state and detail columns. Detail notices
-  render as a distinct styled block instead of plain inline text.
+- The Actions section uses a compact table with action state and detail columns. It routes Add
+  Comment, browser/copy actions, Summary editing, Priority editing, status transitions, and
+  assignment to the same focused metadata-backed workflows used by direct field targets and
+  shortcuts. Subtask creation remains disabled until its create-metadata-backed flow exists. Detail
+  notices render as a distinct styled block instead of plain inline text.
 - Focused ticket detail supports section navigation with `tab`/`shift+tab`, direct jumps to
   description with `d`, comments with `m`, hierarchy with `h`, and links with `l`.
 - Focused ticket detail supports selected issue actions: `o` opens the Jira issue URL, `c` copies

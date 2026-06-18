@@ -4,6 +4,8 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Added concrete `Edit Summary` and `Change Priority` rows to the ticket detail Actions workspace,
+  routing them to the existing metadata-backed edit flows.
 - Removed the stale linked-issues placeholder from the ticket detail Hierarchy workspace and added
   clearer hierarchy empty states for root issues and known-parent issues.
 - Added read-only Jira issue links to the ticket detail Links workspace, including link badges,

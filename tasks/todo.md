@@ -1,5 +1,29 @@
 # Task Plan
 
+## Actions Field Edits
+
+- [x] Replace the disabled generic Edit Fields action with concrete Summary and Priority edit actions.
+- [x] Route Actions Summary/Priority rows to existing metadata-backed edit flows.
+- [x] Preserve existing shortcuts and focused-field edit behavior.
+- [x] Update backlog/changelog/project docs for the completed Actions field-edit slice.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+- [ ] Merge and push the completed slice.
+
+### Actions Field Edits Scope
+
+Expose existing metadata-backed Summary and Priority workflows from the Actions workspace. This does
+not add new Jira APIs, alter modal behavior, or implement Subtask creation.
+
+### Actions Field Edits Review
+
+- Replaced disabled `Edit Fields` with enabled `Edit Summary` and `Change Priority` Actions rows.
+- Routed those rows through the existing `startSummaryEditor` and `startPriorityEditor` flows.
+- Left `Create Subtask` disabled as the remaining metadata-backed Actions workflow.
+- Verification passed:
+  `go test ./internal/tui -run 'TestDetailActions(FocusRunsSafeActionsAndBlocksMetadataActions|MenuStartsSummaryEditor|MenuStartsPriorityEditor)' -count=1`,
+  `go test ./internal/tui -count=1`, `go test ./... -count=1`, `make check`, and
+  `make install-user`.
+
 ## Hierarchy Context Cleanup
 
 - [x] Remove the stale linked-issues placeholder from the focused Hierarchy workspace.

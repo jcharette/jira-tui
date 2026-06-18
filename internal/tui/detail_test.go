@@ -1555,10 +1555,29 @@ func TestDetailActionsFocusRunsSafeActionsAndBlocksMetadataActions(t *testing.T)
 		t.Fatal("expected action focus")
 	}
 	view := next.render()
-	for _, want := range []string{"ACTION", "STATE", "Add Comment", "ready", "Edit Fields", "metadata"} {
+	for _, want := range []string{"ACTION", "STATE", "Add Comment", "ready", "Edit Summary", "Change Priority"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q in %q", want, view)
 		}
+	}
+	if strings.Contains(view, "Edit Fields") {
+		t.Fatalf("generic Edit Fields action should not render: %q", view)
+	}
+	actionLabels := map[string]detailAction{}
+	for _, action := range next.detailActions() {
+		actionLabels[action.ID] = action
+	}
+	if actionLabels["summary"].Label != "Edit Summary" || !actionLabels["summary"].Enabled {
+		t.Fatalf("summary action = %#v", actionLabels["summary"])
+	}
+	if actionLabels["priority"].Label != "Change Priority" || !actionLabels["priority"].Enabled {
+		t.Fatalf("priority action = %#v", actionLabels["priority"])
+	}
+	if _, ok := actionLabels["edit-fields"]; ok {
+		t.Fatalf("generic edit-fields action should be removed: %#v", actionLabels["edit-fields"])
+	}
+	if actionLabels["subtask"].Label != "Create Subtask" || actionLabels["subtask"].Enabled {
+		t.Fatalf("subtask action = %#v", actionLabels["subtask"])
 	}
 	if activeKeyContext(next) != keyContextActions {
 		t.Fatalf("activeKeyContext = %q", activeKeyContext(next))
@@ -1574,14 +1593,74 @@ func TestDetailActionsFocusRunsSafeActionsAndBlocksMetadataActions(t *testing.T)
 	}
 
 	model.actionFocus = true
-	model.selectedAction = 4
+	model.selectedAction = detailActionIndexForTest(t, model.detailActions(), "subtask")
 	updated, cmd = model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
 	next = updated.(Model)
 	if cmd != nil {
-		t.Fatal("disabled metadata action should not produce command")
+		t.Fatal("disabled subtask action should not produce command")
 	}
 	if !strings.Contains(next.detailNotice, "needs Jira metadata") {
 		t.Fatalf("detailNotice = %q", next.detailNotice)
+	}
+}
+
+func TestDetailActionsMenuStartsSummaryEditor(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {Issue: model.issues[0]},
+	}
+	model.actionFocus = true
+	model.selectedAction = detailActionIndexForTest(t, model.detailActions(), "summary")
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("expected summary metadata command from Actions menu")
+	}
+	if !next.summaryFocus {
+		t.Fatal("expected summary focus")
+	}
+	if !next.summaryMetadataLoading {
+		t.Fatal("summaryMetadataLoading should be true")
+	}
+	if next.summaryMetadataRequestKey != "ABC-1" {
+		t.Fatalf("summaryMetadataRequestKey = %q", next.summaryMetadataRequestKey)
+	}
+}
+
+func TestDetailActionsMenuStartsPriorityEditor(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do", Priority: "Medium"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {Issue: model.issues[0]},
+	}
+	model.actionFocus = true
+	model.selectedAction = detailActionIndexForTest(t, model.detailActions(), "priority")
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("expected priority metadata command from Actions menu")
+	}
+	if !next.priorityFocus {
+		t.Fatal("expected priority focus")
+	}
+	if !next.priorityMetadataLoading {
+		t.Fatal("priorityMetadataLoading should be true")
+	}
+	if next.priorityMetadataRequestKey != "ABC-1" {
+		t.Fatalf("priorityMetadataRequestKey = %q", next.priorityMetadataRequestKey)
 	}
 }
 
