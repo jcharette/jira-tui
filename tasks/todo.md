@@ -1,5 +1,32 @@
 # Task Plan
 
+## Linked Issue Links
+
+- [x] Parse Jira issue links from issue detail into the app domain model.
+- [x] Render parsed Jira issue links in the focused ticket detail Links workspace.
+- [x] Keep Links keyboard behavior consistent for issue links: select, open, and copy.
+- [x] Update backlog/changelog/project docs with the completed read-only linked issue slice.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+- [ ] Merge and push the completed slice.
+
+### Linked Issue Links Scope
+
+Complete the next bounded `Now: Read And View` item by showing real Jira linked issue data in the
+existing Links workspace. This is read-only and uses the current issue-detail worker path; it does
+not add issue-link editing, new saved views, JQL changes, or a new worker family.
+
+### Linked Issue Links Review
+
+- Jira issue detail now requests `issuelinks` and parses inward/outward linked issues into
+  `jira.IssueDetail`.
+- The focused Links workspace renders Jira issue links before detected description links.
+- `enter`/`o` opens a linked issue URL, while `y` copies the linked issue key.
+- Verification passed:
+  `go test ./internal/jira -run TestGetIssueFetchesAndParsesDetail -count=1`,
+  `go test ./internal/tui -run 'TestFullDetailContentRendersJiraIssueLinksSection|TestDetailIssueLinksOpenURLAndCopyKey' -count=1`,
+  `go test ./internal/jira ./internal/tui -count=1`, `go test ./... -count=1`, `make check`,
+  and `make install-user`.
+
 ## Keymap Audit
 
 - [x] Audit active key contexts for stale, hidden, or misleading semantic shortcuts.

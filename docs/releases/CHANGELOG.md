@@ -4,6 +4,8 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Added read-only Jira issue links to the ticket detail Links workspace, including link badges,
+  relationship/status/summary rows, open-in-browser, and copy-key behavior.
 - Completed the active-context key binding audit by removing hidden detail `b` browser-open
   behavior and the no-AI detail `a` comment fallback, keeping help/footer metadata aligned with key
   handling.

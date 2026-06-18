@@ -191,6 +191,30 @@ func TestGetIssueFetchesAndParsesDetail(t *testing.T) {
 				FixVersions: []*model.VersionScheme{
 					{Name: "2026.06"},
 				},
+				IssueLinks: []*model.IssueLinkScheme{
+					{
+						Type: &model.LinkTypeScheme{Name: "Blocks", Outward: "blocks"},
+						OutwardIssue: &model.LinkedIssueScheme{
+							Key: "ABC-200",
+							Fields: &model.IssueLinkFieldsScheme{
+								Summary:   "Blocked downstream task",
+								Status:    &model.StatusScheme{Name: "To Do"},
+								IssueType: &model.IssueTypeScheme{Name: "Task"},
+							},
+						},
+					},
+					{
+						Type: &model.LinkTypeScheme{Name: "Blocks", Inward: "is blocked by"},
+						InwardIssue: &model.LinkedIssueScheme{
+							Key: "ABC-300",
+							Fields: &model.IssueLinkFieldsScheme{
+								Summary:   "Upstream blocker",
+								Status:    &model.StatusScheme{Name: "In Progress"},
+								IssueType: &model.IssueTypeScheme{Name: "Bug"},
+							},
+						},
+					},
+				},
 				Created: &created,
 				Updated: &updated,
 			},
@@ -225,6 +249,7 @@ func TestGetIssueFetchesAndParsesDetail(t *testing.T) {
 		"updated",
 		"reporter",
 		"creator",
+		"issuelinks",
 	}
 	if !equalStrings(issue.fields, wantFields) {
 		t.Fatalf("fields = %#v", issue.fields)
@@ -255,6 +280,29 @@ func TestGetIssueFetchesAndParsesDetail(t *testing.T) {
 	}
 	if !detail.Updated.Equal(time.Time(updated)) {
 		t.Fatalf("Updated = %s", detail.Updated)
+	}
+	wantLinks := []IssueLink{
+		{
+			Direction:    "outward",
+			Relationship: "blocks",
+			Key:          "ABC-200",
+			Summary:      "Blocked downstream task",
+			Status:       "To Do",
+			IssueType:    "Task",
+			URL:          "https://example.atlassian.net/browse/ABC-200",
+		},
+		{
+			Direction:    "inward",
+			Relationship: "is blocked by",
+			Key:          "ABC-300",
+			Summary:      "Upstream blocker",
+			Status:       "In Progress",
+			IssueType:    "Bug",
+			URL:          "https://example.atlassian.net/browse/ABC-300",
+		},
+	}
+	if !reflect.DeepEqual(detail.IssueLinks, wantLinks) {
+		t.Fatalf("IssueLinks = %#v", detail.IssueLinks)
 	}
 }
 

@@ -940,6 +940,98 @@ func TestFullDetailContentRendersLinksSection(t *testing.T) {
 	}
 }
 
+func TestFullDetailContentRendersJiraIssueLinksSection(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Fix production thing", Status: "In Progress", Priority: "High", IssueType: "Story", Assignee: "A Developer", URL: "https://example.atlassian.net/browse/ABC-1"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {
+			Issue:       model.issues[0],
+			Description: "No external links here.",
+			IssueLinks: []jira.IssueLink{
+				{
+					Direction:    "outward",
+					Relationship: "blocks",
+					Key:          "ABC-2",
+					Summary:      "Blocked downstream task",
+					Status:       "To Do",
+					IssueType:    "Task",
+					URL:          "https://example.atlassian.net/browse/ABC-2",
+				},
+			},
+		},
+	}
+	model.jumpDetailSection("Links")
+
+	content := model.fullDetailContent(100)
+
+	for _, want := range []string{"Links", "ABC-2", "blocks", "Blocked downstream task", "To Do"} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("missing %q in %q", want, content)
+		}
+	}
+	tabs := model.detailTabsLine(model.detailSections(), 100, false)
+	if !strings.Contains(tabs, "Links 1") {
+		t.Fatalf("tabs = %q, want Links badge", tabs)
+	}
+}
+
+func TestDetailIssueLinksOpenURLAndCopyKey(t *testing.T) {
+	var opened string
+	var copied string
+	withLinkActions(t, func(value string) error {
+		opened = value
+		return nil
+	}, func(value string) error {
+		copied = value
+		return nil
+	})
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 60
+	model.issues = []jira.Issue{{Key: "ABC-1"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {
+			Issue:       jira.Issue{Key: "ABC-1"},
+			Description: "No external links here.",
+			IssueLinks: []jira.IssueLink{
+				{
+					Relationship: "blocks",
+					Key:          "ABC-2",
+					Summary:      "Blocked downstream task",
+					URL:          "https://example.atlassian.net/browse/ABC-2",
+				},
+			},
+		},
+	}
+	model.focusDetailLinks()
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected open command")
+	}
+	updated, _ = next.Update(cmd())
+	next = updated.(Model)
+	if opened != "https://example.atlassian.net/browse/ABC-2" {
+		t.Fatalf("opened = %q", opened)
+	}
+
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "y", Code: 'y'}))
+	next = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected copy command")
+	}
+	updated, _ = next.Update(cmd())
+	next = updated.(Model)
+	if copied != "ABC-2" {
+		t.Fatalf("copied = %q", copied)
+	}
+}
+
 func TestFullDetailContentRendersCommentsSection(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()

@@ -396,22 +396,24 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   title, compact metadata, and plain-marker tabs so navigation no longer competes with the ticket
   title.
 - The always-visible ticket detail footer is intentionally limited to primary actions (`esc`,
-  `j`/`k`, `tab`, `a`, and `b`); secondary section jumps and copy actions remain in `? help`.
+  `j`/`k`, `tab`, `a`, and `o`); secondary section jumps and copy actions remain in `? help`.
   When an interactive section is selected but not yet activated, the footer swaps in the visible
   section commands, such as child, link, or action selection and activation, and those keys operate
   on the visible section immediately.
 - Long ticket detail views right-align their viewport line indicator at the bottom of the panel so
   pagination state reads as panel chrome instead of another content row. The indicator includes
   the active detail section name on the left and the line range on the right.
-- The Links section uses a Lip Gloss table, and Comments render as repeated left-ruled blocks with
-  author/date-first headers, secondary comment counts, and a clear header/body gap. Description
-  content also separates its ruled header from rich body content, while Description and Comments
-  loading, empty, and error messages share a consistent Status block. The Hierarchy section always
-  renders a Path block for either the current issue or known parent context, separates visible child
-  issues from subtasks, keeps the selected row marked before activation, routes `j`/`k` and arrow
-  keys to that selected row while the Hierarchy tab is selected, and reserves a linked-issues
-  placeholder until Jira linked issue data is loaded through a real API path. Detail tables share
-  one renderer so future pane/table styling stays centralized.
+- The Links section uses a Lip Gloss table for Jira issue links and detected description links.
+  Jira issue-link rows come from issue detail `issuelinks`, show the linked issue key,
+  relationship, status, and summary, open the linked issue URL with `enter`/`o`, and copy the issue
+  key with `y`. Comments render as repeated left-ruled blocks with author/date-first headers,
+  secondary comment counts, and a clear header/body gap. Description content also separates its
+  ruled header from rich body content, while Description and Comments loading, empty, and error
+  messages share a consistent Status block. The Hierarchy section always renders a Path block for
+  either the current issue or known parent context, separates visible child issues from subtasks,
+  keeps the selected row marked before activation, and routes `j`/`k` and arrow keys to that
+  selected row while the Hierarchy tab is selected. Detail tables share one renderer so future
+  pane/table styling stays centralized.
 - Focused ticket detail does not append a permanent hierarchy/URL footer under every section;
   hierarchy data lives in the Hierarchy section and issue URL workflows live in actions/key bindings.
 - The Actions section uses a compact table with action state and detail columns. Detail notices

@@ -24,8 +24,8 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
   the bounded multi-line comment editor and detected-link/ADF-link support.
 - Keep TUI navigation and rendering regression coverage paired with new issue-list, detail, and
   modal surfaces as they land.
-- Continue focused ticket detail workspace work: real linked issue data in the Hierarchy/Links
-  workspace, contextual footer commands, and metadata-backed implementations behind the Actions tab.
+- Continue focused ticket detail workspace work: richer Hierarchy workspace context, contextual
+  footer commands, and metadata-backed implementations behind the Actions tab.
 - Keep detail tabs and focused sections pane-compatible: new sections should expose their own
   focus state, key context, and activation behavior so they can move into real panes without a
   rewrite.

@@ -76,6 +76,16 @@ type Issue struct {
 	URL            string
 }
 
+type IssueLink struct {
+	Direction    string
+	Relationship string
+	Key          string
+	Summary      string
+	Status       string
+	IssueType    string
+	URL          string
+}
+
 type IssueDetail struct {
 	Issue
 	Description string
@@ -84,6 +94,7 @@ type IssueDetail struct {
 	Labels      []string
 	Components  []string
 	FixVersions []string
+	IssueLinks  []IssueLink
 	Created     time.Time
 	Updated     time.Time
 }
@@ -261,6 +272,7 @@ func (c *Client) GetIssue(ctx context.Context, key string) (IssueDetail, error) 
 		"updated",
 		"reporter",
 		"creator",
+		"issuelinks",
 	}
 	raw, _, err := c.issue.Get(ctx, key, fields, nil)
 	if err != nil {
@@ -847,6 +859,7 @@ func (c *Client) parseIssueDetail(raw *model.IssueScheme) IssueDetail {
 	detail.Labels = append([]string(nil), fields.Labels...)
 	detail.Components = componentNames(fields.Components)
 	detail.FixVersions = versionNames(fields.FixVersions)
+	detail.IssueLinks = c.parseIssueLinks(fields.IssueLinks)
 	detail.Reporter = jiraUserDisplayName(fields.Reporter, detail.Reporter)
 	detail.Creator = jiraUserDisplayName(fields.Creator, detail.Creator)
 	if fields.Created != nil {
@@ -856,6 +869,63 @@ func (c *Client) parseIssueDetail(raw *model.IssueScheme) IssueDetail {
 		detail.Updated = time.Time(*fields.Updated)
 	}
 	return detail
+}
+
+func (c *Client) parseIssueLinks(rawLinks []*model.IssueLinkScheme) []IssueLink {
+	links := make([]IssueLink, 0, len(rawLinks))
+	for _, raw := range rawLinks {
+		if raw == nil {
+			continue
+		}
+		if link, ok := c.parseIssueLink("outward", relationshipText(raw.Type, "outward"), raw.OutwardIssue); ok {
+			links = append(links, link)
+		}
+		if link, ok := c.parseIssueLink("inward", relationshipText(raw.Type, "inward"), raw.InwardIssue); ok {
+			links = append(links, link)
+		}
+	}
+	return links
+}
+
+func (c *Client) parseIssueLink(direction string, relationship string, raw *model.LinkedIssueScheme) (IssueLink, bool) {
+	if raw == nil || strings.TrimSpace(raw.Key) == "" {
+		return IssueLink{}, false
+	}
+	link := IssueLink{
+		Direction:    direction,
+		Relationship: relationship,
+		Key:          raw.Key,
+		Status:       "Unknown",
+		IssueType:    "Unknown",
+		URL:          c.baseURL + "/browse/" + raw.Key,
+	}
+	if raw.Fields != nil {
+		link.Summary = raw.Fields.Summary
+		if raw.Fields.Status != nil && raw.Fields.Status.Name != "" {
+			link.Status = raw.Fields.Status.Name
+		}
+		if raw.Fields.IssueType != nil && raw.Fields.IssueType.Name != "" {
+			link.IssueType = raw.Fields.IssueType.Name
+		}
+	}
+	return link, true
+}
+
+func relationshipText(raw *model.LinkTypeScheme, direction string) string {
+	if raw == nil {
+		return ""
+	}
+	switch direction {
+	case "outward":
+		if strings.TrimSpace(raw.Outward) != "" {
+			return raw.Outward
+		}
+	case "inward":
+		if strings.TrimSpace(raw.Inward) != "" {
+			return raw.Inward
+		}
+	}
+	return raw.Name
 }
 
 func parseComment(raw *model.IssueCommentScheme) Comment {

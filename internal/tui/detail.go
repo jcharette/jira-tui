@@ -12,7 +12,14 @@ import (
 	"github.com/jcharette/jira-tui/internal/linkdetect"
 )
 
-type detailLink = linkdetect.Link
+type detailLink struct {
+	Kind     string
+	Label    string
+	Target   string
+	CopyText string
+	Start    int
+	End      int
+}
 
 type detailAction struct {
 	ID          string
@@ -335,7 +342,7 @@ func (m Model) detailRenderContext() (detailRenderContext, bool) {
 		if strings.TrimSpace(description) == "" {
 			description = "No description."
 		}
-		links = collectDetailLinks(description)
+		links = detailLinks(detail)
 	}
 	return detailRenderContext{
 		selected:    selected,
@@ -488,12 +495,14 @@ func (m Model) detailSections() []detailSection {
 	if selected, ok := m.selectedIssue(); ok {
 		display := selected
 		description := ""
+		var issueLinks []jira.IssueLink
 		if detail, hasDetail := m.details[selected.Key]; hasDetail {
 			display = detail.Issue
 			if display.Key == "" {
 				display.Key = selected.Key
 			}
 			description = detail.Description
+			issueLinks = detail.IssueLinks
 		}
 		if childCount := len(m.hierarchyRows(display.Key)); childCount > 0 {
 			sections[1].Badge = fmt.Sprintf("%d", childCount)
@@ -505,7 +514,7 @@ func (m Model) detailSections() []detailSection {
 		} else if m.commentsErr != nil && m.commentsRequestKey == display.Key {
 			sections[2].Badge = "!"
 		}
-		if linkCount := len(collectDetailLinks(description)); linkCount > 0 {
+		if linkCount := len(detailLinks(jira.IssueDetail{Description: description, IssueLinks: issueLinks})); linkCount > 0 {
 			links := detailSection{ID: "links", Label: "Links", Short: "Links", Badge: fmt.Sprintf("%d", linkCount)}
 			sections = append(sections[:2], append([]detailSection{links}, sections[2:]...)...)
 		}
@@ -1688,6 +1697,9 @@ func linkDisplayText(link detailLink) string {
 }
 
 func linkCopyText(link detailLink) string {
+	if link.CopyText != "" {
+		return link.CopyText
+	}
 	if link.Kind == linkdetect.KindEmail {
 		return linkDisplayText(link)
 	}
@@ -1695,7 +1707,49 @@ func linkCopyText(link detailLink) string {
 }
 
 func collectDetailLinks(value string) []detailLink {
-	return linkdetect.Detect(value)
+	detected := linkdetect.Detect(value)
+	links := make([]detailLink, 0, len(detected))
+	for _, link := range detected {
+		links = append(links, detailLink{
+			Kind:   link.Kind,
+			Label:  link.Label,
+			Target: link.Target,
+			Start:  link.Start,
+			End:    link.End,
+		})
+	}
+	return links
+}
+
+func detailLinks(detail jira.IssueDetail) []detailLink {
+	links := make([]detailLink, 0, len(detail.IssueLinks))
+	for _, issueLink := range detail.IssueLinks {
+		if strings.TrimSpace(issueLink.Key) == "" {
+			continue
+		}
+		links = append(links, issueDetailLink(issueLink))
+	}
+	links = append(links, collectDetailLinks(detail.Description)...)
+	return links
+}
+
+func issueDetailLink(link jira.IssueLink) detailLink {
+	parts := []string{link.Key}
+	if relationship := strings.TrimSpace(link.Relationship); relationship != "" {
+		parts = append(parts, relationship)
+	}
+	if status := strings.TrimSpace(link.Status); status != "" && !strings.EqualFold(status, "Unknown") {
+		parts = append(parts, status)
+	}
+	if summary := strings.TrimSpace(link.Summary); summary != "" {
+		parts = append(parts, summary)
+	}
+	return detailLink{
+		Kind:     "Issue",
+		Label:    strings.Join(parts, "  "),
+		Target:   link.URL,
+		CopyText: link.Key,
+	}
 }
 
 func (m *Model) focusDetailLinks() {
@@ -1833,7 +1887,7 @@ func (m Model) currentDetailLinks() []detailLink {
 	if !ok {
 		return nil
 	}
-	return collectDetailLinks(detail.Description)
+	return detailLinks(detail)
 }
 
 func (m *Model) jumpDetailSection(title string) {
