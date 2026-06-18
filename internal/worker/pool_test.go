@@ -427,6 +427,40 @@ func TestPoolTransitionIssueSuccess(t *testing.T) {
 	}
 }
 
+func TestPoolTransitionIssuePassesFieldValues(t *testing.T) {
+	searcher := &fakeIssueSearcher{}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:   12,
+		Kind: KindTransitionIssue,
+		TransitionIssue: &TransitionIssueRequest{
+			Key:          "ABC-1",
+			TransitionID: "31",
+			ToStatus:     "Done",
+			Fields: []jira.TransitionFieldValue{
+				{FieldID: "resolution", Option: jira.FieldOption{ID: "10000", Name: "Done"}},
+				{FieldID: "comment", Text: "Ship it"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.Err != nil {
+		t.Fatalf("Result.Err = %v", result.Err)
+	}
+	if searcher.transitionRequest.TransitionID != "31" {
+		t.Fatalf("transition request = %#v", searcher.transitionRequest)
+	}
+	if len(searcher.transitionRequest.Fields) != 2 {
+		t.Fatalf("transition fields = %#v", searcher.transitionRequest.Fields)
+	}
+}
+
 func TestPoolTransitionIssueError(t *testing.T) {
 	transitionErr := errors.New("jira rejected transition")
 	pool := NewPool(&fakeIssueSearcher{transitionErr: transitionErr}, WithWorkerCount(1), WithQueueSize(1))
@@ -1159,6 +1193,7 @@ type fakeIssueSearcher struct {
 	transitions            []jira.Transition
 	transitionKey          string
 	transitionID           string
+	transitionRequest      jira.TransitionIssueRequest
 	transitionErr          error
 	editMetadata           jira.EditMetadata
 	createIssueTypes       []jira.CreateIssueType
@@ -1246,7 +1281,7 @@ func (f *fakeIssueSearcher) GetTransitions(_ context.Context, key string) ([]jir
 	return f.transitions, nil
 }
 
-func (f *fakeIssueSearcher) TransitionIssue(_ context.Context, key string, transitionID string) error {
+func (f *fakeIssueSearcher) TransitionIssue(_ context.Context, key string, request jira.TransitionIssueRequest) error {
 	if f.transitionErr != nil {
 		return f.transitionErr
 	}
@@ -1254,7 +1289,8 @@ func (f *fakeIssueSearcher) TransitionIssue(_ context.Context, key string, trans
 		return f.err
 	}
 	f.transitionKey = key
-	f.transitionID = transitionID
+	f.transitionID = request.TransitionID
+	f.transitionRequest = request
 	return nil
 }
 
@@ -1425,7 +1461,7 @@ func (b *blockingIssueSearcher) GetTransitions(ctx context.Context, _ string) ([
 	}
 }
 
-func (b *blockingIssueSearcher) TransitionIssue(ctx context.Context, _ string, _ string) error {
+func (b *blockingIssueSearcher) TransitionIssue(ctx context.Context, _ string, _ jira.TransitionIssueRequest) error {
 	if b.started != nil {
 		close(b.started)
 		b.started = nil

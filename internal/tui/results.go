@@ -298,8 +298,10 @@ func (m Model) handleTransitionIssueResult(result worker.Result) Model {
 	}
 	m.updateIssueStatus(result.TransitionIssue.Key, result.TransitionIssue.ToStatus)
 	m.transitionFocus = false
+	m.transitionFieldEditing = false
 	m.transitionSubmitKey = ""
 	m.transitionSubmitToStatus = ""
+	m.transitionSubmitFields = nil
 	m.detailNotice = "Status updated to " + displayValue(result.TransitionIssue.ToStatus, "Unknown") + "."
 	return m
 }

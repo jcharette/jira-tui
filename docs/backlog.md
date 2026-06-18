@@ -15,18 +15,12 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
 - Add bounded concurrency controls for sprint and board fetches when parallel loading expands beyond
   the current issue/detail/comment/cache worker paths.
 
-## Next: Comments And Workflow Actions
-
-- Continue rich comment composition support with formatting controls on top of the bounded
-  multi-line editor, selected Jira mentions, and detected-link/ADF-link support.
-- Add transition field metadata support for transitions that require extra fields before moving
-  issue status.
-
 ## Later: Creation And Editing
 
 - Extend Jira metadata discovery adapters beyond the current create/edit metadata foundation:
-  transition field metadata, assignable user search by project/issue, field options, boards, and
-  sprints.
+  assignable user search by project/issue, field options, boards, and sprints.
+- Expand transition field handling beyond the current Resolution and Comment support to additional
+  Jira field schemas when real workflow screens require them.
 - Add a ticket action menu/command palette for edit workflows so growing actions do not overload
   single-key detail bindings.
 - Add remaining metadata-backed implementations behind the Actions tab only as their underlying

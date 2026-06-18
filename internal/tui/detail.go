@@ -276,6 +276,8 @@ func (m Model) renderStatusTransitionDialog(width int) string {
 	lines := []string{current}
 	if m.transitionSubmitting && m.transitionSubmitKey == selected.Key {
 		lines = append(lines, "", m.detailStatusBlock("Applying transition...", bodyWidth, false))
+	} else if m.transitionFieldEditing {
+		lines = append(lines, "", m.renderTransitionFieldForm(bodyWidth))
 	} else {
 		transitions := m.transitions[selected.Key]
 		if len(transitions) == 0 {
@@ -303,7 +305,73 @@ func (m Model) renderStatusTransitionDialog(width int) string {
 	if m.detailNotice != "" {
 		lines = append(lines, "", m.renderDetailNotice(m.detailNotice, bodyWidth))
 	}
-	return m.renderDetailDialog(width, "Change Status", selected.Key, strings.Join(lines, "\n"), "j/k select  enter apply  esc cancel")
+	footer := "j/k select  enter apply  esc cancel"
+	if m.transitionFieldEditing {
+		footer = "tab field  j/k choose  type comment  ctrl+s apply  esc cancel"
+	}
+	return m.renderDetailDialog(width, "Change Status", selected.Key, strings.Join(lines, "\n"), footer)
+}
+
+func (m Model) renderTransitionFieldForm(width int) string {
+	transition, ok := m.selectedStatusTransition()
+	if !ok {
+		return m.detailEmptyState("No transition selected.", width)
+	}
+	fields := supportedTransitionFields(transition.Fields)
+	lines := []string{
+		m.detailSectionHeader("transition-fields", "Required Fields", transition.Name, width),
+	}
+	if len(fields) == 0 {
+		lines = append(lines, m.detailEmptyState("No supported transition fields.", width))
+		return strings.Join(lines, "\n")
+	}
+	for index, field := range fields {
+		marker := " "
+		labelStyle := m.theme.Text
+		if index == clamp(m.selectedTransitionField, 0, len(fields)-1) {
+			marker = ">"
+			labelStyle = m.theme.Selected
+		}
+		required := ""
+		if field.Required {
+			required = " required"
+		}
+		switch field.ID {
+		case "resolution":
+			value := "not selected"
+			if selected, ok := m.transitionSelectedOption(field); ok {
+				value = displayValue(selected.Name, selected.ID)
+			}
+			lines = append(lines, labelStyle.Render(marker+" "+field.Name+required)+m.theme.Muted.Render("  ")+m.theme.Text.Render(value))
+		case "comment":
+			value := strings.TrimSpace(m.transitionFieldDrafts[field.ID])
+			if value == "" {
+				value = "no comment"
+			}
+			lines = append(lines, labelStyle.Render(marker+" "+field.Name+required))
+			lines = append(lines, m.theme.Input.Width(width).Height(3).Render(truncate(value, width)))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func supportedTransitionFields(fields []jira.TransitionField) []jira.TransitionField {
+	supported := make([]jira.TransitionField, 0, len(fields))
+	for _, field := range fields {
+		if isSupportedTransitionField(field) {
+			supported = append(supported, field)
+		}
+	}
+	return supported
+}
+
+func isSupportedTransitionField(field jira.TransitionField) bool {
+	switch field.ID {
+	case "resolution", "comment":
+		return true
+	default:
+		return false
+	}
 }
 
 func (m Model) fullDetailContent(bodyWidth int) string {
@@ -1173,13 +1241,186 @@ func (m Model) submitSelectedTransition() (Model, tea.Cmd) {
 		m.detailNotice = "Status update failed: missing transition ID."
 		return m, nil
 	}
+	if unsupported := unsupportedRequiredTransitionFields(transition.Fields); len(unsupported) > 0 {
+		m.detailNotice = "Status update needs unsupported transition fields: " + strings.Join(unsupported, ", ") + "."
+		return m, nil
+	}
+	if transitionNeedsFieldForm(transition) {
+		m.beginTransitionFieldEditing(transition)
+		return m, nil
+	}
+	return m.submitTransitionWithFields(selected.Key, transition, nil)
+}
+
+func (m Model) submitTransitionWithFields(key string, transition jira.Transition, fields []jira.TransitionFieldValue) (Model, tea.Cmd) {
 	m.nextRequestID++
 	m.activeTransitionReqID = m.nextRequestID
 	m.transitionSubmitting = true
-	m.transitionSubmitKey = selected.Key
+	m.transitionSubmitKey = key
 	m.transitionSubmitToStatus = transition.ToStatus
+	m.transitionSubmitFields = append([]jira.TransitionFieldValue(nil), fields...)
+	m.transitionFieldEditing = false
 	m.detailNotice = "Updating status to " + displayValue(transition.ToStatus, transition.Name) + "."
-	return m, m.submitIssueTransition(m.activeTransitionReqID, selected.Key, transition)
+	return m, m.submitIssueTransition(m.activeTransitionReqID, key, transition, fields)
+}
+
+func (m Model) selectedStatusTransition() (jira.Transition, bool) {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return jira.Transition{}, false
+	}
+	transitions := m.transitions[selected.Key]
+	if len(transitions) == 0 {
+		return jira.Transition{}, false
+	}
+	return transitions[clamp(m.selectedTransition, 0, len(transitions)-1)], true
+}
+
+func unsupportedRequiredTransitionFields(fields []jira.TransitionField) []string {
+	var unsupported []string
+	for _, field := range fields {
+		if field.Required && !isSupportedTransitionField(field) {
+			unsupported = append(unsupported, displayValue(field.Name, field.ID))
+		}
+	}
+	return unsupported
+}
+
+func transitionNeedsFieldForm(transition jira.Transition) bool {
+	for _, field := range transition.Fields {
+		if field.Required && isSupportedTransitionField(field) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Model) beginTransitionFieldEditing(transition jira.Transition) {
+	m.transitionFieldEditing = true
+	m.transitionFocus = true
+	m.selectedTransitionField = 0
+	m.transitionFieldSelections = make(map[string]int)
+	m.transitionFieldDrafts = make(map[string]string)
+	for _, field := range supportedTransitionFields(transition.Fields) {
+		if field.ID == "resolution" {
+			m.transitionFieldSelections[field.ID] = -1
+		}
+	}
+	m.transitionFieldCommentEditor = newCommentEditor("")
+	m.transitionFieldCommentEditorReady = true
+	m.detailNotice = "Complete required transition fields before applying status."
+}
+
+func (m Model) transitionSelectedOption(field jira.TransitionField) (jira.FieldOption, bool) {
+	if m.transitionFieldSelections == nil {
+		return jira.FieldOption{}, false
+	}
+	index, ok := m.transitionFieldSelections[field.ID]
+	if !ok || index < 0 || index >= len(field.AllowedValues) {
+		return jira.FieldOption{}, false
+	}
+	return field.AllowedValues[index], true
+}
+
+func (m Model) transitionFieldValues(transition jira.Transition) ([]jira.TransitionFieldValue, error) {
+	fields := supportedTransitionFields(transition.Fields)
+	values := make([]jira.TransitionFieldValue, 0, len(fields))
+	for _, field := range fields {
+		switch field.ID {
+		case "resolution":
+			option, ok := m.transitionSelectedOption(field)
+			if !ok {
+				if field.Required {
+					return nil, fmt.Errorf("select %s", displayValue(field.Name, "Resolution"))
+				}
+				continue
+			}
+			values = append(values, jira.TransitionFieldValue{FieldID: field.ID, Option: option})
+		case "comment":
+			text := strings.TrimSpace(m.transitionFieldDrafts[field.ID])
+			if text == "" && m.transitionFieldCommentEditorReady {
+				text = strings.TrimSpace(m.transitionFieldCommentEditor.Value())
+			}
+			if text == "" {
+				if field.Required {
+					return nil, fmt.Errorf("write %s", displayValue(field.Name, "Comment"))
+				}
+				continue
+			}
+			values = append(values, jira.TransitionFieldValue{FieldID: field.ID, Text: text})
+		}
+	}
+	return values, nil
+}
+
+func (m Model) updateTransitionFieldForm(msg tea.Msg) (tea.Model, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+	transition, ok := m.selectedStatusTransition()
+	if !ok {
+		m.transitionFieldEditing = false
+		return m, nil
+	}
+	fields := supportedTransitionFields(transition.Fields)
+	if len(fields) == 0 {
+		m.transitionFieldEditing = false
+		return m, nil
+	}
+	selectedIndex := clamp(m.selectedTransitionField, 0, len(fields)-1)
+	selectedField := fields[selectedIndex]
+	switch keyMsg.String() {
+	case "esc":
+		m.transitionFieldEditing = false
+		m.detailNotice = ""
+		return m, nil
+	case "tab":
+		m.selectedTransitionField = (selectedIndex + 1) % len(fields)
+		m.detailNotice = ""
+		return m, nil
+	case "shift+tab":
+		m.selectedTransitionField = (selectedIndex - 1 + len(fields)) % len(fields)
+		m.detailNotice = ""
+		return m, nil
+	case "ctrl+s", "enter":
+		values, err := m.transitionFieldValues(transition)
+		if err != nil {
+			m.detailNotice = "Transition field required: " + err.Error() + "."
+			return m, nil
+		}
+		selected, ok := m.selectedIssue()
+		if !ok {
+			return m, nil
+		}
+		return m.submitTransitionWithFields(selected.Key, transition, values)
+	case "up", "k":
+		if selectedField.ID == "resolution" && len(selectedField.AllowedValues) > 0 {
+			current := m.transitionFieldSelections[selectedField.ID]
+			if current < 0 {
+				current = 0
+			}
+			m.transitionFieldSelections[selectedField.ID] = clamp(current-1, 0, len(selectedField.AllowedValues)-1)
+		}
+		return m, nil
+	case "down", "j":
+		if selectedField.ID == "resolution" && len(selectedField.AllowedValues) > 0 {
+			current := m.transitionFieldSelections[selectedField.ID]
+			m.transitionFieldSelections[selectedField.ID] = clamp(current+1, 0, len(selectedField.AllowedValues)-1)
+		}
+		return m, nil
+	}
+	if selectedField.ID == "comment" {
+		if !m.transitionFieldCommentEditorReady {
+			m.transitionFieldCommentEditor = newCommentEditor(m.transitionFieldDrafts[selectedField.ID])
+			m.transitionFieldCommentEditorReady = true
+		}
+		editor, cmd := m.transitionFieldCommentEditor.Update(msg)
+		m.transitionFieldCommentEditor = editor
+		m.transitionFieldDrafts[selectedField.ID] = editor.Value()
+		return m, cmd
+	}
+	return m, nil
 }
 
 func (m Model) startPriorityEditor() (Model, tea.Cmd) {

@@ -158,6 +158,41 @@ func TestCommentComposerAcceptsPaste(t *testing.T) {
 	}
 }
 
+func TestCommentComposerFormattingControlsInsertTokens(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.mode = modeComment
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story"}}
+	model.commentEditor = newCommentEditor("")
+	model.commentEditorReady = true
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+b"}))
+	model = updated.(Model)
+	if model.commentDraft != "****" {
+		t.Fatalf("bold draft = %q", model.commentDraft)
+	}
+
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+e"}))
+	model = updated.(Model)
+	if model.commentDraft != "**__**" {
+		t.Fatalf("italic draft = %q", model.commentDraft)
+	}
+
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+g"}))
+	model = updated.(Model)
+	if model.commentDraft != "**_``_**" {
+		t.Fatalf("code draft = %q", model.commentDraft)
+	}
+
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+l"}))
+	model = updated.(Model)
+	if !strings.Contains(model.commentDraft, "\n- ") {
+		t.Fatalf("bullet draft = %q", model.commentDraft)
+	}
+}
+
 func TestCommentComposerTreatsQAsText(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()

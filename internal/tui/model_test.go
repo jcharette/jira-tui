@@ -809,6 +809,7 @@ type fakeIssueSearcher struct {
 	transitions            []jira.Transition
 	transitionKey          string
 	transitionID           string
+	transitionRequest      jira.TransitionIssueRequest
 	editMetadata           jira.EditMetadata
 	createIssueTypes       []jira.CreateIssueType
 	createFields           []jira.CreateField
@@ -888,12 +889,13 @@ func (f *fakeIssueSearcher) GetTransitions(_ context.Context, key string) ([]jir
 	return []jira.Transition{{ID: "21", Name: "Start Progress", ToStatus: "In Progress"}}, nil
 }
 
-func (f *fakeIssueSearcher) TransitionIssue(_ context.Context, key string, transitionID string) error {
+func (f *fakeIssueSearcher) TransitionIssue(_ context.Context, key string, request jira.TransitionIssueRequest) error {
 	if f.err != nil {
 		return f.err
 	}
 	f.transitionKey = key
-	f.transitionID = transitionID
+	f.transitionID = request.TransitionID
+	f.transitionRequest = request
 	return nil
 }
 

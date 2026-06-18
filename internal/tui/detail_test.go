@@ -2047,6 +2047,118 @@ func TestStatusTransitionSubmitTransitionsSelectedIssue(t *testing.T) {
 	}
 }
 
+func TestStatusTransitionBlocksUnsupportedRequiredFields(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do"}}
+	model.transitions = map[string][]jira.Transition{
+		"ABC-1": {
+			{
+				ID:       "31",
+				Name:     "Done",
+				ToStatus: "Done",
+				Fields: []jira.TransitionField{
+					{ID: "customfield_10010", Name: "Root Cause", Required: true, SchemaType: "string"},
+				},
+			},
+		},
+	}
+	model.transitionFocus = true
+	model.jumpDetailSection("Status")
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("unsupported required fields should not submit work")
+	}
+	if next.transitionSubmitting {
+		t.Fatal("transitionSubmitting should be false")
+	}
+	if !strings.Contains(next.detailNotice, "Root Cause") {
+		t.Fatalf("detailNotice = %q", next.detailNotice)
+	}
+}
+
+func TestStatusTransitionFieldFormSubmitsResolutionAndComment(t *testing.T) {
+	searcher := &fakeIssueSearcher{}
+	model := NewModel(searcher, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do"}}
+	model.transitions = map[string][]jira.Transition{
+		"ABC-1": {
+			{
+				ID:       "31",
+				Name:     "Done",
+				ToStatus: "Done",
+				Fields: []jira.TransitionField{
+					{
+						ID:       "resolution",
+						Name:     "Resolution",
+						Required: true,
+						AllowedValues: []jira.FieldOption{
+							{ID: "10000", Name: "Done"},
+							{ID: "10001", Name: "Won't Do"},
+						},
+					},
+					{ID: "comment", Name: "Comment", Required: true},
+				},
+			},
+		},
+	}
+	model.transitionFocus = true
+	model.jumpDetailSection("Status")
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+	if cmd != nil {
+		t.Fatal("required fields should open the local transition field form before submitting")
+	}
+	if !next.transitionFieldEditing {
+		t.Fatal("transition field form should open")
+	}
+	if view := next.render(); !strings.Contains(view, "Required Fields") || !strings.Contains(view, "Resolution") || !strings.Contains(view, "Comment") {
+		t.Fatalf("missing field form in %q", view)
+	}
+
+	next.transitionFieldSelections["resolution"] = 0
+	next.transitionFieldDrafts["comment"] = "Ship **this** now"
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next = updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("expected transition submit command")
+	}
+	if !next.transitionSubmitting {
+		t.Fatal("transitionSubmitting should be true")
+	}
+	if len(next.transitionSubmitFields) != 2 {
+		t.Fatalf("transitionSubmitFields = %#v", next.transitionSubmitFields)
+	}
+	_ = cmd()
+	select {
+	case result := <-next.workers.Results():
+		updated, _ = next.Update(workerResultMsg{result: result})
+		next = updated.(Model)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for transition worker result")
+	}
+	if searcher.transitionRequest.TransitionID != "31" {
+		t.Fatalf("transition request = %#v", searcher.transitionRequest)
+	}
+	if len(searcher.transitionRequest.Fields) != 2 {
+		t.Fatalf("transition request fields = %#v", searcher.transitionRequest.Fields)
+	}
+}
+
 func TestStatusTransitionSuccessUpdatesIssueAndDetailStatus(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()

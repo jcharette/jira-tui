@@ -1,5 +1,35 @@
 # Task Plan
 
+## Comments And Workflow Actions
+
+- [x] Add metadata-backed transition field support for required Resolution and Comment fields.
+- [x] Block unsupported required transition fields with clear detail feedback.
+- [x] Add comment composer formatting controls for bold, italic, inline code, and bullets.
+- [x] Convert comment formatting tokens to Jira ADF marks while preserving links and selected mentions.
+- [x] Update backlog, project state, changelog, and task review notes.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+- [x] Prepare the completed slice for merge and push.
+
+### Comments And Workflow Actions Scope
+
+Finish the active Comments/Workflow backlog bucket by making comment posting richer and status
+transitions reliable when Jira workflows require transition-screen fields. This slice supports
+Resolution and transition Comment fields only; arbitrary custom transition fields remain a later
+metadata/form framework problem.
+
+### Comments And Workflow Actions Review
+
+- Transition loading now requests `expand=transitions.fields` and stores supported transition field
+  metadata with the transition list.
+- Applying a transition with required Resolution or Comment fields opens a local field form before
+  submitting through the worker pool.
+- Unsupported required transition fields block submission with a named notice.
+- Comment composer controls insert bold, italic, inline-code, and bullet tokens, and comment
+  submission converts bold, italic, and inline-code tokens to Jira ADF marks while preserving
+  detected links and selected Jira mentions.
+- Verification passed: focused Jira, worker, and TUI tests; `go test ./... -count=1`;
+  `make check`; and `make install-user`.
+
 ## Read And View Completion
 
 - [x] Reconcile the remaining `Now: Read And View` backlog notes against current shipped behavior.

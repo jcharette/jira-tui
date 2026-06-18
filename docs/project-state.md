@@ -350,9 +350,11 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
 - Text-backed mutation dialogs, such as Summary and future comment/edit fields, should use a real
   editor surface in the modal. Enumerated mutation dialogs, such as Status and future Priority,
   should use a picker/dropdown-style list with arrow or `j`/`k` selection and a single apply action.
-- The current typed Jira client supports listing and applying issue transitions, but does not
-  expose Jira transition-screen field metadata. Future transition-field editing should add a
-  lower-level Jira request for `expand=transitions.fields` instead of hard-coding presets.
+- The typed Jira client loads transition-screen field metadata with
+  `expand=transitions.fields` and applies supported transition field values through the
+  worker-backed status update path. Supported transition fields are Resolution and transition
+  Comment; unsupported required fields block submission with a clear notice instead of sending a
+  doomed Jira request.
 - Comment composition uses a bounded multi-line editor surface with independent draft pagination;
   future rich comment work should build on that editor instead of reverting to single-line input.
 - Comment composition shares the ticket detail section-header and notice-block grammar, so add,
@@ -360,8 +362,10 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   states read like the rest of focused detail.
 - Comment composition detects embedded URLs, bare domains, `mailto:` links, and email addresses
   with `mvdan.cc/xurls/v2` and previews recognized links before posting.
-- Comment submission converts detected URLs and email addresses into Jira ADF link marks while
-  preserving the existing paragraph and hard-break behavior.
+- Comment composition includes keyboard formatting controls for bold, italic, inline code, and
+  bullet markers. Comment submission converts visible `**bold**`, `_italic_`, and `` `code` ``
+  tokens into Jira ADF marks, converts detected URLs and email addresses into Jira ADF link marks,
+  and preserves the existing paragraph and hard-break behavior.
 - Jira user search is available through the client and worker pool for comment mentions.
 - Typing `@` in the comment composer opens a bounded Jira user-search picker. Selected users are
   inserted as visible `@Name` text and submitted as Jira ADF `mention` nodes with Atlassian account
@@ -475,8 +479,9 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
 - There is no git repository initialized in this folder yet.
 - The Jira client uses `go-atlassian` for search, issue detail, comment reads, comment creation,
   issue creation, edit metadata, create metadata discovery, summary updates, priority updates, and issue
-  transitions, including ADF payload construction for text, links, and selected user mentions.
-  Sprint and board APIs are not exposed through `internal/jira` yet.
+  transitions, including transition-screen metadata for Resolution/Comment fields and ADF payload
+  construction for text, formatting marks, links, and selected user mentions. Sprint and board APIs
+  are not exposed through `internal/jira` yet.
 - Jira user display strings prefer real display/name/email/key fields over generic privacy aliases
   such as `User e31ec`; ticket detail also preserves a better selected-list assignee if the detail
   response returns a generic alias.
@@ -487,4 +492,5 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
 - The worker pool currently supports issue search, explicit parent expansion, issue detail, comment
   reads, comment creation, Jira user search, edit metadata, create issue type metadata, create field
   metadata, issue creation, summary updates, priority updates, assignee updates, and issue
-  transitions; sprint data is the next background workflow family to add.
+  transitions with supported transition field values; sprint data is the next background workflow
+  family to add.

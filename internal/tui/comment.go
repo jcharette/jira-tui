@@ -296,6 +296,18 @@ func (m Model) updateCommentComposer(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
 		switch keyMsg.String() {
+		case "ctrl+b":
+			m.insertCommentFormatting("**", "**")
+			return m, nil
+		case "ctrl+e":
+			m.insertCommentFormatting("_", "_")
+			return m, nil
+		case "ctrl+g":
+			m.insertCommentFormatting("`", "`")
+			return m, nil
+		case "ctrl+l":
+			m.insertCommentBullet()
+			return m, nil
 		case "@":
 			m.openMentionPicker()
 			return m, nil
@@ -483,6 +495,32 @@ func (m *Model) insertCommentText(value string) {
 	m.ensureCommentEditor()
 	m.configureCommentEditor()
 	m.commentEditor.InsertString(value)
+	m.commentDraft = m.commentEditor.Value()
+	if strings.TrimSpace(m.commentDraft) != "" {
+		m.detailNotice = ""
+	}
+}
+
+func (m *Model) insertCommentFormatting(open string, close string) {
+	m.ensureCommentEditor()
+	m.configureCommentEditor()
+	m.commentEditor.InsertString(open + close)
+	if close != "" {
+		m.commentEditor.SetCursorColumn(max(0, m.commentEditor.Column()-len(close)))
+	}
+	m.commentDraft = m.commentEditor.Value()
+	if strings.TrimSpace(m.commentDraft) != "" {
+		m.detailNotice = ""
+	}
+}
+
+func (m *Model) insertCommentBullet() {
+	m.ensureCommentEditor()
+	m.configureCommentEditor()
+	if value := m.commentEditor.Value(); value != "" && !strings.HasSuffix(value, "\n") {
+		m.commentEditor.InsertString("\n")
+	}
+	m.commentEditor.InsertString("- ")
 	m.commentDraft = m.commentEditor.Value()
 	if strings.TrimSpace(m.commentDraft) != "" {
 		m.detailNotice = ""

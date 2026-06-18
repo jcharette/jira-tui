@@ -292,8 +292,12 @@ func commentBindings() []keyBinding {
 	return []keyBinding{
 		{Keys: []string{"enter", "ctrl+j"}, Label: "newline", Description: "Insert a newline in the comment draft.", Group: "Editing", Footer: true},
 		{Keys: []string{"backspace", "ctrl+h"}, Label: "delete", Description: "Delete the previous character.", Group: "Editing"},
-		{Keys: []string{"pgup", "pgdn", "ctrl+b", "ctrl+f"}, FooterKey: "pgup/pgdn", Label: "page", Description: "Page through a long comment draft.", Group: "Editing", Footer: true},
+		{Keys: []string{"pgup", "pgdn", "ctrl+f"}, FooterKey: "pgup/pgdn", Label: "page", Description: "Page through a long comment draft.", Group: "Editing", Footer: true},
 		{Keys: []string{"home", "end"}, Label: "top/bottom", Description: "Jump to the top or bottom of a long comment draft.", Group: "Editing"},
+		{Keys: []string{"ctrl+b"}, Label: "bold", Description: "Insert bold formatting tokens.", Group: "Formatting", Footer: true},
+		{Keys: []string{"ctrl+e"}, Label: "italic", Description: "Insert italic formatting tokens.", Group: "Formatting", Footer: true},
+		{Keys: []string{"ctrl+g"}, Label: "code", Description: "Insert inline-code formatting tokens.", Group: "Formatting"},
+		{Keys: []string{"ctrl+l"}, Label: "bullet", Description: "Insert a bullet list marker.", Group: "Formatting"},
 		{Keys: []string{"@"}, Label: "mention", Description: "Open Jira user search and insert a selected user mention.", Group: "Editing", Footer: true},
 		{Keys: []string{"tab", "ctrl+s"}, FooterKey: "tab/ctrl+s", Label: "review", Description: "Review the draft before posting.", Group: "Comments", Footer: true},
 		{Keys: []string{"esc"}, Label: "cancel", Description: "Cancel the comment draft.", Group: "Comments", Footer: true},

@@ -107,6 +107,13 @@ type Model struct {
 	selectedAction                     int
 	transitionFocus                    bool
 	selectedTransition                 int
+	transitionFieldEditing             bool
+	selectedTransitionField            int
+	transitionFieldSelections          map[string]int
+	transitionFieldDrafts              map[string]string
+	transitionFieldCommentEditor       textarea.Model
+	transitionFieldCommentEditorReady  bool
+	transitionSubmitFields             []jira.TransitionFieldValue
 	priorityFocus                      bool
 	selectedPriority                   int
 	assigneeFocus                      bool
@@ -720,6 +727,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.mode == modeComment {
 			return m.updateCommentComposer(msg)
+		}
+		if m.mode == modeDetail && m.transitionFieldEditing {
+			return m.updateTransitionFieldForm(msg)
 		}
 		if m.mode == modeDetail && m.summaryEditing {
 			return m.updateSummaryEditor(msg)

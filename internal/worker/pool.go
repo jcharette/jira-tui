@@ -62,7 +62,7 @@ type JiraClient interface {
 	AddComment(ctx context.Context, key string, body string, mentions []jira.Mention) (jira.Comment, error)
 	SearchUsers(ctx context.Context, query string, maxResults int) ([]jira.User, error)
 	GetTransitions(ctx context.Context, key string) ([]jira.Transition, error)
-	TransitionIssue(ctx context.Context, key string, transitionID string) error
+	TransitionIssue(ctx context.Context, key string, request jira.TransitionIssueRequest) error
 	GetEditMetadata(ctx context.Context, key string) (jira.EditMetadata, error)
 	GetCreateIssueTypes(ctx context.Context, projectKey string) ([]jira.CreateIssueType, error)
 	GetCreateFields(ctx context.Context, projectKey string, issueTypeID string) ([]jira.CreateField, error)
@@ -144,6 +144,7 @@ type TransitionIssueRequest struct {
 	Key          string
 	TransitionID string
 	ToStatus     string
+	Fields       []jira.TransitionFieldValue
 }
 
 type GetEditMetadataRequest struct {
@@ -856,7 +857,10 @@ func (p *Pool) handleTransitionIssue(request Request) Result {
 		defer cancel()
 	}
 
-	err := p.client.TransitionIssue(ctx, request.TransitionIssue.Key, request.TransitionIssue.TransitionID)
+	err := p.client.TransitionIssue(ctx, request.TransitionIssue.Key, jira.TransitionIssueRequest{
+		TransitionID: request.TransitionIssue.TransitionID,
+		Fields:       append([]jira.TransitionFieldValue(nil), request.TransitionIssue.Fields...),
+	})
 	if err != nil {
 		return Result{ID: request.ID, Kind: request.Kind, Err: err}
 	}

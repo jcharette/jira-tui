@@ -4,6 +4,10 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Added metadata-backed transition-screen field support for required Resolution and Comment fields,
+  including clear blocking feedback for unsupported required transition fields.
+- Added comment composer formatting controls and Jira ADF mark conversion for bold, italic, and
+  inline code while preserving detected links and selected Jira mentions.
 - Closed the active Read/View backlog bucket by moving the remaining concrete follow-ups into
   Navigation/Query, Comments/Workflow, and Creation/Editing backlog sections.
 - Added concrete `Edit Summary` and `Change Priority` rows to the ticket detail Actions workspace,

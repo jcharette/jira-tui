@@ -14,7 +14,6 @@ import (
 	jiraservice "github.com/ctreminiom/go-atlassian/v2/service/jira"
 	"github.com/jcharette/jira-tui/internal/adf"
 	"github.com/jcharette/jira-tui/internal/config"
-	"github.com/jcharette/jira-tui/internal/linkdetect"
 	"github.com/tidwall/gjson"
 )
 
@@ -28,6 +27,7 @@ type Client struct {
 	comment        commentService
 	userSearch     userSearchService
 	metadata       metadataService
+	rest           restConnector
 	requestTimeout time.Duration
 }
 
@@ -58,6 +58,11 @@ type metadataService interface {
 	Create(ctx context.Context, opts *model.IssueMetadataCreateOptions) (gjson.Result, *model.ResponseScheme, error)
 	FetchIssueMappings(ctx context.Context, projectKeyOrID string, startAt, maxResults int) (gjson.Result, *model.ResponseScheme, error)
 	FetchFieldMappings(ctx context.Context, projectKeyOrID, issueTypeID string, startAt, maxResults int) (gjson.Result, *model.ResponseScheme, error)
+}
+
+type restConnector interface {
+	NewRequest(ctx context.Context, method, urlStr, contentType string, body interface{}) (*http.Request, error)
+	Call(request *http.Request, v interface{}) (*model.ResponseScheme, error)
 }
 
 type Issue struct {
@@ -117,14 +122,6 @@ type User struct {
 type Mention struct {
 	AccountID string
 	Text      string
-}
-
-type Transition struct {
-	ID          string
-	Name        string
-	ToStatus    string
-	HasScreen   bool
-	IsAvailable bool
 }
 
 type EditMetadata struct {
@@ -208,10 +205,10 @@ func NewClient(cfg config.Config) *Client {
 	}
 	api.Auth.SetBasicAuth(cfg.Email, cfg.APIToken)
 
-	return newClient(cfg.BaseURL, api.Issue.Search, api.Issue, api.Issue.Comment, api.User.Search, api.Issue.Metadata, requestTimeout)
+	return newClient(cfg.BaseURL, api.Issue.Search, api.Issue, api.Issue.Comment, api.User.Search, api.Issue.Metadata, api, requestTimeout)
 }
 
-func newClient(baseURL string, search jiraservice.SearchADFConnector, issue jiraservice.IssueADFConnector, comment commentService, userSearch userSearchService, metadata jiraservice.MetadataConnector, requestTimeout time.Duration) *Client {
+func newClient(baseURL string, search jiraservice.SearchADFConnector, issue jiraservice.IssueADFConnector, comment commentService, userSearch userSearchService, metadata jiraservice.MetadataConnector, rest restConnector, requestTimeout time.Duration) *Client {
 	return &Client{
 		baseURL:        baseURL,
 		search:         search,
@@ -219,6 +216,7 @@ func newClient(baseURL string, search jiraservice.SearchADFConnector, issue jira
 		comment:        comment,
 		userSearch:     userSearch,
 		metadata:       metadata,
+		rest:           rest,
 		requestTimeout: requestTimeout,
 	}
 }
@@ -305,6 +303,10 @@ func (c *Client) GetTransitions(ctx context.Context, key string) ([]Transition, 
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
 		defer cancel()
+	}
+
+	if c.rest != nil {
+		return c.getTransitionsWithFields(ctx, key)
 	}
 
 	response, _, err := c.issue.Transitions(ctx, key)
@@ -635,19 +637,6 @@ func (c *Client) UpdateAssignee(ctx context.Context, key string, assignee User) 
 	return nil
 }
 
-func (c *Client) TransitionIssue(ctx context.Context, key string, transitionID string) error {
-	if c.requestTimeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
-		defer cancel()
-	}
-
-	if _, err := c.issue.Move(ctx, key, transitionID, nil); err != nil {
-		return fmt.Errorf("transition jira issue %s: %w", key, err)
-	}
-	return nil
-}
-
 func (c *Client) GetComments(ctx context.Context, key string, maxResults int) ([]Comment, error) {
 	if maxResults <= 0 {
 		maxResults = 10
@@ -957,22 +946,6 @@ func parseUser(raw *model.UserScheme) (User, bool) {
 	}, true
 }
 
-func parseTransition(raw *model.IssueTransitionScheme) (Transition, bool) {
-	if raw == nil || raw.ID == "" {
-		return Transition{}, false
-	}
-	transition := Transition{
-		ID:          raw.ID,
-		Name:        raw.Name,
-		HasScreen:   raw.HasScreen,
-		IsAvailable: raw.IsAvailable,
-	}
-	if raw.To != nil {
-		transition.ToStatus = raw.To.Name
-	}
-	return transition, true
-}
-
 func parseEditMetadata(raw gjson.Result) EditMetadata {
 	return EditMetadata{
 		Summary:  parseEditField("summary", raw.Get("fields.summary")),
@@ -1192,178 +1165,6 @@ func parseJiraCommentTime(value string) time.Time {
 		}
 	}
 	return time.Time{}
-}
-
-type inlineSpan struct {
-	start   int
-	end     int
-	kind    string
-	href    string
-	mention Mention
-}
-
-func plainTextADF(value string, mentions []Mention) *model.CommentNodeScheme {
-	doc := &model.CommentNodeScheme{
-		Version: 1,
-		Type:    "doc",
-	}
-	paragraphs := splitParagraphs(value)
-	for _, paragraph := range paragraphs {
-		node := &model.CommentNodeScheme{
-			Type: "paragraph",
-		}
-		lines := strings.Split(paragraph, "\n")
-		for index, line := range lines {
-			if index > 0 {
-				node.Content = append(node.Content, &model.CommentNodeScheme{Type: "hardBreak"})
-			}
-			if line != "" {
-				node.Content = append(node.Content, textNodesWithLinksAndMentions(line, mentions)...)
-			}
-		}
-		doc.Content = append(doc.Content, node)
-	}
-	return doc
-}
-
-func textNodesWithLinks(line string) []*model.CommentNodeScheme {
-	return textNodesWithLinksAndMentions(line, nil)
-}
-
-func textNodesWithLinksAndMentions(line string, mentions []Mention) []*model.CommentNodeScheme {
-	spans := inlineSpans(line, mentions)
-	if len(spans) == 0 {
-		return []*model.CommentNodeScheme{textNode(line)}
-	}
-
-	nodes := make([]*model.CommentNodeScheme, 0, len(spans)*2+1)
-	offset := 0
-	for _, span := range spans {
-		if span.start < offset || span.end > len(line) || span.start >= span.end {
-			continue
-		}
-		if span.start > offset {
-			nodes = append(nodes, textNode(line[offset:span.start]))
-		}
-		switch span.kind {
-		case "mention":
-			nodes = append(nodes, mentionNode(span.mention))
-		case "link":
-			nodes = append(nodes, linkTextNode(line[span.start:span.end], span.href))
-		}
-		offset = span.end
-	}
-	if offset < len(line) {
-		nodes = append(nodes, textNode(line[offset:]))
-	}
-	if len(nodes) == 0 {
-		return []*model.CommentNodeScheme{textNode(line)}
-	}
-	return nodes
-}
-
-func inlineSpans(line string, mentions []Mention) []inlineSpan {
-	var spans []inlineSpan
-	occupied := make([]inlineSpan, 0, len(mentions))
-	for _, mention := range mentions {
-		if mention.AccountID == "" || mention.Text == "" {
-			continue
-		}
-		searchFrom := 0
-		for {
-			relative := strings.Index(line[searchFrom:], mention.Text)
-			if relative < 0 {
-				break
-			}
-			start := searchFrom + relative
-			end := start + len(mention.Text)
-			span := inlineSpan{start: start, end: end, kind: "mention", mention: mention}
-			if !overlapsAny(span, occupied) {
-				spans = append(spans, span)
-				occupied = append(occupied, span)
-			}
-			searchFrom = end
-		}
-	}
-	for _, link := range linkdetect.Detect(line) {
-		span := inlineSpan{start: link.Start, end: link.End, kind: "link", href: linkHref(link)}
-		if span.start < span.end && span.end <= len(line) && !overlapsAny(span, occupied) {
-			spans = append(spans, span)
-		}
-	}
-	sort.SliceStable(spans, func(i, j int) bool {
-		return spans[i].start < spans[j].start
-	})
-	return spans
-}
-
-func overlapsAny(span inlineSpan, spans []inlineSpan) bool {
-	for _, existing := range spans {
-		if span.start < existing.end && existing.start < span.end {
-			return true
-		}
-	}
-	return false
-}
-
-func textNode(text string) *model.CommentNodeScheme {
-	return &model.CommentNodeScheme{
-		Type: "text",
-		Text: text,
-	}
-}
-
-func linkTextNode(text string, href string) *model.CommentNodeScheme {
-	return &model.CommentNodeScheme{
-		Type: "text",
-		Text: text,
-		Marks: []*model.MarkScheme{
-			{
-				Type: "link",
-				Attrs: map[string]interface{}{
-					"href": href,
-				},
-			},
-		},
-	}
-}
-
-func mentionNode(mention Mention) *model.CommentNodeScheme {
-	return &model.CommentNodeScheme{
-		Type: "mention",
-		Attrs: map[string]interface{}{
-			"id":       mention.AccountID,
-			"text":     mention.Text,
-			"userType": "DEFAULT",
-		},
-	}
-}
-
-func linkHref(link linkdetect.Link) string {
-	if link.Kind == linkdetect.KindEmail {
-		return link.Target
-	}
-	if strings.Contains(link.Target, "://") {
-		return link.Target
-	}
-	return "https://" + link.Target
-}
-
-func splitParagraphs(value string) []string {
-	normalized := strings.ReplaceAll(value, "\r\n", "\n")
-	normalized = strings.ReplaceAll(normalized, "\r", "\n")
-	blocks := strings.Split(normalized, "\n\n")
-	paragraphs := make([]string, 0, len(blocks))
-	for _, block := range blocks {
-		block = strings.Trim(block, "\n")
-		if strings.TrimSpace(block) != "" {
-			paragraphs = append(paragraphs, block)
-		}
-	}
-	if len(paragraphs) == 0 {
-		return []string{strings.TrimSpace(value)}
-	}
-	return paragraphs
 }
 
 func subtaskCount(fields *model.IssueFieldsScheme) int {

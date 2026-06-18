@@ -3,6 +3,7 @@ package jira
 import (
 	"context"
 	"errors"
+	"net/http"
 	"reflect"
 	"testing"
 	"time"
@@ -435,6 +436,73 @@ func TestGetTransitionsParsesAvailableStatusTransitions(t *testing.T) {
 	}
 }
 
+func TestGetTransitionsParsesTransitionFields(t *testing.T) {
+	rest := &fakeRESTConnector{
+		transitionResponse: transitionFieldsResponse{
+			Transitions: []transitionFieldsRaw{
+				{
+					ID:          "31",
+					Name:        "Done",
+					IsAvailable: true,
+					HasScreen:   true,
+					To:          &model.StatusScheme{Name: "Done"},
+					Fields: map[string]transitionFieldRaw{
+						"resolution": {
+							Name:     "Resolution",
+							Required: true,
+							Schema: transitionFieldSchema{
+								Type:   "resolution",
+								System: "resolution",
+							},
+							AllowedValues: []transitionAllowedValue{
+								{ID: "10000", Name: "Done"},
+								{ID: "10001", Name: "Won't Do"},
+							},
+						},
+						"comment": {
+							Name:     "Comment",
+							Required: false,
+							Schema: transitionFieldSchema{
+								Type:   "array",
+								System: "comment",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	client := &Client{rest: rest}
+
+	transitions, err := client.GetTransitions(context.Background(), "ABC-123")
+	if err != nil {
+		t.Fatalf("GetTransitions() error = %v", err)
+	}
+
+	if rest.method != http.MethodGet {
+		t.Fatalf("method = %q", rest.method)
+	}
+	if rest.endpoint != "rest/api/3/issue/ABC-123/transitions?expand=transitions.fields" {
+		t.Fatalf("endpoint = %q", rest.endpoint)
+	}
+	if len(transitions) != 1 {
+		t.Fatalf("transitions = %#v", transitions)
+	}
+	fields := transitions[0].Fields
+	if len(fields) != 2 {
+		t.Fatalf("fields = %#v", fields)
+	}
+	if fields[0].ID != "comment" || fields[0].Name != "Comment" || fields[0].Required {
+		t.Fatalf("comment field = %#v", fields[0])
+	}
+	if fields[1].ID != "resolution" || fields[1].Name != "Resolution" || !fields[1].Required {
+		t.Fatalf("resolution field = %#v", fields[1])
+	}
+	if len(fields[1].AllowedValues) != 2 || fields[1].AllowedValues[0].ID != "10000" {
+		t.Fatalf("resolution allowed values = %#v", fields[1].AllowedValues)
+	}
+}
+
 func TestGetTransitionsWrapsTransitionError(t *testing.T) {
 	issue := &fakeIssueService{
 		transitionErr: errors.New("jira unavailable"),
@@ -458,7 +526,7 @@ func TestTransitionIssueSendsTransitionID(t *testing.T) {
 		issue: issue,
 	}
 
-	err := client.TransitionIssue(context.Background(), "ABC-123", "21")
+	err := client.TransitionIssue(context.Background(), "ABC-123", TransitionIssueRequest{TransitionID: "21"})
 	if err != nil {
 		t.Fatalf("TransitionIssue() error = %v", err)
 	}
@@ -468,6 +536,48 @@ func TestTransitionIssueSendsTransitionID(t *testing.T) {
 	}
 	if issue.transitionID != "21" {
 		t.Fatalf("transitionID = %q", issue.transitionID)
+	}
+	if issue.moveOptions != nil {
+		t.Fatalf("moveOptions = %#v", issue.moveOptions)
+	}
+}
+
+func TestTransitionIssueSendsResolutionAndCommentFields(t *testing.T) {
+	issue := &fakeIssueService{}
+	client := &Client{
+		issue: issue,
+	}
+
+	err := client.TransitionIssue(context.Background(), "ABC-123", TransitionIssueRequest{
+		TransitionID: "31",
+		Fields: []TransitionFieldValue{
+			{FieldID: "resolution", Option: FieldOption{ID: "10000", Name: "Done"}},
+			{FieldID: "comment", Text: "Ship **this** now"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("TransitionIssue() error = %v", err)
+	}
+
+	if issue.moveKey != "ABC-123" || issue.transitionID != "31" {
+		t.Fatalf("move = %s/%s", issue.moveKey, issue.transitionID)
+	}
+	if issue.moveOptions == nil || issue.moveOptions.Fields == nil || issue.moveOptions.Fields.Fields == nil {
+		t.Fatalf("moveOptions missing fields: %#v", issue.moveOptions)
+	}
+	if issue.moveOptions.Fields.Fields.Resolution == nil || issue.moveOptions.Fields.Fields.Resolution.ID != "10000" {
+		t.Fatalf("resolution = %#v", issue.moveOptions.Fields.Fields.Resolution)
+	}
+	if issue.moveOptions.Operations == nil || len(issue.moveOptions.Operations.Fields) != 1 {
+		t.Fatalf("operations = %#v", issue.moveOptions.Operations)
+	}
+	update := issue.moveOptions.Operations.Fields[0]["update"].(map[string]interface{})
+	commentOps := update["comment"].([]map[string]interface{})
+	add := commentOps[0]["add"].(map[string]interface{})
+	body := add["body"].(*model.CommentNodeScheme)
+	nodes := body.Content[0].Content
+	if nodes[0].Text != "Ship " || nodes[1].Text != "this" || nodes[1].Marks[0].Type != "strong" {
+		t.Fatalf("comment nodes = %#v", nodes)
 	}
 }
 
@@ -479,7 +589,7 @@ func TestTransitionIssueWrapsTransitionError(t *testing.T) {
 		issue: issue,
 	}
 
-	err := client.TransitionIssue(context.Background(), "ABC-123", "21")
+	err := client.TransitionIssue(context.Background(), "ABC-123", TransitionIssueRequest{TransitionID: "21"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -1441,6 +1551,37 @@ func TestAddCommentBuildsADFLinkMarks(t *testing.T) {
 	}
 }
 
+func TestAddCommentBuildsADFFormattingMarks(t *testing.T) {
+	comments := &fakeCommentService{
+		addResponse: &model.IssueCommentScheme{ID: "10002"},
+	}
+	client := &Client{
+		comment: comments,
+	}
+
+	_, err := client.AddComment(context.Background(), "ABC-123", "Ship **bold** _carefully_ with `main.go` and see https://example.test", nil)
+	if err != nil {
+		t.Fatalf("AddComment() error = %v", err)
+	}
+
+	nodes := comments.payload.Body.Content[0].Content
+	if len(nodes) != 8 {
+		t.Fatalf("nodes = %#v", nodes)
+	}
+	if nodes[1].Text != "bold" || nodes[1].Marks[0].Type != "strong" {
+		t.Fatalf("bold node = %#v", nodes[1])
+	}
+	if nodes[3].Text != "carefully" || nodes[3].Marks[0].Type != "em" {
+		t.Fatalf("italic node = %#v", nodes[3])
+	}
+	if nodes[5].Text != "main.go" || nodes[5].Marks[0].Type != "code" {
+		t.Fatalf("code node = %#v", nodes[5])
+	}
+	if nodes[7].Text != "https://example.test" || nodes[7].Marks[0].Type != "link" {
+		t.Fatalf("link node = %#v", nodes[7])
+	}
+}
+
 func TestAddCommentBuildsADFMentionNodes(t *testing.T) {
 	comments := &fakeCommentService{
 		addResponse: &model.IssueCommentScheme{ID: "10002"},
@@ -1560,6 +1701,28 @@ type fakeIssueService struct {
 	updateOperations   *model.UpdateOperations
 	updateErr          error
 	err                error
+}
+
+type fakeRESTConnector struct {
+	method             string
+	endpoint           string
+	transitionResponse transitionFieldsResponse
+	err                error
+}
+
+func (f *fakeRESTConnector) NewRequest(_ context.Context, method, endpoint, _ string, _ interface{}) (*http.Request, error) {
+	f.method = method
+	f.endpoint = endpoint
+	return &http.Request{}, f.err
+}
+
+func (f *fakeRESTConnector) Call(_ *http.Request, v interface{}) (*model.ResponseScheme, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	target := v.(*transitionFieldsResponse)
+	*target = f.transitionResponse
+	return &model.ResponseScheme{}, nil
 }
 
 func (f *fakeIssueService) Get(_ context.Context, key string, fields, expands []string) (*model.IssueScheme, *model.ResponseScheme, error) {

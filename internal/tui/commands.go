@@ -244,7 +244,7 @@ func (m Model) submitIssueTransitions(requestID int, key string) tea.Cmd {
 	}
 }
 
-func (m Model) submitIssueTransition(requestID int, key string, transition jira.Transition) tea.Cmd {
+func (m Model) submitIssueTransition(requestID int, key string, transition jira.Transition, fields []jira.TransitionFieldValue) tea.Cmd {
 	return func() tea.Msg {
 		if key == "" || transition.ID == "" {
 			return noDetailRequestMsg{}
@@ -257,6 +257,7 @@ func (m Model) submitIssueTransition(requestID int, key string, transition jira.
 				Key:          key,
 				TransitionID: transition.ID,
 				ToStatus:     transition.ToStatus,
+				Fields:       append([]jira.TransitionFieldValue(nil), fields...),
 			},
 		})
 		if err != nil {
