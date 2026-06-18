@@ -12,6 +12,10 @@ The intended scope includes normal Jira user workflows such as editing tickets, 
 subtasks, epics, sprints, boards, comments, and transitions. Jira administration is out of scope.
 The feature roadmap and dependency-aware milestones live in [roadmap.md](roadmap.md).
 
+The Read/View backlog bucket is complete as of 2026-06-18. The active backlog now starts with
+Navigation and Query work: richer epic/subtask loading, sprint/board support, saved profile/query
+configuration, and the bounded concurrency/cache work those read families need.
+
 ## Current Stack
 
 - Language: Go

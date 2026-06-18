@@ -1,5 +1,28 @@
 # Task Plan
 
+## Read And View Completion
+
+- [x] Reconcile the remaining `Now: Read And View` backlog notes against current shipped behavior.
+- [x] Move any remaining future work into the correct post-Read/View backlog buckets.
+- [x] Update project state and changelog to record the Read/View backlog closure.
+- [x] Run `go test ./... -count=1`, `make check`, and `make install-user`.
+
+### Read And View Completion Scope
+
+Close the active Read/View backlog bucket now that the remaining notes are either completed
+standing guidance or future Navigation/Query, Comments/Workflow, or Creation/Editing work. This
+slice should not add Jira reads, write actions, TUI behavior, or new packages.
+
+### Read And View Completion Review
+
+- Removed the active `Now: Read And View` bucket from the backlog.
+- Kept concrete future work by moving epic/subtask loading and sprint/board loading into
+  Navigation and Query, comment formatting into Comments and Workflow Actions, and remaining
+  Actions implementations into Creation and Editing.
+- Marked M1 Useful Daily Issue Browser complete in the roadmap and added a project-state note that
+  the active backlog now starts with Navigation and Query.
+- Verification passed: `go test ./... -count=1`, `make check`, and `make install-user`.
+
 ## Actions Field Edits
 
 - [x] Replace the disabled generic Edit Fields action with concrete Summary and Priority edit actions.

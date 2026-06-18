@@ -4,6 +4,8 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Closed the active Read/View backlog bucket by moving the remaining concrete follow-ups into
+  Navigation/Query, Comments/Workflow, and Creation/Editing backlog sections.
 - Added concrete `Edit Summary` and `Change Priority` rows to the ticket detail Actions workspace,
   routing them to the existing metadata-backed edit flows.
 - Removed the stale linked-issues placeholder from the ticket detail Hierarchy workspace and added

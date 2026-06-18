@@ -134,7 +134,7 @@ Status: complete (2026-06-06).
 
 ### M1: Useful Daily Issue Browser
 
-Status: active.
+Status: complete (2026-06-18).
 
 Goal: use Jira TUI instead of opening Jira for assigned issue review.
 
