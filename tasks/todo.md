@@ -1,5 +1,33 @@
 # Task Plan
 
+## Keymap Audit
+
+- [x] Audit active key contexts for stale, hidden, or misleading semantic shortcuts.
+- [x] Add focused regression tests for stale detail shortcuts and keymap context uniqueness.
+- [x] Remove redundant detail shortcuts that are not advertised or are semantically misleading.
+- [x] Update backlog/changelog/project docs with the audit result.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+- [ ] Merge and push the completed slice.
+
+### Keymap Audit Scope
+
+Complete the `Now: Read And View` key binding audit by keeping conventional navigation aliases but
+removing redundant semantic paths. This pass focuses on active-context clarity: help/footer metadata
+must match actual key handling, `tab` owns focus movement, `enter` acts on focus, and single-letter
+keys are distinct accelerators.
+
+### Keymap Audit Review
+
+- Detail `b` was a hidden browser-open alias while `o` is the advertised detail browser command.
+- Detail `a` opened comment composition when AI was unavailable, even though `a` is advertised as
+  contextual AI and comments are already opened from the focused Comments section with `enter`.
+- Key binding metadata now has focused regression coverage to catch duplicate concrete keys inside a
+  single active context.
+- Verification passed:
+  `go test ./internal/tui -run 'TestCommentComposerConfirmsAndPostsComment|TestDetail(AKeyDoesNothingWhenAIUnavailable|BNoLongerOpensIssue)|TestKeyBindingsDoNotDuplicateKeysWithinContext' -count=1`,
+  `go test ./internal/tui -count=1`, `go test ./... -count=1`, `make check`, and
+  `make install-user`.
+
 ## TUI Navigation And Rendering Tests
 
 - [x] Add focused issue-list navigation/rendering regression tests.

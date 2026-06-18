@@ -843,10 +843,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.mode == modeDetail {
 				return m.copySelectedIssueKey()
 			}
-		case "b":
-			if m.mode == modeDetail {
-				return m.openSelectedIssue()
-			}
 		case "a":
 			if m.mode == modeDetail {
 				if m.inlineDescriptionAIAvailable() {
@@ -856,7 +852,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.jumpDetailSection("Claude")
 					return m, nil
 				}
-				m.startCommentComposer()
 				return m, nil
 			}
 		case "s":

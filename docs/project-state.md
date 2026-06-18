@@ -337,7 +337,9 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
 - Key bindings should prefer one clear semantic path per workflow. Conventional navigation aliases
   are acceptable when they mean the same thing, but unrelated keys should not duplicate the same
   action; `tab` owns focus movement, `enter` acts on focus, and single-letter keys are distinct
-  accelerators.
+  accelerators. The 2026-06-18 active-context audit removed the hidden detail `b` browser-open path
+  and the no-AI detail `a` comment fallback: `o` is the ticket browser shortcut, Comments/`enter`
+  opens comment composition, and `a` remains AI-only when AI is available.
 - Ticket detail mutations should use focused modal dialogs as the default pattern: the selected
   field or section provides context, the dialog renders Jira-derived data and validation state, and
   submit/cancel controls stay keyboard-owned without relying on a generic Actions menu.

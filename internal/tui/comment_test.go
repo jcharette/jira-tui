@@ -30,8 +30,9 @@ func TestCommentComposerConfirmsAndPostsComment(t *testing.T) {
 	model.comments = map[string][]jira.Comment{
 		"ABC-1": {},
 	}
+	focusDetailSectionForTest(t, &model, "Comments")
 
-	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "a", Code: 'a'}))
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
 	next := updated.(Model)
 	if next.mode != modeComment {
 		t.Fatalf("mode = %v", next.mode)

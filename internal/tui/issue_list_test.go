@@ -1954,6 +1954,34 @@ func TestDetailOOpensIssueAndNoSortInDetail(t *testing.T) {
 	}
 }
 
+func TestDetailBNoLongerOpensIssue(t *testing.T) {
+	var opened string
+	withLinkActions(t, func(value string) error {
+		opened = value
+		return nil
+	}, nil)
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 120
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", URL: "https://example.test/browse/ABC-1"}}
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "b", Code: 'b'}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("b should not submit a hidden browser-open command")
+	}
+	if opened != "" {
+		t.Fatalf("opened = %q, want no browser open", opened)
+	}
+	if next.mode != modeDetail {
+		t.Fatalf("mode = %v, want detail", next.mode)
+	}
+}
+
 func TestDetailOUpperDoesNotSort(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()
@@ -1998,6 +2026,42 @@ func TestTableSortKeysStillWork(t *testing.T) {
 	next = updated.(Model)
 	if next.sort == firstSort {
 		t.Fatal("uppercase sort key should cycle sort in table")
+	}
+}
+
+func TestKeyBindingsDoNotDuplicateKeysWithinContext(t *testing.T) {
+	contexts := []keyContext{
+		keyContextTable,
+		keyContextDetail,
+		keyContextLinks,
+		keyContextHierarchy,
+		keyContextActions,
+		keyContextStatus,
+		keyContextPriority,
+		keyContextAssignee,
+		keyContextSummary,
+		keyContextComment,
+		keyContextMentionPicker,
+		keyContextCommentConfirm,
+		keyContextHelp,
+		keyContextDiagnostics,
+		keyContextCreate,
+		keyContextQuery,
+	}
+
+	for _, context := range contexts {
+		seen := map[string]keyBinding{}
+		for _, binding := range keyBindings(context) {
+			for _, key := range binding.Keys {
+				if key == "type" || key == "1-9" {
+					continue
+				}
+				if previous, ok := seen[key]; ok {
+					t.Fatalf("context %q binds key %q twice: %q/%q and %q/%q", context, key, previous.Group, previous.Label, binding.Group, binding.Label)
+				}
+				seen[key] = binding
+			}
+		}
 	}
 }
 

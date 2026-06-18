@@ -4,6 +4,9 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Completed the active-context key binding audit by removing hidden detail `b` browser-open
+  behavior and the no-AI detail `a` comment fallback, keeping help/footer metadata aligned with key
+  handling.
 - Added focused TUI regression coverage for issue-list first/last navigation rendering, detail
   escape navigation, and focused Links footer context.
 

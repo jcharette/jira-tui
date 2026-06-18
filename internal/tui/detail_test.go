@@ -328,6 +328,33 @@ func TestDetailAKeyJumpsToClaudeWhenAIAvailable(t *testing.T) {
 	}
 }
 
+func TestDetailAKeyDoesNothingWhenAIUnavailable(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 120
+	model.height = 35
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do"}}
+	model.comments = map[string][]jira.Comment{"ABC-1": {}}
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "a", Code: 'a'}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("a without AI should not submit work")
+	}
+	if next.mode != modeDetail {
+		t.Fatalf("mode = %v, want detail", next.mode)
+	}
+	if next.inlineAIOpen {
+		t.Fatal("inline AI picker should remain closed")
+	}
+	if section, ok := next.focusedDetailSection(); ok && strings.EqualFold(section.Label, "Claude") {
+		t.Fatalf("focused section = %#v, want non-Claude when AI is unavailable", section)
+	}
+}
+
 func TestDescriptionFocusShowsInlineAIWhenClaudeTicketAssistAvailable(t *testing.T) {
 	model := NewModel(
 		&fakeIssueSearcher{},
