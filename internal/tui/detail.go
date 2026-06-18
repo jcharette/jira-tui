@@ -891,11 +891,7 @@ func (m Model) renderHierarchySection(issue jira.Issue, width int) string {
 	}
 	lines = append(lines, m.renderHierarchyPath(pathRel, pathIssue, width))
 	if len(rows) == 0 {
-		if issue.ParentKey == "" {
-			lines = append(lines, m.detailEmptyState("No parent or child issues in the current result.", width))
-		}
-		lines = append(lines, "")
-		lines = append(lines, m.renderLinkedIssuesPlaceholder(width))
+		lines = append(lines, m.renderHierarchyEmptyState(issue, width))
 		return strings.Join(lines, "\n")
 	}
 	if len(children) > 0 {
@@ -906,9 +902,14 @@ func (m Model) renderHierarchySection(issue jira.Issue, width int) string {
 		lines = append(lines, "")
 		lines = append(lines, m.renderHierarchyGroup("Subtasks", subtasks, width))
 	}
-	lines = append(lines, "")
-	lines = append(lines, m.renderLinkedIssuesPlaceholder(width))
 	return strings.Join(lines, "\n")
+}
+
+func (m Model) renderHierarchyEmptyState(issue jira.Issue, width int) string {
+	if issue.ParentKey != "" {
+		return m.detailEmptyState("No child or subtask issues loaded in the current view.", width)
+	}
+	return m.detailEmptyState("No parent, child, or subtask issues loaded in the current view.", width)
 }
 
 func (m Model) renderHierarchyGroup(label string, groupRows []hierarchyRow, width int) string {
@@ -948,10 +949,6 @@ func (m Model) renderHierarchyPath(rel string, issue string, width int) string {
 	label := m.theme.Muted.Render("Path")
 	relation := m.theme.Muted.Render(rel + ": ")
 	return label + "\n" + relation + m.theme.Text.Render(truncate(issue, max(12, width-lipgloss.Width(rel)-8)))
-}
-
-func (m Model) renderLinkedIssuesPlaceholder(width int) string {
-	return m.theme.Muted.Render("Linked Issues") + "\n" + m.detailEmptyState("Linked issue data is not loaded yet.", width)
 }
 
 func (m Model) renderActionsSection(width int) string {

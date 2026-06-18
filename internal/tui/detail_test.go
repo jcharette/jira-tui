@@ -745,15 +745,47 @@ func TestHierarchySectionRendersGroupedTree(t *testing.T) {
 		"Subtasks 1",
 		"ABC-3",
 		"Regression tests",
-		"Linked Issues",
-		"Linked issue data is not loaded yet.",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q in %q", want, view)
 		}
 	}
+	for _, notWant := range []string{"Linked Issues", "Linked issue data is not loaded yet."} {
+		if strings.Contains(view, notWant) {
+			t.Fatalf("stale linked issue placeholder rendered %q in %q", notWant, view)
+		}
+	}
 	if strings.Contains(view, "No parent or child issues in the current result.") {
 		t.Fatalf("old hierarchy empty state should not render when grouped rows exist: %q", view)
+	}
+}
+
+func TestHierarchySectionShowsKnownParentEmptyState(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 120
+	model.height = 40
+	model.issues = []jira.Issue{
+		{Key: "ABC-2", Summary: "Child task", IssueType: "Task", ParentKey: "ABC-1", ParentSummary: "Parent story"},
+	}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-2": {Issue: model.issues[0], Description: "Detail"},
+	}
+	focusDetailSectionForTest(t, &model, "Hierarchy")
+
+	view := model.render()
+
+	for _, want := range []string{"Path", "Parent", "ABC-1", "Parent story", "No child or subtask issues loaded in the current view."} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in %q", want, view)
+		}
+	}
+	for _, notWant := range []string{"Linked Issues", "Linked issue data is not loaded yet.", "No parent or child issues in the current result."} {
+		if strings.Contains(view, notWant) {
+			t.Fatalf("unexpected stale hierarchy copy %q in %q", notWant, view)
+		}
 	}
 }
 

@@ -412,8 +412,9 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   messages share a consistent Status block. The Hierarchy section always renders a Path block for
   either the current issue or known parent context, separates visible child issues from subtasks,
   keeps the selected row marked before activation, and routes `j`/`k` and arrow keys to that
-  selected row while the Hierarchy tab is selected. Detail tables share one renderer so future
-  pane/table styling stays centralized.
+  selected row while the Hierarchy tab is selected. When no child rows are loaded, Hierarchy uses
+  root-vs-known-parent empty-state copy and leaves Jira issue links to the Links workspace. Detail
+  tables share one renderer so future pane/table styling stays centralized.
 - Focused ticket detail does not append a permanent hierarchy/URL footer under every section;
   hierarchy data lives in the Hierarchy section and issue URL workflows live in actions/key bindings.
 - The Actions section uses a compact table with action state and detail columns. Detail notices

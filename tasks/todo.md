@@ -1,5 +1,31 @@
 # Task Plan
 
+## Hierarchy Context Cleanup
+
+- [x] Remove the stale linked-issues placeholder from the focused Hierarchy workspace.
+- [x] Add clearer Hierarchy empty states for root issues and issues with known parents.
+- [x] Preserve grouped Children/Subtasks selection and open behavior.
+- [x] Update backlog/changelog/project docs with the completed hierarchy cleanup.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+- [ ] Merge and push the completed slice.
+
+### Hierarchy Context Cleanup Scope
+
+Now that Jira issue links render in the Links workspace, Hierarchy should describe parent, child, and
+subtask context only. This slice removes the stale linked-issues placeholder and improves no-row
+copy without adding a new Jira read path.
+
+### Hierarchy Context Cleanup Review
+
+- Removed the stale `Linked Issues` placeholder from Hierarchy because Jira issue links now render
+  in Links.
+- Added separate no-row copy for root issues and known-parent issues.
+- Preserved grouped Children/Subtasks selection and open behavior.
+- Verification passed:
+  `go test ./internal/tui -run 'TestHierarchySection(RendersGroupedTree|ShowsKnownParentEmptyState)' -count=1`,
+  `go test ./internal/tui -count=1`, `go test ./... -count=1`, `make check`, and
+  `make install-user`.
+
 ## Linked Issue Links
 
 - [x] Parse Jira issue links from issue detail into the app domain model.
