@@ -8,4 +8,4 @@
 - [x] Implement bounded TUI loading state for sprint-oriented views.
 - [x] Update diagnostics, backlog, project state, changelog, and task review notes.
 - [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
-- [ ] Merge, push, and clean up the feature worktree.
+- [x] Merge, push, and clean up the feature worktree.

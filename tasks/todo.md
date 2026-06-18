@@ -8,7 +8,7 @@
 - [x] Surface compact loading/error/count state without changing issue queries.
 - [x] Update diagnostics, backlog, project state, changelog, and task review notes.
 - [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
-- [ ] Merge and push the completed slice.
+- [x] Merge and push the completed slice.
 
 ### Sprint And Board Incremental Loading Scope
 
@@ -29,6 +29,7 @@ board while preserving pagination metadata for follow-up UX.
   sprint reads.
 - Verification passed: focused Jira/worker/TUI tests, `go test ./... -count=1`, `make check`, and
   `make install-user`.
+- Merged to `main` and pushed to `origin/main`.
 
 ## Navigation Related Children
 
