@@ -96,4 +96,4 @@
 - [x] Run `go test ./... -count=1`.
 - [x] Run `make check`.
 - [x] Run `make install-user`.
-- [ ] Commit, fast-forward merge to `main`, push, watch CI, and clean up the worktree.
+- [x] Commit, fast-forward merge to `main`, push, watch CI, and clean up the worktree.

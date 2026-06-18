@@ -8,7 +8,7 @@
 - [x] Expose the active profile name in the config editor without adding a full profile manager.
 - [x] Update backlog, project state, changelog, and task review notes.
 - [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
-- [ ] Merge and push the completed slice.
+- [x] Merge and push the completed slice.
 
 ### Config Profiles And Default Queries Scope
 
@@ -28,6 +28,7 @@ credential storage.
 - Added an `Active Profile` config editor field for the current profile name.
 - Verification passed: focused config/app/configui tests, `go test ./... -count=1`, `make check`,
   and `make install-user`.
+- Merged to `main` and pushed to `origin/main`.
 
 ## Sprint And Board Incremental Loading
 
