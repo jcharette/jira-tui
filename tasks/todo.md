@@ -7,7 +7,7 @@
 - [x] Remove redundant detail shortcuts that are not advertised or are semantically misleading.
 - [x] Update backlog/changelog/project docs with the audit result.
 - [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
-- [ ] Merge and push the completed slice.
+- [x] Merge and push the completed slice.
 
 ### Keymap Audit Scope
 
