@@ -7,7 +7,7 @@
 - [x] Keep Links keyboard behavior consistent for issue links: select, open, and copy.
 - [x] Update backlog/changelog/project docs with the completed read-only linked issue slice.
 - [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
-- [ ] Merge and push the completed slice.
+- [x] Merge and push the completed slice.
 
 ### Linked Issue Links Scope
 
