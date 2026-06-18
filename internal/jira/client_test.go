@@ -146,6 +146,93 @@ func TestSearchIssuesWrapsSearchError(t *testing.T) {
 	}
 }
 
+func TestGetBoardsParsesProjectBoards(t *testing.T) {
+	boardService := &fakeAgileBoardService{
+		boards: &model.BoardPageScheme{
+			StartAt:    50,
+			MaxResults: 25,
+			Total:      75,
+			IsLast:     false,
+			Values: []*model.BoardScheme{
+				{
+					ID:   100,
+					Name: "ABC Scrum",
+					Type: "scrum",
+					Location: &model.BoardLocationScheme{
+						ProjectKey:  "ABC",
+						ProjectName: "App Backend",
+					},
+				},
+			},
+		},
+	}
+	client := &Client{board: boardService}
+
+	page, err := client.GetBoards(context.Background(), "ABC", 50, 25)
+	if err != nil {
+		t.Fatalf("GetBoards() error = %v", err)
+	}
+
+	if boardService.projectKey != "ABC" {
+		t.Fatalf("projectKey = %q", boardService.projectKey)
+	}
+	if boardService.startAt != 50 || boardService.maxResults != 25 {
+		t.Fatalf("pagination = %d/%d", boardService.startAt, boardService.maxResults)
+	}
+	if page.StartAt != 50 || page.MaxResults != 25 || page.Total != 75 || page.IsLast {
+		t.Fatalf("page = %#v", page)
+	}
+	if len(page.Boards) != 1 {
+		t.Fatalf("Boards = %#v", page.Boards)
+	}
+	board := page.Boards[0]
+	if board.ID != 100 || board.Name != "ABC Scrum" || board.Type != "scrum" || board.ProjectKey != "ABC" || board.ProjectName != "App Backend" {
+		t.Fatalf("board = %#v", board)
+	}
+}
+
+func TestGetBoardSprintsParsesIncrementalSprintPage(t *testing.T) {
+	start := time.Date(2026, 6, 18, 9, 0, 0, 0, time.UTC)
+	end := start.Add(14 * 24 * time.Hour)
+	boardService := &fakeAgileBoardService{
+		sprints: &model.BoardSprintPageScheme{
+			StartAt:    25,
+			MaxResults: 25,
+			Total:      26,
+			IsLast:     true,
+			Values: []*model.BoardSprintScheme{
+				{ID: 300, OriginBoardID: 100, Name: "Sprint 42", State: "active", Goal: "Ship the thing", StartDate: start, EndDate: end},
+			},
+		},
+	}
+	client := &Client{board: boardService}
+
+	page, err := client.GetBoardSprints(context.Background(), 100, []string{"active", "future"}, 25, 25)
+	if err != nil {
+		t.Fatalf("GetBoardSprints() error = %v", err)
+	}
+
+	if boardService.boardID != 100 {
+		t.Fatalf("boardID = %d", boardService.boardID)
+	}
+	if !reflect.DeepEqual(boardService.states, []string{"active", "future"}) {
+		t.Fatalf("states = %#v", boardService.states)
+	}
+	if page.BoardID != 100 || page.StartAt != 25 || page.MaxResults != 25 || page.Total != 26 || !page.IsLast {
+		t.Fatalf("page = %#v", page)
+	}
+	if len(page.Sprints) != 1 {
+		t.Fatalf("Sprints = %#v", page.Sprints)
+	}
+	sprint := page.Sprints[0]
+	if sprint.ID != 300 || sprint.BoardID != 100 || sprint.Name != "Sprint 42" || sprint.State != "active" || sprint.Goal != "Ship the thing" {
+		t.Fatalf("sprint = %#v", sprint)
+	}
+	if !sprint.StartDate.Equal(start) || !sprint.EndDate.Equal(end) {
+		t.Fatalf("sprint dates = %#v", sprint)
+	}
+}
+
 func TestGetIssueFetchesAndParsesDetail(t *testing.T) {
 	created := model.DateTimeScheme(time.Date(2026, 6, 1, 10, 30, 0, 0, time.UTC))
 	updated := model.DateTimeScheme(time.Date(2026, 6, 2, 11, 45, 0, 0, time.UTC))
@@ -1673,6 +1760,40 @@ func (f *fakeSearchService) SearchJQL(_ context.Context, jql string, fields, exp
 	f.maxResults = maxResults
 	f.token = nextPageToken
 	return f.response, nil, f.err
+}
+
+type fakeAgileBoardService struct {
+	boards     *model.BoardPageScheme
+	sprints    *model.BoardSprintPageScheme
+	err        error
+	projectKey string
+	boardID    int
+	states     []string
+	startAt    int
+	maxResults int
+}
+
+func (f *fakeAgileBoardService) Gets(_ context.Context, opts *model.GetBoardsOptions, startAt, maxResults int) (*model.BoardPageScheme, *model.ResponseScheme, error) {
+	if opts != nil {
+		f.projectKey = opts.ProjectKeyOrID
+	}
+	f.startAt = startAt
+	f.maxResults = maxResults
+	if f.err != nil {
+		return nil, nil, f.err
+	}
+	return f.boards, nil, nil
+}
+
+func (f *fakeAgileBoardService) Sprints(_ context.Context, boardID, startAt, maxResults int, states []string) (*model.BoardSprintPageScheme, *model.ResponseScheme, error) {
+	f.boardID = boardID
+	f.startAt = startAt
+	f.maxResults = maxResults
+	f.states = append([]string(nil), states...)
+	if f.err != nil {
+		return nil, nil, f.err
+	}
+	return f.sprints, nil, nil
 }
 
 type fakeIssueService struct {

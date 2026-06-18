@@ -37,6 +37,8 @@ const (
 	KindGetEditMetadata     Kind = "get_edit_metadata"
 	KindGetCreateIssueTypes Kind = "get_create_issue_types"
 	KindGetCreateFields     Kind = "get_create_fields"
+	KindGetBoards           Kind = "get_boards"
+	KindGetBoardSprints     Kind = "get_board_sprints"
 	KindUpdateSummary       Kind = "update_summary"
 	KindUpdateDescription   Kind = "update_description"
 	KindUpdatePriority      Kind = "update_priority"
@@ -66,6 +68,8 @@ type JiraClient interface {
 	GetEditMetadata(ctx context.Context, key string) (jira.EditMetadata, error)
 	GetCreateIssueTypes(ctx context.Context, projectKey string) ([]jira.CreateIssueType, error)
 	GetCreateFields(ctx context.Context, projectKey string, issueTypeID string) ([]jira.CreateField, error)
+	GetBoards(ctx context.Context, projectKey string, startAt, maxResults int) (jira.BoardPage, error)
+	GetBoardSprints(ctx context.Context, boardID int, states []string, startAt, maxResults int) (jira.SprintPage, error)
 	CreateIssue(ctx context.Context, request jira.CreateIssueRequest) (jira.Issue, error)
 	UpdateSummary(ctx context.Context, key string, summary string) error
 	UpdateDescription(ctx context.Context, key string, description string) error
@@ -91,6 +95,8 @@ type Request struct {
 	GetEditMetadata     *GetEditMetadataRequest
 	GetCreateIssueTypes *GetCreateIssueTypesRequest
 	GetCreateFields     *GetCreateFieldsRequest
+	GetBoards           *GetBoardsRequest
+	GetBoardSprints     *GetBoardSprintsRequest
 	UpdateSummary       *UpdateSummaryRequest
 	UpdateDescription   *UpdateDescriptionRequest
 	UpdatePriority      *UpdatePriorityRequest
@@ -161,6 +167,19 @@ type GetCreateFieldsRequest struct {
 	IssueTypeID string
 }
 
+type GetBoardsRequest struct {
+	ProjectKey string
+	StartAt    int
+	MaxResults int
+}
+
+type GetBoardSprintsRequest struct {
+	BoardID    int
+	States     []string
+	StartAt    int
+	MaxResults int
+}
+
 type UpdateSummaryRequest struct {
 	Key     string
 	Summary string
@@ -205,6 +224,8 @@ type Result struct {
 	GetEditMetadata     *GetEditMetadataResult
 	GetCreateIssueTypes *GetCreateIssueTypesResult
 	GetCreateFields     *GetCreateFieldsResult
+	GetBoards           *GetBoardsResult
+	GetBoardSprints     *GetBoardSprintsResult
 	UpdateSummary       *UpdateSummaryResult
 	UpdateDescription   *UpdateDescriptionResult
 	UpdatePriority      *UpdatePriorityResult
@@ -277,6 +298,18 @@ type GetCreateFieldsResult struct {
 	IssueTypeID string
 	Fields      []jira.CreateField
 	SyncedAt    time.Time
+}
+
+type GetBoardsResult struct {
+	ProjectKey string
+	Page       jira.BoardPage
+	SyncedAt   time.Time
+}
+
+type GetBoardSprintsResult struct {
+	BoardID  int
+	Page     jira.SprintPage
+	SyncedAt time.Time
 }
 
 type UpdateSummaryResult struct {
@@ -629,6 +662,10 @@ func (p *Pool) handle(request Request) Result {
 		return p.handleGetCreateIssueTypes(request)
 	case KindGetCreateFields:
 		return p.handleGetCreateFields(request)
+	case KindGetBoards:
+		return p.handleGetBoards(request)
+	case KindGetBoardSprints:
+		return p.handleGetBoardSprints(request)
 	case KindUpdateSummary:
 		return p.handleUpdateSummary(request)
 	case KindUpdateDescription:
@@ -641,6 +678,62 @@ func (p *Pool) handle(request Request) Result {
 		return p.handleCreateIssue(request)
 	default:
 		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+}
+
+func (p *Pool) handleGetBoards(request Request) Result {
+	if request.GetBoards == nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	page, err := p.client.GetBoards(ctx, request.GetBoards.ProjectKey, request.GetBoards.StartAt, request.GetBoards.MaxResults)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		GetBoards: &GetBoardsResult{
+			ProjectKey: request.GetBoards.ProjectKey,
+			Page:       page,
+			SyncedAt:   time.Now(),
+		},
+	}
+}
+
+func (p *Pool) handleGetBoardSprints(request Request) Result {
+	if request.GetBoardSprints == nil || request.GetBoardSprints.BoardID <= 0 {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	page, err := p.client.GetBoardSprints(ctx, request.GetBoardSprints.BoardID, request.GetBoardSprints.States, request.GetBoardSprints.StartAt, request.GetBoardSprints.MaxResults)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		GetBoardSprints: &GetBoardSprintsResult{
+			BoardID:  request.GetBoardSprints.BoardID,
+			Page:     page,
+			SyncedAt: time.Now(),
+		},
 	}
 }
 

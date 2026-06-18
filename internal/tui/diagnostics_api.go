@@ -54,6 +54,8 @@ func apiEndpointFamily(kind worker.Kind) string {
 		return "edit_meta"
 	case worker.KindGetCreateIssueTypes, worker.KindGetCreateFields, worker.KindCreateIssue:
 		return "create"
+	case worker.KindGetBoards, worker.KindGetBoardSprints:
+		return "agile"
 	default:
 		return "unknown"
 	}
@@ -83,6 +85,10 @@ func apiDiagnosticScope(result worker.Result) string {
 		return projectScope(result.GetCreateIssueTypes.ProjectKey)
 	case result.GetCreateFields != nil:
 		return strings.TrimSpace(projectScope(result.GetCreateFields.ProjectKey) + " issue_type:" + result.GetCreateFields.IssueTypeID)
+	case result.GetBoards != nil:
+		return projectScope(result.GetBoards.ProjectKey)
+	case result.GetBoardSprints != nil:
+		return fmt.Sprintf("board:%d", result.GetBoardSprints.BoardID)
 	case result.CreateIssue != nil:
 		return issueScope(result.CreateIssue.Issue.Key)
 	case result.UpdateSummary != nil:
@@ -154,6 +160,10 @@ func apiDiagnosticMetrics(result worker.Result) string {
 		return countMetric("types", len(result.GetCreateIssueTypes.IssueTypes))
 	case result.GetCreateFields != nil:
 		return countMetric("fields", len(result.GetCreateFields.Fields))
+	case result.GetBoards != nil:
+		return countMetric("boards", len(result.GetBoards.Page.Boards))
+	case result.GetBoardSprints != nil:
+		return countMetric("sprints", len(result.GetBoardSprints.Page.Sprints))
 	default:
 		return ""
 	}

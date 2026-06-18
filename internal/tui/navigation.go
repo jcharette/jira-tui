@@ -45,7 +45,34 @@ func (m Model) startRefreshWithCache(useCache bool, priority worker.Priority) (M
 	} else {
 		m.refreshing = true
 	}
-	return m, m.submitIssueSearch(m.activeRequestID, priority)
+	cmds := []tea.Cmd{m.submitIssueSearch(m.activeRequestID, priority)}
+	if next, planningCmd := m.startPlanningMetadataLoad(); planningCmd != nil {
+		m = next
+		cmds = append(cmds, planningCmd)
+	}
+	return m, tea.Batch(cmds...)
+}
+
+func (m Model) startPlanningMetadataLoad() (Model, tea.Cmd) {
+	if !m.activeViewWantsPlanningMetadata() {
+		return m, nil
+	}
+	if m.planningBoardsLoading || m.planningSprintsLoading || len(m.planningBoards) > 0 {
+		return m, nil
+	}
+	m.nextRequestID++
+	m.activePlanningBoardsReqID = m.nextRequestID
+	m.planningBoardsLoading = true
+	m.planningBoardsErr = nil
+	return m, m.submitPlanningBoards(m.activePlanningBoardsReqID)
+}
+
+func (m Model) activeViewWantsPlanningMetadata() bool {
+	if strings.TrimSpace(m.planningProjectKey) == "" {
+		return false
+	}
+	text := strings.ToLower(m.activeViewName() + " " + m.jql)
+	return strings.Contains(text, "sprint")
 }
 
 func (m Model) startExpandSelectedIssue(mode worker.ExpandMode) (Model, tea.Cmd) {

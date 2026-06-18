@@ -13,15 +13,16 @@ subtasks, epics, sprints, boards, comments, and transitions. Jira administration
 The feature roadmap and dependency-aware milestones live in [roadmap.md](roadmap.md).
 
 The Read/View backlog bucket is complete as of 2026-06-18. The active backlog now starts with
-Navigation and Query work: richer epic/subtask loading, sprint/board support, saved profile/query
-configuration, and the bounded concurrency/cache work those read families need.
+Navigation and Query work: saved profile/query configuration and the bounded concurrency/cache work
+that expanded read families need. Sprint/board metadata loading is available for sprint-oriented
+views, while full sprint/board view UX remains a later backlog item.
 
 ## Current Stack
 
 - Language: Go
 - TUI framework: Bubble Tea v2 (`charm.land/bubbletea/v2`)
 - TUI styling: Lip Gloss (`github.com/charmbracelet/lipgloss`)
-- Jira API: Jira Cloud REST API v3
+- Jira API: Jira Cloud REST API v3 and Jira Agile REST API
 - Jira library: `go-atlassian` behind `internal/jira`
 - Concurrency: typed dispatcher and bounded worker pool powered by `ants`
 - Authentication: email + Jira API token from config using Basic Auth
@@ -74,6 +75,11 @@ first/last jumps, selected-window rendering, local active filtering, subtree col
 detail-mode section navigation and scroll memory, context-specific footer hints, focused Links /
 Hierarchy / Actions behavior, help overlay rendering, and minimum-terminal warnings. New TUI
 surfaces should keep adding focused regression tests in the same workflow test files.
+
+Sprint-oriented saved views now load Jira Agile metadata in the background through the worker pool:
+boards are discovered for the configured default project, then active/future sprints are loaded for
+the first returned board. This does not alter issue JQL; the header shows compact sprint loading,
+error, or count state, and Diagnostics records the Agile read family.
 
 ## Current Configuration
 

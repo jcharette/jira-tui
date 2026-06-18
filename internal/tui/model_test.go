@@ -817,6 +817,15 @@ type fakeIssueSearcher struct {
 	createFields           []jira.CreateField
 	createIssueRequest     jira.CreateIssueRequest
 	createdIssue           jira.Issue
+	boardPage              jira.BoardPage
+	sprintPage             jira.SprintPage
+	boardProjectKey        string
+	boardStartAt           int
+	boardMaxResults        int
+	sprintBoardID          int
+	sprintStates           []string
+	sprintStartAt          int
+	sprintMaxResults       int
 	updateSummaryKey       string
 	updateSummaryValue     string
 	updateDescriptionKey   string
@@ -944,6 +953,27 @@ func (f *fakeIssueSearcher) CreateIssue(_ context.Context, request jira.CreateIs
 		return f.createdIssue, nil
 	}
 	return jira.Issue{Key: "ABC-123", Summary: request.Summary}, nil
+}
+
+func (f *fakeIssueSearcher) GetBoards(_ context.Context, projectKey string, startAt, maxResults int) (jira.BoardPage, error) {
+	if f.err != nil {
+		return jira.BoardPage{}, f.err
+	}
+	f.boardProjectKey = projectKey
+	f.boardStartAt = startAt
+	f.boardMaxResults = maxResults
+	return f.boardPage, nil
+}
+
+func (f *fakeIssueSearcher) GetBoardSprints(_ context.Context, boardID int, states []string, startAt, maxResults int) (jira.SprintPage, error) {
+	if f.err != nil {
+		return jira.SprintPage{}, f.err
+	}
+	f.sprintBoardID = boardID
+	f.sprintStates = append([]string(nil), states...)
+	f.sprintStartAt = startAt
+	f.sprintMaxResults = maxResults
+	return f.sprintPage, nil
 }
 
 func (f *fakeIssueSearcher) UpdateSummary(_ context.Context, key string, summary string) error {

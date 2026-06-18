@@ -374,6 +374,10 @@ func resultDiagnosticKey(result worker.Result) string {
 		return result.GetCreateIssueTypes.ProjectKey
 	case result.GetCreateFields != nil:
 		return strings.TrimSpace(result.GetCreateFields.ProjectKey + " " + result.GetCreateFields.IssueTypeID)
+	case result.GetBoards != nil:
+		return result.GetBoards.ProjectKey
+	case result.GetBoardSprints != nil:
+		return fmt.Sprintf("%d", result.GetBoardSprints.BoardID)
 	case result.CreateIssue != nil:
 		return result.CreateIssue.Issue.Key
 	case result.UpdateSummary != nil:
@@ -402,6 +406,10 @@ func resultDiagnosticMetrics(result worker.Result) string {
 			len(unsupportedRequiredCreateFields(fields)),
 			createFieldDiagnosticSample(fields, 6),
 		)
+	case result.GetBoards != nil:
+		return fmt.Sprintf("boards=%d is_last=%t", len(result.GetBoards.Page.Boards), result.GetBoards.Page.IsLast)
+	case result.GetBoardSprints != nil:
+		return fmt.Sprintf("sprints=%d is_last=%t", len(result.GetBoardSprints.Page.Sprints), result.GetBoardSprints.Page.IsLast)
 	default:
 		return ""
 	}

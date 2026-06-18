@@ -1,5 +1,35 @@
 # Task Plan
 
+## Sprint And Board Incremental Loading
+
+- [x] Add Jira Agile board page and sprint page parsing.
+- [x] Route board and sprint reads through the worker pool with pagination metadata.
+- [x] Trigger bounded background board/sprint metadata loading for sprint-oriented views.
+- [x] Surface compact loading/error/count state without changing issue queries.
+- [x] Update diagnostics, backlog, project state, changelog, and task review notes.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+- [ ] Merge and push the completed slice.
+
+### Sprint And Board Incremental Loading Scope
+
+Complete the next Navigation and Query backlog item by adding read-only Jira Agile board/sprint
+metadata support behind the existing worker model. This slice keeps issue queries unchanged, loads
+boards for the configured default project, then loads active/future sprints for the first returned
+board while preserving pagination metadata for follow-up UX.
+
+### Sprint And Board Incremental Loading Review
+
+- Added Jira Agile board and active/future sprint page parsing with preserved start/max/total/isLast
+  pagination metadata.
+- Routed board and sprint reads through the worker pool using background priority and coalesced
+  request keys.
+- Added sprint-oriented TUI loading that scopes board discovery to the configured default project,
+  then loads sprints for the first returned board without changing issue JQL.
+- Added compact header sprint loading/error/count state and Agile family Diagnostics for board and
+  sprint reads.
+- Verification passed: focused Jira/worker/TUI tests, `go test ./... -count=1`, `make check`, and
+  `make install-user`.
+
 ## Navigation Related Children
 
 - [x] Add a view-scoped child-loading flag to saved/default issue views.

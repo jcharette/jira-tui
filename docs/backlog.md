@@ -8,7 +8,6 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
 
 ## Next: Navigation And Query
 
-- Add sprint and board support with incremental loading for sprint data.
 - Add configuration file support for saved profiles and default queries.
 - Add bounded concurrency controls for sprint and board fetches when parallel loading expands beyond
   the current issue/detail/comment/cache worker paths.
@@ -16,7 +15,7 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
 ## Later: Creation And Editing
 
 - Extend Jira metadata discovery adapters beyond the current create/edit metadata foundation:
-  assignable user search by project/issue, field options, boards, and sprints.
+  assignable user search by project/issue and field options.
 - Expand transition field handling beyond the current Resolution and Comment support to additional
   Jira field schemas when real workflow screens require them.
 - Add a ticket action menu/command palette for edit workflows so growing actions do not overload

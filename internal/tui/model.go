@@ -51,6 +51,7 @@ const (
 	appChromeRows                      = 6
 	panelFrameRows                     = 4
 	detailHeaderRows                   = 6
+	planningMetadataPageSize           = 25
 	issueTreeRootGutter                = 2
 	issueTreeMaxGutter                 = 12
 	issueTypeColumnWidth               = 2
@@ -255,6 +256,19 @@ type Model struct {
 	activeViewStore     activeViewStore
 	activeViewNamespace string
 
+	planningProjectKey         string
+	planningBoards             []jira.Board
+	planningBoardPage          jira.BoardPage
+	planningBoardID            int
+	planningSprints            map[int][]jira.Sprint
+	planningSprintPages        map[int]jira.SprintPage
+	planningBoardsLoading      bool
+	planningSprintsLoading     bool
+	planningBoardsErr          error
+	planningSprintsErr         error
+	activePlanningBoardsReqID  int
+	activePlanningSprintsReqID int
+
 	details                     map[string]jira.IssueDetail
 	detailCache                 *ttlcache.Cache[string, jiraCacheRecord[jira.IssueDetail]]
 	detailLoading               bool
@@ -447,6 +461,12 @@ func WithActiveViewStore(store activeViewStore, namespace string) Option {
 	}
 }
 
+func WithPlanningProject(projectKey string) Option {
+	return func(m *Model) {
+		m.planningProjectKey = strings.TrimSpace(projectKey)
+	}
+}
+
 func WithEventStream(stream eventStream) Option {
 	return func(m *Model) {
 		if stream == nil {
@@ -521,6 +541,8 @@ func NewModel(client worker.JiraClient, jql string, options ...Option) Model {
 		createIssueTypesCache: newJiraCache[[]jira.CreateIssueType](createIssueTypesCacheRetentionTTL),
 		createFieldsCache:     newJiraCache[[]jira.CreateField](createFieldsCacheRetentionTTL),
 		expandedChildrenCache: newJiraCache[[]jira.Issue](expandedChildrenCacheRetentionTTL),
+		planningSprints:       make(map[int][]jira.Sprint),
+		planningSprintPages:   make(map[int]jira.SprintPage),
 		detailSectionOffset:   make(map[string]int),
 		userSearchCache:       ttlcache.New[string, []jira.User](ttlcache.WithTTL[string, []jira.User](userSearchCacheTTL)),
 		claudeRunner:          claude.LocalRunner{},
@@ -552,6 +574,10 @@ func (m Model) Init() tea.Cmd {
 			priority = worker.PriorityBackground
 		}
 		cmds = append(cmds, m.submitIssueSearch(m.activeRequestID, priority))
+	}
+	if next, planningCmd := m.startPlanningMetadataLoad(); planningCmd != nil {
+		m = next
+		cmds = append(cmds, planningCmd)
 	}
 	return tea.Batch(cmds...)
 }

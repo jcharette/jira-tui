@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	agile "github.com/ctreminiom/go-atlassian/v2/jira/agile"
 	atlassian "github.com/ctreminiom/go-atlassian/v2/jira/v3"
 	model "github.com/ctreminiom/go-atlassian/v2/pkg/infra/models"
 	jiraservice "github.com/ctreminiom/go-atlassian/v2/service/jira"
@@ -28,6 +29,7 @@ type Client struct {
 	userSearch     userSearchService
 	metadata       metadataService
 	rest           restConnector
+	board          agileBoardService
 	requestTimeout time.Duration
 }
 
@@ -63,6 +65,11 @@ type metadataService interface {
 type restConnector interface {
 	NewRequest(ctx context.Context, method, urlStr, contentType string, body interface{}) (*http.Request, error)
 	Call(request *http.Request, v interface{}) (*model.ResponseScheme, error)
+}
+
+type agileBoardService interface {
+	Gets(ctx context.Context, opts *model.GetBoardsOptions, startAt, maxResults int) (*model.BoardPageScheme, *model.ResponseScheme, error)
+	Sprints(ctx context.Context, boardID, startAt, maxResults int, states []string) (*model.BoardSprintPageScheme, *model.ResponseScheme, error)
 }
 
 type Issue struct {
@@ -182,6 +189,42 @@ type CreateIssueFieldValue struct {
 	Option       FieldOption
 }
 
+type Board struct {
+	ID          int
+	Name        string
+	Type        string
+	ProjectKey  string
+	ProjectName string
+}
+
+type BoardPage struct {
+	Boards     []Board
+	StartAt    int
+	MaxResults int
+	Total      int
+	IsLast     bool
+}
+
+type Sprint struct {
+	ID           int
+	BoardID      int
+	Name         string
+	State        string
+	Goal         string
+	StartDate    time.Time
+	EndDate      time.Time
+	CompleteDate time.Time
+}
+
+type SprintPage struct {
+	BoardID    int
+	Sprints    []Sprint
+	StartAt    int
+	MaxResults int
+	Total      int
+	IsLast     bool
+}
+
 func NewClient(cfg config.Config) *Client {
 	requestTimeout := cfg.RequestTimeout
 	if requestTimeout <= 0 {
@@ -200,15 +243,31 @@ func NewClient(cfg config.Config) *Client {
 			comment:        failingCommentService{err: err},
 			userSearch:     failingUserSearchService{err: err},
 			metadata:       failingMetadataService{err: err},
+			board:          failingAgileBoardService{err: err},
 			requestTimeout: requestTimeout,
 		}
 	}
 	api.Auth.SetBasicAuth(cfg.Email, cfg.APIToken)
 
-	return newClient(cfg.BaseURL, api.Issue.Search, api.Issue, api.Issue.Comment, api.User.Search, api.Issue.Metadata, api, requestTimeout)
+	agileAPI, err := agile.New(httpClient, cfg.BaseURL)
+	if err != nil {
+		return &Client{
+			baseURL:        cfg.BaseURL,
+			search:         failingSearchService{err: err},
+			issue:          failingIssueService{err: err},
+			comment:        failingCommentService{err: err},
+			userSearch:     failingUserSearchService{err: err},
+			metadata:       failingMetadataService{err: err},
+			board:          failingAgileBoardService{err: err},
+			requestTimeout: requestTimeout,
+		}
+	}
+	agileAPI.Auth.SetBasicAuth(cfg.Email, cfg.APIToken)
+
+	return newClient(cfg.BaseURL, api.Issue.Search, api.Issue, api.Issue.Comment, api.User.Search, api.Issue.Metadata, api, agileAPI.Board, requestTimeout)
 }
 
-func newClient(baseURL string, search jiraservice.SearchADFConnector, issue jiraservice.IssueADFConnector, comment commentService, userSearch userSearchService, metadata jiraservice.MetadataConnector, rest restConnector, requestTimeout time.Duration) *Client {
+func newClient(baseURL string, search jiraservice.SearchADFConnector, issue jiraservice.IssueADFConnector, comment commentService, userSearch userSearchService, metadata jiraservice.MetadataConnector, rest restConnector, board agileBoardService, requestTimeout time.Duration) *Client {
 	return &Client{
 		baseURL:        baseURL,
 		search:         search,
@@ -217,6 +276,7 @@ func newClient(baseURL string, search jiraservice.SearchADFConnector, issue jira
 		userSearch:     userSearch,
 		metadata:       metadata,
 		rest:           rest,
+		board:          board,
 		requestTimeout: requestTimeout,
 	}
 }
@@ -245,6 +305,62 @@ func (c *Client) SearchIssues(ctx context.Context, jql string, maxResults int) (
 		issues = append(issues, c.parseIssue(raw))
 	}
 	return issues, nil
+}
+
+func (c *Client) GetBoards(ctx context.Context, projectKey string, startAt, maxResults int) (BoardPage, error) {
+	projectKey = strings.TrimSpace(projectKey)
+	if maxResults <= 0 {
+		maxResults = defaultMaxResults
+	}
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+	if c.board == nil {
+		return BoardPage{}, fmt.Errorf("get jira boards: agile board service unavailable")
+	}
+
+	options := &model.GetBoardsOptions{}
+	if projectKey != "" {
+		options.ProjectKeyOrID = projectKey
+	}
+	response, _, err := c.board.Gets(ctx, options, startAt, maxResults)
+	if err != nil {
+		return BoardPage{}, fmt.Errorf("get jira boards: %w", err)
+	}
+	if response == nil {
+		return BoardPage{}, fmt.Errorf("get jira boards: empty response")
+	}
+	return parseBoardPage(response), nil
+}
+
+func (c *Client) GetBoardSprints(ctx context.Context, boardID int, states []string, startAt, maxResults int) (SprintPage, error) {
+	if boardID <= 0 {
+		return SprintPage{}, fmt.Errorf("get jira board sprints: missing board ID")
+	}
+	if maxResults <= 0 {
+		maxResults = defaultMaxResults
+	}
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+	if c.board == nil {
+		return SprintPage{}, fmt.Errorf("get jira board sprints %d: agile board service unavailable", boardID)
+	}
+
+	response, _, err := c.board.Sprints(ctx, boardID, startAt, maxResults, states)
+	if err != nil {
+		return SprintPage{}, fmt.Errorf("get jira board sprints %d: %w", boardID, err)
+	}
+	if response == nil {
+		return SprintPage{}, fmt.Errorf("get jira board sprints %d: empty response", boardID)
+	}
+	page := parseSprintPage(response)
+	page.BoardID = boardID
+	return page, nil
 }
 
 func (c *Client) GetIssue(ctx context.Context, key string) (IssueDetail, error) {
@@ -934,6 +1050,64 @@ func parseComment(raw *model.IssueCommentScheme) Comment {
 	return comment
 }
 
+func parseBoardPage(raw *model.BoardPageScheme) BoardPage {
+	if raw == nil {
+		return BoardPage{}
+	}
+	page := BoardPage{
+		StartAt:    raw.StartAt,
+		MaxResults: raw.MaxResults,
+		Total:      raw.Total,
+		IsLast:     raw.IsLast,
+		Boards:     make([]Board, 0, len(raw.Values)),
+	}
+	for _, rawBoard := range raw.Values {
+		if rawBoard == nil {
+			continue
+		}
+		board := Board{
+			ID:   rawBoard.ID,
+			Name: rawBoard.Name,
+			Type: rawBoard.Type,
+		}
+		if rawBoard.Location != nil {
+			board.ProjectKey = rawBoard.Location.ProjectKey
+			board.ProjectName = rawBoard.Location.ProjectName
+		}
+		page.Boards = append(page.Boards, board)
+	}
+	return page
+}
+
+func parseSprintPage(raw *model.BoardSprintPageScheme) SprintPage {
+	if raw == nil {
+		return SprintPage{}
+	}
+	page := SprintPage{
+		StartAt:    raw.StartAt,
+		MaxResults: raw.MaxResults,
+		Total:      raw.Total,
+		IsLast:     raw.IsLast,
+		Sprints:    make([]Sprint, 0, len(raw.Values)),
+	}
+	for _, rawSprint := range raw.Values {
+		if rawSprint == nil {
+			continue
+		}
+		page.Sprints = append(page.Sprints, Sprint{
+			ID:           rawSprint.ID,
+			BoardID:      rawSprint.OriginBoardID,
+			Name:         rawSprint.Name,
+			State:        rawSprint.State,
+			Goal:         rawSprint.Goal,
+			StartDate:    rawSprint.StartDate,
+			EndDate:      rawSprint.EndDate,
+			CompleteDate: rawSprint.CompleteDate,
+		})
+	}
+	return page
+}
+
 func parseUser(raw *model.UserScheme) (User, bool) {
 	if raw == nil || raw.AccountID == "" {
 		return User{}, false
@@ -1268,4 +1442,16 @@ func (f failingMetadataService) FetchIssueMappings(_ context.Context, _ string, 
 
 func (f failingMetadataService) FetchFieldMappings(_ context.Context, _, _ string, _, _ int) (gjson.Result, *model.ResponseScheme, error) {
 	return gjson.Result{}, nil, f.err
+}
+
+type failingAgileBoardService struct {
+	err error
+}
+
+func (f failingAgileBoardService) Gets(_ context.Context, _ *model.GetBoardsOptions, _, _ int) (*model.BoardPageScheme, *model.ResponseScheme, error) {
+	return nil, nil, f.err
+}
+
+func (f failingAgileBoardService) Sprints(_ context.Context, _ int, _, _ int, _ []string) (*model.BoardSprintPageScheme, *model.ResponseScheme, error) {
+	return nil, nil, f.err
 }

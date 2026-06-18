@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -33,6 +34,80 @@ func (m Model) submitIssueSearch(requestID int, priority worker.Priority) tea.Cm
 			}
 		}
 		return workSubmittedMsg{kind: worker.KindSearchIssues, id: requestID}
+	}
+}
+
+func (m Model) submitPlanningBoards(requestID int) tea.Cmd {
+	return func() tea.Msg {
+		projectKey := strings.TrimSpace(m.planningProjectKey)
+		if projectKey == "" {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindGetBoards,
+					Err:  worker.ErrInvalidRequest,
+				},
+			}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:          requestID,
+			Kind:        worker.KindGetBoards,
+			Timeout:     m.requestTimeout,
+			Priority:    worker.PriorityBackground,
+			CoalesceKey: "boards:" + projectKey,
+			GetBoards: &worker.GetBoardsRequest{
+				ProjectKey: projectKey,
+				StartAt:    0,
+				MaxResults: planningMetadataPageSize,
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindGetBoards,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindGetBoards, id: requestID, key: projectKey}
+	}
+}
+
+func (m Model) submitPlanningSprints(requestID int, boardID int) tea.Cmd {
+	return func() tea.Msg {
+		if boardID <= 0 {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindGetBoardSprints,
+					Err:  worker.ErrInvalidRequest,
+				},
+			}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:          requestID,
+			Kind:        worker.KindGetBoardSprints,
+			Timeout:     m.requestTimeout,
+			Priority:    worker.PriorityBackground,
+			CoalesceKey: fmt.Sprintf("board-sprints:%d", boardID),
+			GetBoardSprints: &worker.GetBoardSprintsRequest{
+				BoardID:    boardID,
+				States:     []string{"active", "future"},
+				StartAt:    0,
+				MaxResults: planningMetadataPageSize,
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindGetBoardSprints,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindGetBoardSprints, id: requestID, key: fmt.Sprintf("%d", boardID)}
 	}
 }
 

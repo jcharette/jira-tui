@@ -1712,6 +1712,96 @@ func TestHeaderShowsBackgroundActivityForActiveJiraWork(t *testing.T) {
 	}
 }
 
+func TestSprintViewStartsPlanningMetadataLoad(t *testing.T) {
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithPlanningProject("ABC"),
+		WithViews([]config.IssueView{
+			{Name: "Current Sprint", JQL: "project = ABC AND sprint in openSprints()"},
+		}, "Current Sprint"),
+	)
+	defer model.workers.Stop()
+
+	next, cmd := model.startPlanningMetadataLoad()
+	if cmd == nil {
+		t.Fatal("expected planning metadata command")
+	}
+	if !next.planningBoardsLoading {
+		t.Fatal("expected board loading state")
+	}
+	if next.activePlanningBoardsReqID == 0 {
+		t.Fatal("expected active board request id")
+	}
+	msg := cmd()
+	submitted, ok := msg.(workSubmittedMsg)
+	if !ok {
+		t.Fatalf("msg = %#v", msg)
+	}
+	if submitted.kind != worker.KindGetBoards {
+		t.Fatalf("kind = %s", submitted.kind)
+	}
+}
+
+func TestPlanningBoardResultStartsFirstBoardSprintsLoad(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithPlanningProject("ABC"))
+	defer model.workers.Stop()
+	model.nextRequestID = 10
+	model.activePlanningBoardsReqID = 7
+	model.planningBoardsLoading = true
+
+	next, cmd := model.handlePlanningBoardsResult(worker.Result{
+		ID:   7,
+		Kind: worker.KindGetBoards,
+		GetBoards: &worker.GetBoardsResult{
+			ProjectKey: "ABC",
+			Page: jira.BoardPage{
+				Boards: []jira.Board{{ID: 100, Name: "ABC Scrum"}},
+				IsLast: true,
+			},
+		},
+	})
+	if cmd == nil {
+		t.Fatal("expected sprint loading command")
+	}
+	if next.planningBoardsLoading {
+		t.Fatal("expected board loading to finish")
+	}
+	if !next.planningSprintsLoading {
+		t.Fatal("expected sprint loading state")
+	}
+	if next.planningBoardID != 100 {
+		t.Fatalf("planningBoardID = %d", next.planningBoardID)
+	}
+	msg := cmd()
+	submitted, ok := msg.(workSubmittedMsg)
+	if !ok {
+		t.Fatalf("msg = %#v", msg)
+	}
+	if submitted.kind != worker.KindGetBoardSprints {
+		t.Fatalf("kind = %s", submitted.kind)
+	}
+}
+
+func TestHeaderShowsLoadedSprintMetadata(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 140
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1"}}
+	model.planningBoardID = 100
+	model.planningSprints = map[int][]jira.Sprint{
+		100: {{ID: 300, BoardID: 100, Name: "Sprint 42", State: "active"}},
+	}
+
+	header := model.renderHeader(model.browserLayout(model.width))
+
+	if !strings.Contains(header, "1 sprint") {
+		t.Fatalf("header = %q", header)
+	}
+}
+
 func TestHeaderShowsRecentTicketUpdates(t *testing.T) {
 	now := time.Date(2026, 6, 16, 22, 0, 0, 0, time.UTC)
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")

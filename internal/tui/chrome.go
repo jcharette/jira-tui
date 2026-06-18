@@ -26,7 +26,11 @@ func (m Model) renderHeader(layout browserLayout) string {
 	}
 
 	left := m.theme.Header.Render("Jira") + " " + m.theme.Subtitle.Render(status) + " " + m.theme.Selected.Render(m.activeViewName())
-	rightText := fmt.Sprintf("%d issues  %s", len(m.issues), m.viewFreshnessLabel())
+	rightParts := []string{fmt.Sprintf("%d issues", len(m.issues)), m.viewFreshnessLabel()}
+	if planning := m.planningSprintLabel(); planning != "" {
+		rightParts = append(rightParts, planning)
+	}
+	rightText := strings.Join(rightParts, "  ")
 	right := m.theme.Muted.Render(rightText)
 	if activity := m.backgroundActivityLabel(); activity != "" {
 		withActivity := right + "  " + m.renderBackgroundActivityLabel(activity)
@@ -69,6 +73,20 @@ func (m Model) renderBackgroundActivityLabel(label string) string {
 	return m.theme.Selected.Render(label)
 }
 
+func (m Model) planningSprintLabel() string {
+	switch {
+	case m.planningSprintsLoading:
+		return "sprints loading"
+	case m.planningSprintsErr != nil:
+		return "sprints error"
+	case m.planningBoardID > 0 && len(m.planningSprints[m.planningBoardID]) > 0:
+		count := len(m.planningSprints[m.planningBoardID])
+		return fmt.Sprintf("%d %s", count, pluralize("sprint", count))
+	default:
+		return ""
+	}
+}
+
 func (m Model) backgroundAIActive() bool {
 	return m.claudePlanLoading || m.claudeAssistLoading || m.createAIPromptLoading
 }
@@ -90,6 +108,8 @@ func (m Model) backgroundJiraActive() bool {
 		m.createIssueTypesLoading ||
 		m.createFieldsLoading ||
 		m.createSubmitting ||
+		m.planningBoardsLoading ||
+		m.planningSprintsLoading ||
 		m.expandLoading ||
 		m.transitionLoading ||
 		m.transitionSubmitting ||

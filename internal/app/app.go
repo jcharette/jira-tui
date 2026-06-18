@@ -85,6 +85,7 @@ func runApp() error {
 		jiratui.WithQueueSize(cfg.QueueSize),
 		jiratui.WithTheme(cfg.Theme),
 		jiratui.WithDisplay(cfg.Display),
+		jiratui.WithPlanningProject(cfg.DefaultProject),
 		jiratui.WithEventStream(eventStream),
 		jiratui.WithSavedViewWriter(savedViewWriter(cfgPath, &cfg)),
 		jiratui.WithClaudeConfig(jiratui.ClaudeConfig{

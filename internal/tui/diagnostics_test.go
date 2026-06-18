@@ -123,6 +123,49 @@ func TestDiagnosticsRecordsSanitizedAPIResult(t *testing.T) {
 	}
 }
 
+func TestDiagnosticsRecordsAgileBoardAPIResult(t *testing.T) {
+	now := time.Date(2026, 6, 18, 10, 0, 0, 0, time.UTC)
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+
+	updated, _ := model.Update(workSubmittedMsg{
+		kind: worker.KindGetBoardSprints,
+		id:   43,
+		key:  "100",
+	})
+	model = updated.(Model)
+
+	model.now = func() time.Time { return now.Add(75 * time.Millisecond) }
+	updated, _ = model.Update(workerResultMsg{result: worker.Result{
+		ID:   43,
+		Kind: worker.KindGetBoardSprints,
+		GetBoardSprints: &worker.GetBoardSprintsResult{
+			BoardID: 100,
+			Page: jira.SprintPage{
+				BoardID: 100,
+				Sprints: []jira.Sprint{
+					{ID: 300, BoardID: 100, Name: "Sprint 42"},
+					{ID: 301, BoardID: 100, Name: "Sprint 43"},
+				},
+				IsLast: true,
+			},
+			SyncedAt: now,
+		},
+	}})
+	model = updated.(Model)
+
+	event := lastDiagnosticEventOfKindForTest(t, model, diagnosticKindAPI)
+	if event.Label != string(worker.KindGetBoardSprints) || event.Status != "ok" {
+		t.Fatalf("api diagnostic event = %#v", event)
+	}
+	for _, want := range []string{"#43", "endpoint=agile", "scope=board:100", "result=success", "sprints=2", "empty=false", "elapsed=75ms"} {
+		if !strings.Contains(event.Detail, want) {
+			t.Fatalf("api diagnostic detail = %q, missing %q", event.Detail, want)
+		}
+	}
+}
+
 func TestDiagnosticsSummaryCountsAPIRowsSeparately(t *testing.T) {
 	events := []diagnosticEvent{
 		{Kind: diagnosticKindWorker, Label: string(worker.KindSearchIssues), Status: "ok", Detail: "#1"},

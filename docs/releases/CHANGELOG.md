@@ -4,6 +4,9 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Added worker-backed Jira Agile board and sprint metadata loading for sprint-oriented views,
+  including pagination-aware board/sprint pages, compact header sprint state, and Diagnostics
+  entries for Agile reads without changing issue queries.
 - Added view-scoped automatic child issue loading: the default Epics view opts into related child
   lookups while ordinary views avoid extra child-search Jira reads unless configured.
 - Added metadata-backed transition-screen field support for required Resolution and Comment fields,

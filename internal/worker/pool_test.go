@@ -217,6 +217,113 @@ func TestPoolSearchIssuesSkipsChildIssuesUnlessRequested(t *testing.T) {
 	}
 }
 
+func TestPoolGetBoardsSuccess(t *testing.T) {
+	pool := NewPool(&fakeIssueSearcher{
+		boardPage: jira.BoardPage{
+			Boards:     []jira.Board{{ID: 100, Name: "ABC Scrum"}},
+			StartAt:    25,
+			MaxResults: 25,
+			Total:      50,
+			IsLast:     false,
+		},
+	}, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:   21,
+		Kind: KindGetBoards,
+		GetBoards: &GetBoardsRequest{
+			ProjectKey: "ABC",
+			StartAt:    25,
+			MaxResults: 25,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.ID != 21 || result.Kind != KindGetBoards {
+		t.Fatalf("result identity = %#v", result)
+	}
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if result.GetBoards.ProjectKey != "ABC" {
+		t.Fatalf("ProjectKey = %q", result.GetBoards.ProjectKey)
+	}
+	if len(result.GetBoards.Page.Boards) != 1 || result.GetBoards.Page.Boards[0].ID != 100 {
+		t.Fatalf("Page = %#v", result.GetBoards.Page)
+	}
+	if result.GetBoards.Page.StartAt != 25 || result.GetBoards.Page.Total != 50 || result.GetBoards.Page.IsLast {
+		t.Fatalf("Page pagination = %#v", result.GetBoards.Page)
+	}
+}
+
+func TestPoolGetBoardSprintsSuccess(t *testing.T) {
+	pool := NewPool(&fakeIssueSearcher{
+		sprintPage: jira.SprintPage{
+			BoardID:    100,
+			Sprints:    []jira.Sprint{{ID: 300, BoardID: 100, Name: "Sprint 42", State: "active"}},
+			StartAt:    0,
+			MaxResults: 25,
+			Total:      1,
+			IsLast:     true,
+		},
+	}, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:   22,
+		Kind: KindGetBoardSprints,
+		GetBoardSprints: &GetBoardSprintsRequest{
+			BoardID:    100,
+			States:     []string{"active", "future"},
+			StartAt:    0,
+			MaxResults: 25,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.ID != 22 || result.Kind != KindGetBoardSprints {
+		t.Fatalf("result identity = %#v", result)
+	}
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if result.GetBoardSprints.BoardID != 100 {
+		t.Fatalf("BoardID = %d", result.GetBoardSprints.BoardID)
+	}
+	if len(result.GetBoardSprints.Page.Sprints) != 1 || result.GetBoardSprints.Page.Sprints[0].ID != 300 {
+		t.Fatalf("Page = %#v", result.GetBoardSprints.Page)
+	}
+	if !result.GetBoardSprints.Page.IsLast {
+		t.Fatalf("Page pagination = %#v", result.GetBoardSprints.Page)
+	}
+}
+
+func TestPoolGetBoardSprintsRejectsMissingBoard(t *testing.T) {
+	pool := NewPool(&fakeIssueSearcher{}, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:              23,
+		Kind:            KindGetBoardSprints,
+		GetBoardSprints: &GetBoardSprintsRequest{},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if !errors.Is(result.Err, ErrInvalidRequest) {
+		t.Fatalf("Err = %v", result.Err)
+	}
+}
+
 func TestPoolExpandIssuesFetchesOpenChildren(t *testing.T) {
 	pool := NewPool(&fakeIssueSearcher{
 		searchResults: map[string][]jira.Issue{
@@ -1242,6 +1349,15 @@ type fakeIssueSearcher struct {
 	createFields           []jira.CreateField
 	createIssueRequest     jira.CreateIssueRequest
 	createdIssue           jira.Issue
+	boardPage              jira.BoardPage
+	sprintPage             jira.SprintPage
+	boardProjectKey        string
+	boardStartAt           int
+	boardMaxResults        int
+	sprintBoardID          int
+	sprintStates           []string
+	sprintStartAt          int
+	sprintMaxResults       int
 	updateSummaryKey       string
 	updateSummaryValue     string
 	updateSummaryErr       error
@@ -1371,6 +1487,27 @@ func (f *fakeIssueSearcher) CreateIssue(_ context.Context, request jira.CreateIs
 		return f.createdIssue, nil
 	}
 	return jira.Issue{Key: "ABC-123", Summary: request.Summary}, nil
+}
+
+func (f *fakeIssueSearcher) GetBoards(_ context.Context, projectKey string, startAt, maxResults int) (jira.BoardPage, error) {
+	if f.err != nil {
+		return jira.BoardPage{}, f.err
+	}
+	f.boardProjectKey = projectKey
+	f.boardStartAt = startAt
+	f.boardMaxResults = maxResults
+	return f.boardPage, nil
+}
+
+func (f *fakeIssueSearcher) GetBoardSprints(_ context.Context, boardID int, states []string, startAt, maxResults int) (jira.SprintPage, error) {
+	if f.err != nil {
+		return jira.SprintPage{}, f.err
+	}
+	f.sprintBoardID = boardID
+	f.sprintStates = append([]string(nil), states...)
+	f.sprintStartAt = startAt
+	f.sprintMaxResults = maxResults
+	return f.sprintPage, nil
 }
 
 func (f *fakeIssueSearcher) UpdateSummary(_ context.Context, key string, summary string) error {
@@ -1566,6 +1703,32 @@ func (b *blockingIssueSearcher) CreateIssue(ctx context.Context, _ jira.CreateIs
 		return jira.Issue{}, nil
 	case <-ctx.Done():
 		return jira.Issue{}, ctx.Err()
+	}
+}
+
+func (b *blockingIssueSearcher) GetBoards(ctx context.Context, _ string, _, _ int) (jira.BoardPage, error) {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return jira.BoardPage{}, nil
+	case <-ctx.Done():
+		return jira.BoardPage{}, ctx.Err()
+	}
+}
+
+func (b *blockingIssueSearcher) GetBoardSprints(ctx context.Context, _ int, _ []string, _, _ int) (jira.SprintPage, error) {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return jira.SprintPage{}, nil
+	case <-ctx.Done():
+		return jira.SprintPage{}, ctx.Err()
 	}
 }
 

@@ -49,11 +49,71 @@ func (m Model) handleWorkerResult(result worker.Result) (Model, tea.Cmd) {
 		return m.handleGetCreateIssueTypesResult(result), nil
 	case worker.KindGetCreateFields:
 		return m.handleGetCreateFieldsResult(result), nil
+	case worker.KindGetBoards:
+		return m.handlePlanningBoardsResult(result)
+	case worker.KindGetBoardSprints:
+		return m.handlePlanningSprintsResult(result), nil
 	case worker.KindCreateIssue:
 		return m.handleCreateIssueResult(result), nil
 	default:
 		return m, nil
 	}
+}
+
+func (m Model) handlePlanningBoardsResult(result worker.Result) (Model, tea.Cmd) {
+	if result.ID != m.activePlanningBoardsReqID {
+		return m, nil
+	}
+	m.planningBoardsLoading = false
+	if result.Err != nil {
+		m.planningBoardsErr = result.Err
+		return m, nil
+	}
+	if result.GetBoards == nil {
+		m.planningBoardsErr = worker.ErrInvalidRequest
+		return m, nil
+	}
+	m.planningBoardsErr = nil
+	m.planningBoardPage = result.GetBoards.Page
+	m.planningBoards = result.GetBoards.Page.Boards
+	if len(m.planningBoards) == 0 {
+		m.planningBoardID = 0
+		return m, nil
+	}
+	boardID := m.planningBoards[0].ID
+	m.planningBoardID = boardID
+	m.nextRequestID++
+	m.activePlanningSprintsReqID = m.nextRequestID
+	m.planningSprintsLoading = true
+	m.planningSprintsErr = nil
+	return m, m.submitPlanningSprints(m.activePlanningSprintsReqID, boardID)
+}
+
+func (m Model) handlePlanningSprintsResult(result worker.Result) Model {
+	if result.ID != m.activePlanningSprintsReqID {
+		return m
+	}
+	m.planningSprintsLoading = false
+	if result.Err != nil {
+		m.planningSprintsErr = result.Err
+		return m
+	}
+	if result.GetBoardSprints == nil {
+		m.planningSprintsErr = worker.ErrInvalidRequest
+		return m
+	}
+	m.planningSprintsErr = nil
+	if m.planningSprints == nil {
+		m.planningSprints = make(map[int][]jira.Sprint)
+	}
+	if m.planningSprintPages == nil {
+		m.planningSprintPages = make(map[int]jira.SprintPage)
+	}
+	boardID := result.GetBoardSprints.BoardID
+	m.planningBoardID = boardID
+	m.planningSprintPages[boardID] = result.GetBoardSprints.Page
+	m.planningSprints[boardID] = result.GetBoardSprints.Page.Sprints
+	return m
 }
 
 func (m Model) handleAssigneeSearchResult(result worker.Result) Model {
