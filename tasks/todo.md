@@ -1,5 +1,32 @@
 # Task Plan
 
+## Navigation Related Children
+
+- [x] Add a view-scoped child-loading flag to saved/default issue views.
+- [x] Opt the default Epics view into automatic child issue loading.
+- [x] Gate worker automatic child lookups on that view flag while preserving missing parents, known subtasks, and explicit expansion.
+- [x] Pass the active view child-loading flag through TUI search submissions.
+- [x] Update backlog, project state, changelog, and task review notes.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+- [x] Prepare the completed slice for merge and push.
+
+### Navigation Related Children Scope
+
+Complete the next Navigation and Query backlog item by making richer epic/subtask loading intentional
+per saved view. This slice starts with the default Epics view and does not add sprint/board APIs,
+recursive descendant loading, or runtime UI controls for changing view metadata.
+
+### Navigation Related Children Review
+
+- Added `include_children` issue-view metadata and TOML round-trip support.
+- Enabled automatic related-child loading for the default Epics view.
+- Preserved missing-parent normalization, known Jira subtasks, and explicit `x`/`X` expansion for all views.
+- Gated the worker's extra automatic `parent in (...)` child lookup behind the active view flag.
+- Scoped active-view result caches by normalized JQL plus child-loading mode to avoid same-JQL cache
+  reuse across different view metadata.
+- Verification passed: focused config, worker, and TUI tests; `go test ./... -count=1`;
+  `make check`; and `make install-user`.
+
 ## Comments And Workflow Actions
 
 - [x] Add metadata-backed transition field support for required Resolution and Comment fields.

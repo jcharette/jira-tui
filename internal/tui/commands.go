@@ -16,10 +16,11 @@ func (m Model) submitIssueSearch(requestID int, priority worker.Priority) tea.Cm
 			Kind:        worker.KindSearchIssues,
 			Timeout:     m.requestTimeout,
 			Priority:    priority,
-			CoalesceKey: "search:" + activeViewCacheKey(m.jql),
+			CoalesceKey: "search:" + m.activeIssueViewCacheKey(m.jql),
 			SearchIssues: &worker.SearchIssuesRequest{
-				JQL:        m.jql,
-				MaxResults: maxIssues,
+				JQL:             m.jql,
+				MaxResults:      maxIssues,
+				IncludeChildren: m.activeViewIncludeChildren(),
 			},
 		})
 		if err != nil {

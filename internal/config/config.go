@@ -38,8 +38,9 @@ type Config struct {
 }
 
 type IssueView struct {
-	Name string
-	JQL  string
+	Name            string
+	JQL             string
+	IncludeChildren bool
 }
 
 type Theme struct {
@@ -393,8 +394,9 @@ type viewsConfig struct {
 }
 
 type viewConfig struct {
-	Name string `toml:"name"`
-	JQL  string `toml:"jql"`
+	Name            string `toml:"name"`
+	JQL             string `toml:"jql"`
+	IncludeChildren bool   `toml:"include_children"`
 }
 
 type appearanceConfig struct {
@@ -604,8 +606,9 @@ func DefaultViews(project string) []IssueView {
 			JQL:  fmt.Sprintf("project = %s AND watcher = currentUser() AND resolution = Unresolved ORDER BY updated DESC", project),
 		},
 		{
-			Name: "Epics",
-			JQL:  fmt.Sprintf("project = %s AND issuetype = Epic AND resolution = Unresolved ORDER BY updated DESC", project),
+			Name:            "Epics",
+			JQL:             fmt.Sprintf("project = %s AND issuetype = Epic AND resolution = Unresolved ORDER BY updated DESC", project),
+			IncludeChildren: true,
 		},
 	}
 }
@@ -630,8 +633,9 @@ func viewConfigs(views []IssueView) []viewConfig {
 	configs := make([]viewConfig, 0, len(views))
 	for _, view := range views {
 		configs = append(configs, viewConfig{
-			Name: strings.TrimSpace(view.Name),
-			JQL:  strings.TrimSpace(view.JQL),
+			Name:            strings.TrimSpace(view.Name),
+			JQL:             strings.TrimSpace(view.JQL),
+			IncludeChildren: view.IncludeChildren,
 		})
 	}
 	return configs
@@ -641,8 +645,9 @@ func issueViews(configs []viewConfig) []IssueView {
 	views := make([]IssueView, 0, len(configs))
 	for _, view := range configs {
 		views = append(views, IssueView{
-			Name: strings.TrimSpace(view.Name),
-			JQL:  strings.TrimSpace(view.JQL),
+			Name:            strings.TrimSpace(view.Name),
+			JQL:             strings.TrimSpace(view.JQL),
+			IncludeChildren: view.IncludeChildren,
 		})
 	}
 	return views

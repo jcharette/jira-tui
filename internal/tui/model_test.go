@@ -800,6 +800,8 @@ func TestRenderFullDetailSeparatesMetadataFromTabs(t *testing.T) {
 
 type fakeIssueSearcher struct {
 	issues                 []jira.Issue
+	searchResults          map[string][]jira.Issue
+	searches               []string
 	detail                 jira.IssueDetail
 	comments               []jira.Comment
 	addedComment           jira.Comment
@@ -826,9 +828,15 @@ type fakeIssueSearcher struct {
 	err                    error
 }
 
-func (f *fakeIssueSearcher) SearchIssues(context.Context, string, int) ([]jira.Issue, error) {
+func (f *fakeIssueSearcher) SearchIssues(_ context.Context, jql string, _ int) ([]jira.Issue, error) {
+	f.searches = append(f.searches, jql)
 	if f.err != nil {
 		return nil, f.err
+	}
+	if f.searchResults != nil {
+		if issues, ok := f.searchResults[jql]; ok {
+			return issues, nil
+		}
 	}
 	if f.issues != nil {
 		return f.issues, nil

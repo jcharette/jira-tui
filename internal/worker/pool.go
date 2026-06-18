@@ -99,8 +99,9 @@ type Request struct {
 }
 
 type SearchIssuesRequest struct {
-	JQL        string
-	MaxResults int
+	JQL             string
+	MaxResults      int
+	IncludeChildren bool
 }
 
 type GetIssueRequest struct {
@@ -1142,7 +1143,9 @@ func (p *Pool) handleSearchIssues(request Request) Result {
 	}
 	issues = p.withMissingParents(ctx, issues)
 	issues = withKnownSubtasks(issues)
-	issues = p.withChildIssues(ctx, issues, request.SearchIssues.MaxResults)
+	if request.SearchIssues.IncludeChildren {
+		issues = p.withChildIssues(ctx, issues, request.SearchIssues.MaxResults)
+	}
 
 	return Result{
 		ID:   request.ID,

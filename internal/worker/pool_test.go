@@ -155,8 +155,9 @@ func TestPoolSearchIssuesFetchesChildIssues(t *testing.T) {
 		ID:   7,
 		Kind: KindSearchIssues,
 		SearchIssues: &SearchIssuesRequest{
-			JQL:        "project = ABC",
-			MaxResults: 50,
+			JQL:             "project = ABC",
+			MaxResults:      50,
+			IncludeChildren: true,
 		},
 	})
 	if err != nil {
@@ -172,6 +173,46 @@ func TestPoolSearchIssuesFetchesChildIssues(t *testing.T) {
 	for index := range want {
 		if keys[index] != want[index] {
 			t.Fatalf("keys = %#v", keys)
+		}
+	}
+}
+
+func TestPoolSearchIssuesSkipsChildIssuesUnlessRequested(t *testing.T) {
+	searcher := &fakeIssueSearcher{
+		issues: []jira.Issue{
+			{Key: "ABC-1", Summary: "Parent", IssueType: "Story"},
+		},
+		searchResults: map[string][]jira.Issue{
+			"parent in (ABC-1) ORDER BY key ASC": {
+				{Key: "ABC-2", Summary: "Child", IssueType: "Story", ParentKey: "ABC-1"},
+			},
+		},
+	}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:   17,
+		Kind: KindSearchIssues,
+		SearchIssues: &SearchIssuesRequest{
+			JQL:        "project = ABC",
+			MaxResults: 50,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if len(result.SearchIssues.Issues) != 1 || result.SearchIssues.Issues[0].Key != "ABC-1" {
+		t.Fatalf("Issues = %#v", result.SearchIssues.Issues)
+	}
+	for _, jql := range searcher.searches {
+		if jql == "parent in (ABC-1) ORDER BY key ASC" {
+			t.Fatalf("unexpected child lookup query: searches=%#v", searcher.searches)
 		}
 	}
 }
@@ -1184,6 +1225,7 @@ func searchRequest(id int) Request {
 type fakeIssueSearcher struct {
 	issues                 []jira.Issue
 	searchResults          map[string][]jira.Issue
+	searches               []string
 	detail                 jira.IssueDetail
 	details                map[string]jira.IssueDetail
 	comments               []jira.Comment
@@ -1216,6 +1258,7 @@ type fakeIssueSearcher struct {
 }
 
 func (f *fakeIssueSearcher) SearchIssues(_ context.Context, jql string, _ int) ([]jira.Issue, error) {
+	f.searches = append(f.searches, jql)
 	if f.err != nil {
 		return nil, f.err
 	}

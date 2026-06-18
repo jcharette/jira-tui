@@ -8,8 +8,6 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
 
 ## Next: Navigation And Query
 
-- Improve epic and subtask support beyond current-result grouping by explicitly loading related
-  children when the selected view needs them.
 - Add sprint and board support with incremental loading for sprint data.
 - Add configuration file support for saved profiles and default queries.
 - Add bounded concurrency controls for sprint and board fetches when parallel loading expands beyond

@@ -151,6 +151,60 @@ func TestDefaultViewsIncludeEpicFocusedView(t *testing.T) {
 			t.Fatalf("Epics JQL = %q, missing %q", epics.JQL, want)
 		}
 	}
+	if !epics.IncludeChildren {
+		t.Fatalf("Epics IncludeChildren = false, want true")
+	}
+	for _, view := range views {
+		if view.Name != "Epics" && view.IncludeChildren {
+			t.Fatalf("%s IncludeChildren = true, want false", view.Name)
+		}
+	}
+}
+
+func TestLoadReadsViewIncludeChildren(t *testing.T) {
+	path := writeConfig(t, `
+version = 1
+active_profile = "default"
+
+[profiles.default]
+base_url = "https://example.atlassian.net"
+email = "person@example.com"
+api_token = "secret"
+
+[queries]
+default_project = "ABC"
+
+[views]
+active = "Epics"
+
+[[views.saved]]
+name = "Assigned"
+jql = "assignee = currentUser()"
+
+[[views.saved]]
+name = "Epics"
+jql = "issuetype = Epic"
+include_children = true
+`)
+
+	cfg, err := Load(LoadOptions{Path: path})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	assigned, ok := findView(cfg.Views, "Assigned")
+	if !ok {
+		t.Fatalf("missing Assigned view in %#v", cfg.Views)
+	}
+	if assigned.IncludeChildren {
+		t.Fatalf("Assigned IncludeChildren = true, want false")
+	}
+	epics, ok := findView(cfg.Views, "Epics")
+	if !ok {
+		t.Fatalf("missing Epics view in %#v", cfg.Views)
+	}
+	if !epics.IncludeChildren {
+		t.Fatalf("Epics IncludeChildren = false, want true")
+	}
 }
 
 func TestAddSavedViewAppendsTrimmedViewAndPreservesActiveView(t *testing.T) {
@@ -163,8 +217,9 @@ func TestAddSavedViewAppendsTrimmedViewAndPreservesActiveView(t *testing.T) {
 	cfg.ActiveView = "Assigned"
 
 	next, err := AddSavedView(cfg, IssueView{
-		Name: "  My Active Work  ",
-		JQL:  "  project = ABC AND status = \"In Progress\"  ",
+		Name:            "  My Active Work  ",
+		JQL:             "  project = ABC AND status = \"In Progress\"  ",
+		IncludeChildren: true,
 	})
 	if err != nil {
 		t.Fatalf("AddSavedView() error = %v", err)
@@ -177,7 +232,7 @@ func TestAddSavedViewAppendsTrimmedViewAndPreservesActiveView(t *testing.T) {
 		t.Fatalf("Views count = %d, want 2", len(next.Views))
 	}
 	got := next.Views[1]
-	if got.Name != "My Active Work" || got.JQL != "project = ABC AND status = \"In Progress\"" {
+	if got.Name != "My Active Work" || got.JQL != "project = ABC AND status = \"In Progress\"" || !got.IncludeChildren {
 		t.Fatalf("saved view = %#v", got)
 	}
 	if len(cfg.Views) != 1 {

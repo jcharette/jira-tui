@@ -122,6 +122,7 @@ jql = "project = ABC AND watcher = currentUser() AND resolution = Unresolved ORD
 [[views.saved]]
 name = "Epics"
 jql = "project = ABC AND issuetype = Epic AND resolution = Unresolved ORDER BY updated DESC"
+include_children = true
 
 [appearance]
 primary = "#7DD3FC"
@@ -283,6 +284,11 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
 - Issue search results are normalized in the worker pool by fetching missing parent issues for any
   returned children, so the visible list can stack children under real parent rows even when the
   saved JQL did not include the parent.
+- Saved issue views can opt into automatic child loading with `include_children = true`. The default
+  Epics view enables this so epic rows load direct child issues without changing the saved-view JQL;
+  ordinary views leave it off to avoid extra child-search Jira reads. Active-view result caches are
+  scoped by both normalized JQL and the child-loading mode so same-JQL views do not share incompatible
+  result sets.
 - When Jira includes subtask issue data on a visible parent, the worker adds those subtasks to the
   issue set so they render as nested rows instead of hidden-count metadata.
 - Issue tables support explicit parent expansion without changing the active saved view: `x` loads

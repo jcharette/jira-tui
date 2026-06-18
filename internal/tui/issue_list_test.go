@@ -265,6 +265,32 @@ func TestSwitchViewUsesFreshCachedIssueViewWithoutRefresh(t *testing.T) {
 	}
 }
 
+func TestSwitchViewDoesNotShareActiveViewCacheAcrossChildLoadingModes(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.Local)
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithViews([]config.IssueView{
+			{Name: "Plain", JQL: "project = ABC"},
+			{Name: "Hierarchy", JQL: "project = ABC", IncludeChildren: true},
+		}, "Plain"),
+	)
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.loading = false
+	model.cacheActiveIssueView("project = ABC", []jira.Issue{{Key: "ABC-1", Summary: "Plain cache"}}, now.Add(-10*time.Second))
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "]", Code: ']'}))
+	next := updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("child-loading view with same JQL should submit a refresh instead of sharing plain cache")
+	}
+	if !next.loading {
+		t.Fatal("child-loading view should load independently when only plain cache exists")
+	}
+}
+
 func TestNewModelHydratesFreshPersistentActiveView(t *testing.T) {
 	now := time.Now()
 	store := newFakeActiveViewStore()
@@ -2237,6 +2263,74 @@ func TestSubmitIssueSearchReturnsLoadedResultFromPool(t *testing.T) {
 		t.Fatalf("requestID = %d", loaded.result.ID)
 	}
 	if len(loaded.result.SearchIssues.Issues) != 1 || loaded.result.SearchIssues.Issues[0].Key != "ABC-9" {
+		t.Fatalf("issues = %#v", loaded.result.SearchIssues.Issues)
+	}
+}
+
+func TestSubmitIssueSearchSkipsChildrenForOrdinaryView(t *testing.T) {
+	searcher := &fakeIssueSearcher{
+		issues: []jira.Issue{{Key: "ABC-1", Summary: "Assigned story", IssueType: "Story"}},
+		searchResults: map[string][]jira.Issue{
+			"parent in (ABC-1) ORDER BY key ASC": {
+				{Key: "ABC-2", Summary: "Child story", IssueType: "Story", ParentKey: "ABC-1"},
+			},
+		},
+	}
+	model := NewModel(searcher, "assignee = currentUser()", WithViews([]config.IssueView{
+		{Name: "Assigned", JQL: "assignee = currentUser()"},
+		{Name: "Epics", JQL: "issuetype = Epic", IncludeChildren: true},
+	}, "Assigned"))
+	defer model.workers.Stop()
+
+	msg := model.submitIssueSearch(10, worker.PriorityForeground)()
+	if _, ok := msg.(workSubmittedMsg); !ok {
+		t.Fatalf("msg = %T", msg)
+	}
+
+	resultMsg := model.waitForWorkerResult()()
+	loaded, ok := resultMsg.(workerResultMsg)
+	if !ok {
+		t.Fatalf("resultMsg = %T", resultMsg)
+	}
+	if len(loaded.result.SearchIssues.Issues) != 1 || loaded.result.SearchIssues.Issues[0].Key != "ABC-1" {
+		t.Fatalf("issues = %#v", loaded.result.SearchIssues.Issues)
+	}
+	for _, jql := range searcher.searches {
+		if jql == "parent in (ABC-1) ORDER BY key ASC" {
+			t.Fatalf("unexpected child lookup query: searches=%#v", searcher.searches)
+		}
+	}
+}
+
+func TestSubmitIssueSearchIncludesChildrenForActiveView(t *testing.T) {
+	searcher := &fakeIssueSearcher{
+		issues: []jira.Issue{{Key: "ABC-1", Summary: "Epic", IssueType: "Epic"}},
+		searchResults: map[string][]jira.Issue{
+			"parent in (ABC-1) ORDER BY key ASC": {
+				{Key: "ABC-2", Summary: "Child story", IssueType: "Story", ParentKey: "ABC-1"},
+			},
+		},
+	}
+	model := NewModel(searcher, "assignee = currentUser()", WithViews([]config.IssueView{
+		{Name: "Assigned", JQL: "assignee = currentUser()"},
+		{Name: "Epics", JQL: "issuetype = Epic", IncludeChildren: true},
+	}, "Epics"))
+	defer model.workers.Stop()
+
+	msg := model.submitIssueSearch(11, worker.PriorityForeground)()
+	if _, ok := msg.(workSubmittedMsg); !ok {
+		t.Fatalf("msg = %T", msg)
+	}
+
+	resultMsg := model.waitForWorkerResult()()
+	loaded, ok := resultMsg.(workerResultMsg)
+	if !ok {
+		t.Fatalf("resultMsg = %T", resultMsg)
+	}
+	if len(loaded.result.SearchIssues.Issues) != 2 {
+		t.Fatalf("issues = %#v", loaded.result.SearchIssues.Issues)
+	}
+	if loaded.result.SearchIssues.Issues[0].Key != "ABC-1" || loaded.result.SearchIssues.Issues[1].Key != "ABC-2" {
 		t.Fatalf("issues = %#v", loaded.result.SearchIssues.Issues)
 	}
 }

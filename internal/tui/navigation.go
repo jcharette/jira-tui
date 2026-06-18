@@ -226,6 +226,13 @@ func (m Model) activeViewName() string {
 	return m.views[m.view].Name
 }
 
+func (m Model) activeViewIncludeChildren() bool {
+	if len(m.views) == 0 || m.view < 0 || m.view >= len(m.views) {
+		return false
+	}
+	return m.views[m.view].IncludeChildren
+}
+
 func (m *Model) moveSelection(delta int) {
 	if len(m.issues) == 0 {
 		m.selected = 0
