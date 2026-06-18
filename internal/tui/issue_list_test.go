@@ -660,6 +660,45 @@ func TestIssueListViewportShowsSelectedWindow(t *testing.T) {
 	}
 }
 
+func TestIssueListFirstLastNavigationRendersSelectedWindow(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.height = 20
+	model.width = 100
+	for i := 0; i < 18; i++ {
+		model.issues = append(model.issues, jira.Issue{
+			Key:       fmt.Sprintf("ABC-%d", i+1),
+			Summary:   fmt.Sprintf("Issue number %d", i+1),
+			Status:    "To Do",
+			Priority:  "P2",
+			IssueType: "Task",
+		})
+	}
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "G", Code: 'G'}))
+	next := updated.(Model)
+
+	if next.selected != len(next.issues)-1 {
+		t.Fatalf("selected after G = %d, want %d", next.selected, len(next.issues)-1)
+	}
+	bottomView := next.renderIssueList(next.browserLayout(next.width))
+	if !strings.Contains(bottomView, "ABC-18") || strings.Contains(bottomView, "ABC-1 ") {
+		t.Fatalf("last issue should be visible without first row, view = %q", bottomView)
+	}
+
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "g", Code: 'g'}))
+	next = updated.(Model)
+
+	if next.selected != 0 || next.offset != 0 {
+		t.Fatalf("after g selected=%d offset=%d, want first row at top", next.selected, next.offset)
+	}
+	topView := next.renderIssueList(next.browserLayout(next.width))
+	if !strings.Contains(topView, "ABC-1") || strings.Contains(topView, "ABC-18") {
+		t.Fatalf("first issue should be visible without last row, view = %q", topView)
+	}
+}
+
 func TestIssueListViewportUsesRenderedTreeRows(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "symbols"}))
 	defer model.workers.Stop()

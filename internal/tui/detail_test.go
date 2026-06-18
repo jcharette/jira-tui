@@ -435,6 +435,40 @@ func TestDetailPageDownScrollsDetailInsteadOfChangingIssue(t *testing.T) {
 	}
 }
 
+func TestDetailEscReturnsToTablePreservingSelection(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 30
+	model.selected = 1
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "First issue"},
+		{Key: "ABC-2", Summary: "Selected issue"},
+	}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-2": {Issue: jira.Issue{Key: "ABC-2", Summary: "Selected issue"}},
+	}
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "esc", Code: tea.KeyEsc}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("esc from detail should not submit work")
+	}
+	if next.mode != modeTable {
+		t.Fatalf("mode = %v, want table", next.mode)
+	}
+	if next.selected != 1 || next.issues[next.selected].Key != "ABC-2" {
+		t.Fatalf("selected issue changed: selected=%d issues=%#v", next.selected, next.issues)
+	}
+	view := next.render()
+	if !strings.Contains(view, "Issue Table") || !strings.Contains(view, "ABC-2") {
+		t.Fatalf("table view should render selected issue after esc: %q", view)
+	}
+}
+
 func TestDetailLinksCanBeFocusedSelectedAndCopied(t *testing.T) {
 	var copied string
 	withLinkActions(t, func(string) error { return nil }, func(value string) error {
@@ -559,6 +593,36 @@ func TestDetailSectionNavigationJumpsBetweenSections(t *testing.T) {
 	next = updated.(Model)
 	if next.focusedDetailTargetID() != "description" || next.detailOffset != 0 {
 		t.Fatalf("expected [ to select previous focus target at its saved scroll, target=%q offset=%d", next.focusedDetailTargetID(), next.detailOffset)
+	}
+}
+
+func TestDetailSectionNavigationRendersContextFooter(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 140
+	model.height = 36
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", URL: "https://example.test/browse/ABC-1"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {
+			Issue:       jira.Issue{Key: "ABC-1", Summary: "Story", URL: "https://example.test/browse/ABC-1"},
+			Description: "See https://example.test/build.",
+		},
+	}
+	focusDetailSectionForTest(t, &model, "Description")
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "l", Code: 'l'}))
+	next := updated.(Model)
+
+	view := next.render()
+	for _, want := range []string{"Links", "j/k link", "o/enter open", "y copy"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("links footer missing %q in %q", want, view)
+		}
+	}
+	if strings.Contains(view, "j/k scroll") {
+		t.Fatalf("links footer should replace generic detail scrolling hints: %q", view)
 	}
 }
 

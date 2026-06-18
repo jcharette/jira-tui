@@ -1,5 +1,31 @@
 # Task Plan
 
+## TUI Navigation And Rendering Tests
+
+- [x] Add focused issue-list navigation/rendering regression tests.
+- [x] Add focused detail navigation/rendering regression tests.
+- [x] Update backlog/changelog/project docs for completed coverage.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+- [ ] Merge and push the completed slice.
+
+### TUI Navigation And Rendering Tests Scope
+
+Complete the broad `Now: Read And View` backlog item for TUI navigation and rendering tests with
+focused coverage around existing issue-list and detail contracts. This slice should not add new UI
+behavior, Jira reads, worker flows, or new packages.
+
+### TUI Navigation And Rendering Tests Review
+
+- Added issue-list coverage for `G`/`g` first/last navigation and selected-window rendering.
+- Added detail coverage for `esc` returning to the issue table without changing selected issue
+  context.
+- Added focused Links footer coverage so selected-section and focused-section footer contexts stay
+  distinct.
+- Updated backlog, project state, and changelog docs to mark the broad test item complete while
+  keeping future coverage paired with new surfaces.
+- Verified with focused TUI tests, `go test ./... -count=1`, `make check`, and
+  `make install-user`.
+
 ## Packaging Install Story
 
 - [x] Add a `cmd/jira` package for versioned `go install` so the installed binary is named `jira`.

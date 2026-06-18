@@ -1,6 +1,6 @@
 # Project State
 
-Last updated: 2026-06-17
+Last updated: 2026-06-18
 
 ## Goal
 
@@ -64,6 +64,12 @@ Run the standard verification loop:
 ```bash
 make check
 ```
+
+Current TUI navigation and rendering regression coverage includes issue-table paging and
+first/last jumps, selected-window rendering, local active filtering, subtree collapse projection,
+detail-mode section navigation and scroll memory, context-specific footer hints, focused Links /
+Hierarchy / Actions behavior, help overlay rendering, and minimum-terminal warnings. New TUI
+surfaces should keep adding focused regression tests in the same workflow test files.
 
 ## Current Configuration
 

@@ -4,6 +4,9 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Added focused TUI regression coverage for issue-list first/last navigation rendering, detail
+  escape navigation, and focused Links footer context.
+
 ## 0.2.1 - 2026-06-17
 
 - Added a `cmd/jira` package for versioned `go install` installs, corrected the Go module path to

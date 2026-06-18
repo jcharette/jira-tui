@@ -22,7 +22,8 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
   code, code blocks, lists, blockquotes, panels/statuses, and tables now have focused TUI coverage.
 - Continue rich comment composition support with Jira mentions and formatting controls on top of
   the bounded multi-line comment editor and detected-link/ADF-link support.
-- Add tests around TUI navigation and rendering.
+- Keep TUI navigation and rendering regression coverage paired with new issue-list, detail, and
+  modal surfaces as they land.
 - Audit key bindings across every active context so commands stay clear: keep conventional
   navigation aliases, but remove redundant semantic paths where two unrelated keys do the same
   workflow.
