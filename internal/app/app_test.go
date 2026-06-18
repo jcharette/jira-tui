@@ -17,6 +17,24 @@ func TestNewRootCommandUsesJiraCommandName(t *testing.T) {
 	}
 }
 
+func TestNewRootCommandExposesProfileFlag(t *testing.T) {
+	cmd := NewRootCommand()
+	flag := cmd.PersistentFlags().Lookup("profile")
+	if flag == nil {
+		t.Fatal("expected --profile persistent flag")
+	}
+	if flag.DefValue != "" {
+		t.Fatalf("profile default = %q", flag.DefValue)
+	}
+	configCmd, _, err := cmd.Find([]string{"config"})
+	if err != nil {
+		t.Fatalf("Find(config) error = %v", err)
+	}
+	if configCmd.InheritedFlags().Lookup("profile") == nil && configCmd.Flags().Lookup("profile") == nil {
+		t.Fatal("expected config command to inherit --profile")
+	}
+}
+
 func TestSavedViewWriterPersistsViewToConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	cfg := config.Defaults()

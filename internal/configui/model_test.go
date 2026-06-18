@@ -95,6 +95,7 @@ func TestRenderShowsClaudeSection(t *testing.T) {
 
 func TestConfigFromFieldsIncludesClaudeSettings(t *testing.T) {
 	cfg := config.Defaults()
+	cfg.ActiveProfile = "work"
 	cfg.BaseURL = "https://example.atlassian.net"
 	cfg.Email = "person@example.com"
 	cfg.APIToken = "secret"
@@ -124,6 +125,35 @@ func TestConfigFromFieldsIncludesClaudeSettings(t *testing.T) {
 	}
 	if !cfg.Claude.Gates.RequireConfirmation || !cfg.Claude.Gates.AllowGitWrites {
 		t.Fatalf("Claude.Gates = %#v", cfg.Claude.Gates)
+	}
+	if cfg.ActiveProfile != "work" {
+		t.Fatalf("ActiveProfile = %q", cfg.ActiveProfile)
+	}
+}
+
+func TestConfigFromFieldsIncludesEditedActiveProfile(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.ActiveProfile = "default"
+	cfg.BaseURL = "https://example.atlassian.net"
+	cfg.Email = "person@example.com"
+	cfg.APIToken = "secret"
+	cfg.DefaultProject = "ABC"
+	cfg.DefaultJQL = config.DefaultJQLForProject("ABC")
+	cfg.Views = config.DefaultViews("ABC")
+	cfg.ActiveView = cfg.Views[0].Name
+	model := NewModel("/tmp/jira.toml", cfg, nil)
+	setFieldForTest(&model, "Active Profile", "work")
+
+	next, err := model.Config()
+	if err != nil {
+		t.Fatalf("Config() error = %v", err)
+	}
+
+	if next.ActiveProfile != "work" {
+		t.Fatalf("ActiveProfile = %q", next.ActiveProfile)
+	}
+	if value := fieldValueForTest(model, "Active Profile"); value != "work" {
+		t.Fatalf("Active Profile field = %q", value)
 	}
 }
 

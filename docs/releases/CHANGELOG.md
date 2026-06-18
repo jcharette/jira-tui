@@ -4,6 +4,8 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Added durable saved profile support for config files, including retained non-active profiles,
+  `--profile` selection for the main app and config editor, and active-profile editing in config UI.
 - Added worker-backed Jira Agile board and sprint metadata loading for sprint-oriented views,
   including pagination-aware board/sprint pages, compact header sprint state, and Diagnostics
   entries for Agile reads without changing issue queries.

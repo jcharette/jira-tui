@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -21,19 +22,21 @@ func Execute() error {
 }
 
 func NewRootCommand() *cobra.Command {
+	var profile string
 	root := &cobra.Command{
 		Use:   "jira",
 		Short: "Browse Jira from the terminal",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runApp()
+			return runApp(profile)
 		},
 	}
+	root.PersistentFlags().StringVar(&profile, "profile", "", "use a named Jira profile from config")
 
 	configCmd := &cobra.Command{
 		Use:   "config",
 		Short: "Edit Jira TUI configuration",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, err := runConfig()
+			_, err := runConfig(profile)
 			return err
 		},
 	}
@@ -42,20 +45,20 @@ func NewRootCommand() *cobra.Command {
 	return root
 }
 
-func runApp() error {
-	cfg, err := config.Load(config.LoadOptions{})
+func runApp(profile string) error {
+	cfg, err := config.Load(config.LoadOptions{Profile: profile})
 	if err != nil {
 		if !config.IsValidationError(err) {
 			return fmt.Errorf("config error: %w", err)
 		}
-		saved, configErr := runConfig()
+		saved, configErr := runConfig(profile)
 		if configErr != nil {
 			return configErr
 		}
 		if !saved {
 			return fmt.Errorf("config is required before starting Jira TUI")
 		}
-		cfg, err = config.Load(config.LoadOptions{})
+		cfg, err = config.Load(config.LoadOptions{Profile: profile})
 		if err != nil {
 			return fmt.Errorf("config error: %w", err)
 		}
@@ -114,7 +117,7 @@ func runApp() error {
 			defer cancel()
 			_, _ = cacheStore.DeleteRowsUpdatedBefore(ctx, time.Now().Add(-cache.DefaultCleanupMaxAge))
 		}()
-		options = append(options, jiratui.WithActiveViewStore(cacheStore, cfg.BaseURL))
+		options = append(options, jiratui.WithActiveViewStore(cacheStore, activeViewNamespace(cfg)))
 	}
 	model := jiratui.NewModel(client, cfg.DefaultJQL, options...)
 
@@ -138,8 +141,8 @@ func savedViewWriter(path string, cfg *config.Config) jiratui.SavedViewWriter {
 	}
 }
 
-func runConfig() (bool, error) {
-	cfg, path, problems, err := config.LoadEditable(config.LoadOptions{})
+func runConfig(profile string) (bool, error) {
+	cfg, path, problems, err := config.LoadEditable(config.LoadOptions{Profile: profile})
 	if err != nil {
 		return false, fmt.Errorf("config error: %w", err)
 	}
@@ -153,4 +156,12 @@ func runConfig() (bool, error) {
 		return false, fmt.Errorf("config runtime returned unexpected model")
 	}
 	return configModel.Saved(), nil
+}
+
+func activeViewNamespace(cfg config.Config) string {
+	profile := strings.TrimSpace(cfg.ActiveProfile)
+	if profile == "" || profile == "default" {
+		return cfg.BaseURL
+	}
+	return cfg.BaseURL + " profile:" + profile
 }

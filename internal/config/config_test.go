@@ -114,6 +114,108 @@ allow_code_edits = false
 	}
 }
 
+func TestLoadUsesRequestedProfileAndRetainsProfiles(t *testing.T) {
+	path := writeConfig(t, `
+version = 1
+active_profile = "default"
+
+[profiles.default]
+base_url = "https://default.atlassian.net"
+email = "default@example.com"
+api_token = "default-token"
+
+[profiles.work]
+base_url = "https://work.atlassian.net/"
+email = "work@example.com"
+api_token = "work-token"
+
+[queries]
+default_project = "ABC"
+`)
+
+	cfg, err := Load(LoadOptions{Path: path, Profile: "work"})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.ActiveProfile != "work" {
+		t.Fatalf("ActiveProfile = %q", cfg.ActiveProfile)
+	}
+	if cfg.BaseURL != "https://work.atlassian.net" || cfg.Email != "work@example.com" || cfg.APIToken != "work-token" {
+		t.Fatalf("selected credentials = %#v", cfg)
+	}
+	if len(cfg.Profiles) != 2 {
+		t.Fatalf("Profiles = %#v", cfg.Profiles)
+	}
+	if cfg.Profiles["default"].Email != "default@example.com" || cfg.Profiles["work"].Email != "work@example.com" {
+		t.Fatalf("Profiles = %#v", cfg.Profiles)
+	}
+}
+
+func TestLoadRejectsUnknownRequestedProfile(t *testing.T) {
+	path := writeConfig(t, `
+version = 1
+active_profile = "default"
+
+[profiles.default]
+base_url = "https://default.atlassian.net"
+email = "default@example.com"
+api_token = "default-token"
+
+[queries]
+default_project = "ABC"
+`)
+
+	_, err := Load(LoadOptions{Path: path, Profile: "missing"})
+	if err == nil || !strings.Contains(err.Error(), `profile "missing" is not defined`) {
+		t.Fatalf("Load() error = %v", err)
+	}
+}
+
+func TestSavePreservesNonActiveProfiles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jira", "config.toml")
+	cfg := Defaults()
+	cfg.ActiveProfile = "work"
+	cfg.Profiles = map[string]Profile{
+		"default": {
+			BaseURL:  "https://default.atlassian.net",
+			Email:    "default@example.com",
+			APIToken: "default-token",
+		},
+		"work": {
+			BaseURL:  "https://old-work.atlassian.net",
+			Email:    "old-work@example.com",
+			APIToken: "old-work-token",
+		},
+	}
+	cfg.BaseURL = "https://work.atlassian.net"
+	cfg.Email = "work@example.com"
+	cfg.APIToken = "work-token"
+	cfg.DefaultProject = "ABC"
+	cfg.DefaultJQL = DefaultJQLForProject("ABC")
+	cfg.Views = DefaultViews("ABC")
+	cfg.ActiveView = cfg.Views[0].Name
+
+	if err := Save(path, cfg); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	work, err := Load(LoadOptions{Path: path, Profile: "work"})
+	if err != nil {
+		t.Fatalf("Load(work) error = %v", err)
+	}
+	if work.BaseURL != "https://work.atlassian.net" || work.Email != "work@example.com" || work.APIToken != "work-token" {
+		t.Fatalf("work profile credentials = %#v", work)
+	}
+	defaultProfile, err := Load(LoadOptions{Path: path, Profile: "default"})
+	if err != nil {
+		t.Fatalf("Load(default) error = %v", err)
+	}
+	if defaultProfile.BaseURL != "https://default.atlassian.net" || defaultProfile.Email != "default@example.com" || defaultProfile.APIToken != "default-token" {
+		t.Fatalf("default profile credentials = %#v", defaultProfile)
+	}
+}
+
 func TestDefaultsDisableClaudeWithSafeGates(t *testing.T) {
 	cfg := Defaults()
 
@@ -212,6 +314,14 @@ func TestAddSavedViewAppendsTrimmedViewAndPreservesActiveView(t *testing.T) {
 	cfg.BaseURL = "https://example.atlassian.net"
 	cfg.Email = "person@example.com"
 	cfg.APIToken = "secret"
+	cfg.ActiveProfile = "default"
+	cfg.Profiles = map[string]Profile{
+		"default": {
+			BaseURL:  "https://example.atlassian.net",
+			Email:    "person@example.com",
+			APIToken: "secret",
+		},
+	}
 	cfg.DefaultProject = "ABC"
 	cfg.Views = []IssueView{{Name: "Assigned", JQL: "assignee = currentUser()"}}
 	cfg.ActiveView = "Assigned"
@@ -327,6 +437,14 @@ func TestSaveWritesConfigFileWithPrivatePermissions(t *testing.T) {
 	cfg.BaseURL = "https://example.atlassian.net"
 	cfg.Email = "person@example.com"
 	cfg.APIToken = "secret"
+	cfg.ActiveProfile = "default"
+	cfg.Profiles = map[string]Profile{
+		"default": {
+			BaseURL:  "https://example.atlassian.net",
+			Email:    "person@example.com",
+			APIToken: "secret",
+		},
+	}
 	cfg.DefaultProject = "ABC"
 	cfg.DefaultJQL = DefaultJQLForProject("ABC")
 	cfg.Views = DefaultViews("ABC")

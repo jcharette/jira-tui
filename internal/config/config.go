@@ -24,6 +24,8 @@ type Config struct {
 	BaseURL         string
 	Email           string
 	APIToken        string
+	ActiveProfile   string
+	Profiles        map[string]Profile
 	DefaultProject  string
 	DefaultJQL      string
 	ActiveView      string
@@ -35,6 +37,12 @@ type Config struct {
 	WorkerCount     int
 	QueueSize       int
 	Claude          Claude
+}
+
+type Profile struct {
+	BaseURL  string
+	Email    string
+	APIToken string
 }
 
 type IssueView struct {
@@ -89,7 +97,8 @@ type ClaudeGates struct {
 }
 
 type LoadOptions struct {
-	Path string
+	Path    string
+	Profile string
 }
 
 type ValidationError struct {
@@ -115,6 +124,7 @@ func DefaultPath() (string, error) {
 
 func Defaults() Config {
 	return Config{
+		ActiveProfile:   "default",
 		DefaultJQL:      defaultJQL,
 		Theme:           DefaultTheme(),
 		Display:         DefaultDisplay(),
@@ -161,7 +171,7 @@ func Load(options LoadOptions) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	if err := applyFile(&cfg, fileCfg); err != nil {
+	if err := applyFile(&cfg, fileCfg, options.Profile); err != nil {
 		return Config{}, err
 	}
 	ensureViews(&cfg)
@@ -189,7 +199,7 @@ func LoadEditable(options LoadOptions) (Config, string, []string, error) {
 	if err != nil {
 		return Config{}, "", nil, err
 	}
-	if err := applyFile(&cfg, fileCfg); err != nil {
+	if err := applyFile(&cfg, fileCfg, options.Profile); err != nil {
 		return Config{}, "", nil, err
 	}
 	ensureViews(&cfg)
@@ -222,16 +232,13 @@ func Save(path string, cfg Config) error {
 		return fmt.Errorf("secure config directory: %w", err)
 	}
 
+	activeProfile := normalizeProfileName(cfg.ActiveProfile)
+	profiles := profilesForSave(cfg, activeProfile)
+
 	fileCfg := fileConfig{
 		Version:       currentVersion,
-		ActiveProfile: "default",
-		Profiles: map[string]profileConfig{
-			"default": {
-				BaseURL:  cfg.BaseURL,
-				Email:    cfg.Email,
-				APIToken: cfg.APIToken,
-			},
-		},
+		ActiveProfile: activeProfile,
+		Profiles:      profileConfigs(profiles),
 		Queries: queriesConfig{
 			DefaultProject: cfg.DefaultProject,
 			DefaultJQL:     cfg.DefaultJQL,
@@ -466,15 +473,23 @@ func readFile(path string) (fileConfig, error) {
 	return fileCfg, nil
 }
 
-func applyFile(cfg *Config, fileCfg fileConfig) error {
-	profileName := strings.TrimSpace(fileCfg.ActiveProfile)
+func applyFile(cfg *Config, fileCfg fileConfig, requestedProfile string) error {
+	savedProfile := normalizeProfileName(fileCfg.ActiveProfile)
+	profileName := strings.TrimSpace(requestedProfile)
 	if profileName == "" {
-		profileName = "default"
+		profileName = savedProfile
 	}
-	if profile, ok := fileCfg.Profiles[profileName]; ok {
-		cfg.BaseURL = normalizeBaseURL(profile.BaseURL)
-		cfg.Email = strings.TrimSpace(profile.Email)
-		cfg.APIToken = strings.TrimSpace(profile.APIToken)
+	profileName = normalizeProfileName(profileName)
+	cfg.ActiveProfile = profileName
+	cfg.Profiles = profilesFromConfig(fileCfg.Profiles)
+	if len(cfg.Profiles) > 0 {
+		profile, ok := cfg.Profiles[profileName]
+		if !ok {
+			return fmt.Errorf("profile %q is not defined", profileName)
+		}
+		cfg.BaseURL = profile.BaseURL
+		cfg.Email = profile.Email
+		cfg.APIToken = profile.APIToken
 	}
 	if strings.TrimSpace(fileCfg.Queries.DefaultJQL) != "" {
 		cfg.DefaultJQL = strings.TrimSpace(fileCfg.Queries.DefaultJQL)
@@ -547,6 +562,73 @@ func applyFile(cfg *Config, fileCfg fileConfig) error {
 
 func boolPtr(value bool) *bool {
 	return &value
+}
+
+func normalizeProfileName(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "default"
+	}
+	return value
+}
+
+func profilesFromConfig(configs map[string]profileConfig) map[string]Profile {
+	if len(configs) == 0 {
+		return nil
+	}
+	profiles := make(map[string]Profile, len(configs))
+	for name, profile := range configs {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		profiles[name] = Profile{
+			BaseURL:  normalizeBaseURL(profile.BaseURL),
+			Email:    strings.TrimSpace(profile.Email),
+			APIToken: strings.TrimSpace(profile.APIToken),
+		}
+	}
+	return profiles
+}
+
+func profilesForSave(cfg Config, activeProfile string) map[string]Profile {
+	profiles := make(map[string]Profile, len(cfg.Profiles)+1)
+	for name, profile := range cfg.Profiles {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		profiles[name] = Profile{
+			BaseURL:  normalizeBaseURL(profile.BaseURL),
+			Email:    strings.TrimSpace(profile.Email),
+			APIToken: strings.TrimSpace(profile.APIToken),
+		}
+	}
+	profiles[activeProfile] = Profile{
+		BaseURL:  normalizeBaseURL(cfg.BaseURL),
+		Email:    strings.TrimSpace(cfg.Email),
+		APIToken: strings.TrimSpace(cfg.APIToken),
+	}
+	return profiles
+}
+
+func profileConfigs(profiles map[string]Profile) map[string]profileConfig {
+	if len(profiles) == 0 {
+		return nil
+	}
+	configs := make(map[string]profileConfig, len(profiles))
+	for name, profile := range profiles {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		configs[name] = profileConfig{
+			BaseURL:  normalizeBaseURL(profile.BaseURL),
+			Email:    strings.TrimSpace(profile.Email),
+			APIToken: strings.TrimSpace(profile.APIToken),
+		}
+	}
+	return configs
 }
 
 func parsePositiveInt(name string, value string) (int, error) {

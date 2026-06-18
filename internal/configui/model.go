@@ -94,6 +94,7 @@ func NewModel(path string, cfg config.Config, problems []string) Model {
 	return Model{
 		path: path,
 		fields: []field{
+			{section: sectionAccount, label: "Active Profile", value: cfg.ActiveProfile},
 			{section: sectionAccount, label: "Base URL", value: cfg.BaseURL},
 			{section: sectionAccount, label: "Email", value: cfg.Email},
 			{section: sectionAccount, label: "API Token", value: cfg.APIToken, secret: true},
@@ -601,6 +602,8 @@ func (m Model) configFromFields() (config.Config, error) {
 	for _, field := range m.fields {
 		value := strings.TrimSpace(field.value)
 		switch field.label {
+		case "Active Profile":
+			cfg.ActiveProfile = value
 		case "Base URL":
 			cfg.BaseURL = strings.TrimRight(value, "/")
 		case "Email":

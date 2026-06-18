@@ -1,5 +1,34 @@
 # Task Plan
 
+## Config Profiles And Default Queries
+
+- [x] Preserve multiple saved TOML profiles across load/save.
+- [x] Add CLI `--profile` selection for app startup and config editing.
+- [x] Keep default project/default JQL generation and saved views behavior intact.
+- [x] Expose the active profile name in the config editor without adding a full profile manager.
+- [x] Update backlog, project state, changelog, and task review notes.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+- [ ] Merge and push the completed slice.
+
+### Config Profiles And Default Queries Scope
+
+Complete the next Navigation and Query backlog item by making the existing profile-shaped TOML
+config durable and selectable. This slice preserves multiple saved profiles and adds a CLI profile
+override, but does not add a main-TUI profile switcher, per-profile saved views, or OAuth/keychain
+credential storage.
+
+### Config Profiles And Default Queries Review
+
+- Added `Config.ActiveProfile`, retained `Config.Profiles`, and `LoadOptions.Profile`.
+- Loading now selects `--profile` when provided, otherwise the saved `active_profile`, while keeping
+  existing default project/default JQL generation.
+- Saving preserves non-active profiles and updates the selected profile credentials instead of
+  rewriting only `[profiles.default]`.
+- Added a persistent Cobra `--profile` flag for the app and `jira config`.
+- Added an `Active Profile` config editor field for the current profile name.
+- Verification passed: focused config/app/configui tests, `go test ./... -count=1`, `make check`,
+  and `make install-user`.
+
 ## Sprint And Board Incremental Loading
 
 - [x] Add Jira Agile board page and sprint page parsing.

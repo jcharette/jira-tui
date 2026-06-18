@@ -8,7 +8,6 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
 
 ## Next: Navigation And Query
 
-- Add configuration file support for saved profiles and default queries.
 - Add bounded concurrency controls for sprint and board fetches when parallel loading expands beyond
   the current issue/detail/comment/cache worker paths.
 

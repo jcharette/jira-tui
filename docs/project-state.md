@@ -52,6 +52,13 @@ Open the config editor:
 jira config
 ```
 
+Run with a saved profile:
+
+```bash
+jira --profile work
+jira --profile work config
+```
+
 Build a local binary:
 
 ```bash
@@ -97,6 +104,11 @@ active_profile = "default"
 base_url = "https://example.atlassian.net"
 email = "person@example.com"
 api_token = "secret"
+
+[profiles.work]
+base_url = "https://work.atlassian.net"
+email = "person@work.example"
+api_token = "work-secret"
 
 [queries]
 default_project = "ABC"
@@ -477,6 +489,9 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   timeout failures.
 - Config editor chrome now follows the issue browser grammar with a width-aware header, explicit
   `Config` / `Config Edit` footer context, grouped footer commands, and truncation by whole command.
+- Config loading preserves multiple TOML profiles and uses `active_profile` by default. The main app
+  can temporarily select a saved profile with `--profile <name>`, and the config editor exposes the
+  selected active profile as an editable field.
 
 ## Known Constraints
 
@@ -486,14 +501,15 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   and sprint movement, priorities, statuses, issue types, field options, required fields, users, and
   custom fields should come from Jira metadata for the active site/project/issue, not hard-coded
   assumptions.
-- Config supports a single saved profile today, with a TOML shape designed for multiple profiles.
+- Config supports saved profiles and CLI profile selection, but the config editor only edits the
+  selected active profile rather than providing a full multi-profile management UI.
 - There is no OAuth flow; API token auth is the only supported auth mode.
 - There is no git repository initialized in this folder yet.
 - The Jira client uses `go-atlassian` for search, issue detail, comment reads, comment creation,
   issue creation, edit metadata, create metadata discovery, summary updates, priority updates, and issue
   transitions, including transition-screen metadata for Resolution/Comment fields and ADF payload
-  construction for text, formatting marks, links, and selected user mentions. Sprint and board APIs
-  are not exposed through `internal/jira` yet.
+  construction for text, formatting marks, links, and selected user mentions. Jira Agile board and
+  sprint metadata is exposed through worker-backed background reads for sprint-oriented views.
 - Jira user display strings prefer real display/name/email/key fields over generic privacy aliases
   such as `User e31ec`; ticket detail also preserves a better selected-list assignee if the detail
   response returns a generic alias.
@@ -504,5 +520,5 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
 - The worker pool currently supports issue search, explicit parent expansion, issue detail, comment
   reads, comment creation, Jira user search, edit metadata, create issue type metadata, create field
   metadata, issue creation, summary updates, priority updates, assignee updates, and issue
-  transitions with supported transition field values; sprint data is the next background workflow
-  family to add.
+  transitions with supported transition field values, board discovery, and active/future sprint
+  metadata loading.
