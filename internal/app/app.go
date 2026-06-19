@@ -41,33 +41,45 @@ func NewRootCommand() *cobra.Command {
 		},
 	}
 	root.AddCommand(configCmd)
+	root.AddCommand(newStartCommand(&profile))
 
 	return root
 }
 
 func runApp(profile string) error {
-	cfg, err := config.Load(config.LoadOptions{Profile: profile})
+	cfg, err := loadConfigOrConfigure(profile)
 	if err != nil {
-		if !config.IsValidationError(err) {
-			return fmt.Errorf("config error: %w", err)
-		}
-		saved, configErr := runConfig(profile)
-		if configErr != nil {
-			return configErr
-		}
-		if !saved {
-			return fmt.Errorf("config is required before starting Jira TUI")
-		}
-		cfg, err = config.Load(config.LoadOptions{Profile: profile})
-		if err != nil {
-			return fmt.Errorf("config error: %w", err)
-		}
+		return err
 	}
 	cfgPath, err := config.PathOrDefault("")
 	if err != nil {
 		return fmt.Errorf("config path error: %w", err)
 	}
+	return runAppWithConfig(cfg, cfgPath)
+}
 
+func loadConfigOrConfigure(profile string) (config.Config, error) {
+	cfg, err := config.Load(config.LoadOptions{Profile: profile})
+	if err != nil {
+		if !config.IsValidationError(err) {
+			return config.Config{}, fmt.Errorf("config error: %w", err)
+		}
+		saved, configErr := runConfig(profile)
+		if configErr != nil {
+			return config.Config{}, configErr
+		}
+		if !saved {
+			return config.Config{}, fmt.Errorf("config is required before starting Jira TUI")
+		}
+		cfg, err = config.Load(config.LoadOptions{Profile: profile})
+		if err != nil {
+			return config.Config{}, fmt.Errorf("config error: %w", err)
+		}
+	}
+	return cfg, nil
+}
+
+func runAppWithConfig(cfg config.Config, cfgPath string) error {
 	claudeStatus := claude.LocalRunner{}.Check(context.Background(), claude.Config{
 		Enabled: cfg.Claude.Enabled,
 		Command: cfg.Claude.Command,
@@ -88,6 +100,7 @@ func runApp(profile string) error {
 		jiratui.WithQueueSize(cfg.QueueSize),
 		jiratui.WithTheme(cfg.Theme),
 		jiratui.WithDisplay(cfg.Display),
+		jiratui.WithGitConfig(cfg.Git),
 		jiratui.WithPlanningProject(cfg.DefaultProject),
 		jiratui.WithEventStream(eventStream),
 		jiratui.WithSavedViewWriter(savedViewWriter(cfgPath, &cfg)),

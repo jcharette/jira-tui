@@ -10,6 +10,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jcharette/jira-tui/internal/cache"
 	"github.com/jcharette/jira-tui/internal/claude"
+	"github.com/jcharette/jira-tui/internal/config"
+	"github.com/jcharette/jira-tui/internal/gitworkflow"
 	"github.com/jcharette/jira-tui/internal/jira"
 	"github.com/jcharette/jira-tui/internal/worker"
 )
@@ -119,6 +121,72 @@ func TestCommentsSectionEnterStartsCommentComposer(t *testing.T) {
 	}
 	if activeKeyContext(next) != keyContextComment {
 		t.Fatalf("activeKeyContext = %q", activeKeyContext(next))
+	}
+}
+
+func TestStartWorkActionLaunchesSharedWorkflowAndSubmitsWrites(t *testing.T) {
+	gitClient := &fakeGitWorkflowClient{
+		repo: gitworkflow.RepoStatus{Path: "/tmp/example-repo", CurrentBranch: "main", Detected: true},
+	}
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithGitConfig(config.Git{BranchTemplate: "{key}-{summary_slug}"}),
+		WithGitWorkflowClient(gitClient),
+	)
+	t.Cleanup(func() { model.workers.Stop() })
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 120
+	model.height = 35
+	model.issues = []jira.Issue{{Key: "ABC-123", Summary: "Prepare release", Status: "To Do"}}
+	model.selected = 0
+
+	if index := detailActionIndexForTest(t, model.detailActions(), "start-work"); index < 0 {
+		t.Fatal("missing Start Work action")
+	}
+	next, cmd := model.startSelectedIssueWorkflow()
+	if cmd == nil || !next.startWorkflowOpen || !next.startWorkflowPreparing {
+		t.Fatalf("start workflow state open=%v preparing=%v cmd=%v", next.startWorkflowOpen, next.startWorkflowPreparing, cmd)
+	}
+
+	updated, cmd := next.Update(cmd())
+	next = updated.(Model)
+	if cmd != nil || next.startWorkflowPreparing {
+		t.Fatalf("repo detect update preparing=%v cmd=%v", next.startWorkflowPreparing, cmd)
+	}
+	view := next.renderStartWorkflowDialog(100)
+	if !strings.Contains(view, "/tmp/example-repo") {
+		t.Fatalf("start workflow dialog missing repo: %q", view)
+	}
+
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next = updated.(Model)
+	if cmd != nil {
+		t.Fatalf("repo step returned cmd = %v", cmd)
+	}
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next = updated.(Model)
+	if cmd != nil {
+		t.Fatalf("branch step returned cmd = %v", cmd)
+	}
+	if review := next.renderStartWorkflowDialog(100); !strings.Contains(review, "Review actions") || !strings.Contains(review, "abc-123-prepare-release") {
+		t.Fatalf("review dialog = %q", review)
+	}
+
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next = updated.(Model)
+	if cmd == nil || !next.startWorkflowApplying {
+		t.Fatalf("confirm state applying=%v cmd=%v", next.startWorkflowApplying, cmd)
+	}
+	branchMsg := cmd()
+	if gitClient.branchRepo != "/tmp/example-repo" || gitClient.branchName != "abc-123-prepare-release" {
+		t.Fatalf("git branch call = %q %q", gitClient.branchRepo, gitClient.branchName)
+	}
+	updated, cmd = next.Update(branchMsg)
+	next = updated.(Model)
+	if cmd == nil || next.activeStartIssueReqID == 0 {
+		t.Fatalf("jira write submission cmd=%v req=%d", cmd, next.activeStartIssueReqID)
 	}
 }
 
@@ -816,6 +884,7 @@ type fakeIssueSearcher struct {
 	updateCommentID        string
 	updateMentions         []jira.Mention
 	users                  []jira.User
+	currentUser            jira.User
 	assignableUsers        []jira.User
 	assignableIssueKey     string
 	assignableQuery        string
@@ -873,6 +942,26 @@ type fakeIssueSearcher struct {
 	err                    error
 }
 
+type fakeGitWorkflowClient struct {
+	repo       gitworkflow.RepoStatus
+	branchRepo string
+	branchName string
+	err        error
+}
+
+func (f *fakeGitWorkflowClient) DetectRepo(context.Context, string) (gitworkflow.RepoStatus, error) {
+	if f.err != nil {
+		return gitworkflow.RepoStatus{}, f.err
+	}
+	return f.repo, nil
+}
+
+func (f *fakeGitWorkflowClient) CreateOrSwitchBranch(_ context.Context, repoPath string, branch string) error {
+	f.branchRepo = repoPath
+	f.branchName = branch
+	return f.err
+}
+
 func (f *fakeIssueSearcher) SearchIssues(_ context.Context, jql string, _ int) ([]jira.Issue, error) {
 	f.searches = append(f.searches, jql)
 	if f.err != nil {
@@ -887,6 +976,16 @@ func (f *fakeIssueSearcher) SearchIssues(_ context.Context, jql string, _ int) (
 		return f.issues, nil
 	}
 	return []jira.Issue{{Key: "ABC-1"}}, nil
+}
+
+func (f *fakeIssueSearcher) CurrentUser(_ context.Context) (jira.User, error) {
+	if f.err != nil {
+		return jira.User{}, f.err
+	}
+	if f.currentUser.AccountID != "" {
+		return f.currentUser, nil
+	}
+	return jira.User{AccountID: "account-123", DisplayName: "Person Example"}, nil
 }
 
 func (f *fakeIssueSearcher) GetIssue(_ context.Context, key string) (jira.IssueDetail, error) {

@@ -378,6 +378,8 @@ func resultDiagnosticKey(result worker.Result) string {
 		return result.GetComments.Key
 	case result.AddComment != nil:
 		return result.AddComment.Key
+	case result.StartIssue != nil:
+		return result.StartIssue.Key
 	case result.SearchUsers != nil:
 		return result.SearchUsers.Query
 	case result.ExpandIssues != nil:

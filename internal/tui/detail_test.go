@@ -1776,10 +1776,14 @@ func TestDetailActionsPaletteListsSafeActionsAndGenericEditFields(t *testing.T) 
 	if actionLabels["subtask"].Label != "Create Subtask" || !actionLabels["subtask"].Enabled {
 		t.Fatalf("subtask action = %#v", actionLabels["subtask"])
 	}
+	if actionLabels["start-work"].Label != "Start Work" || !actionLabels["start-work"].Enabled {
+		t.Fatalf("start work action = %#v", actionLabels["start-work"])
+	}
 	if activeKeyContext(next) != keyContextActionPalette {
 		t.Fatalf("activeKeyContext = %q", activeKeyContext(next))
 	}
 
+	next.selectedActionPalette = actionPaletteIndexForTest(t, next.filteredActionPaletteActions(), "comment")
 	updated, cmd := next.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
 	next = updated.(Model)
 	if cmd != nil {
@@ -2435,6 +2439,17 @@ func detailActionIndexForTest(t *testing.T, actions []detailAction, id string) i
 		}
 	}
 	t.Fatalf("missing detail action %q in %#v", id, actions)
+	return 0
+}
+
+func actionPaletteIndexForTest(t *testing.T, actions []actionPaletteAction, id string) int {
+	t.Helper()
+	for index, action := range actions {
+		if action.Action.ID == id {
+			return index
+		}
+	}
+	t.Fatalf("missing action palette action %q in %#v", id, actions)
 	return 0
 }
 

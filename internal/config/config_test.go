@@ -35,6 +35,9 @@ request_timeout = "5s"
 workers = 4
 queue_size = 32
 
+[git]
+branch_template = "feature/{key}-{summary_slug}"
+
 [claude]
 enabled = true
 command = "/opt/homebrew/bin/claude"
@@ -96,6 +99,9 @@ allow_code_edits = false
 	}
 	if cfg.QueueSize != 32 {
 		t.Fatalf("QueueSize = %d", cfg.QueueSize)
+	}
+	if cfg.Git.BranchTemplate != "feature/{key}-{summary_slug}" {
+		t.Fatalf("Git.BranchTemplate = %q", cfg.Git.BranchTemplate)
 	}
 	if !cfg.Claude.Enabled {
 		t.Fatal("expected Claude to be enabled")
@@ -233,6 +239,14 @@ func TestDefaultsDisableClaudeWithSafeGates(t *testing.T) {
 	}
 	if cfg.Claude.Gates.AllowJiraWrites || cfg.Claude.Gates.AllowGitWrites || cfg.Claude.Gates.AllowGitHubWrites || cfg.Claude.Gates.AllowCodeEdits {
 		t.Fatalf("Claude write gates should default closed: %#v", cfg.Claude.Gates)
+	}
+}
+
+func TestDefaultsIncludeGitBranchTemplate(t *testing.T) {
+	cfg := Defaults()
+
+	if cfg.Git.BranchTemplate != "{key}-{summary_slug}" {
+		t.Fatalf("Git.BranchTemplate = %q", cfg.Git.BranchTemplate)
 	}
 }
 

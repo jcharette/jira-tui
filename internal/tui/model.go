@@ -15,7 +15,9 @@ import (
 	"github.com/jcharette/jira-tui/internal/claude"
 	"github.com/jcharette/jira-tui/internal/config"
 	"github.com/jcharette/jira-tui/internal/events"
+	"github.com/jcharette/jira-tui/internal/gitworkflow"
 	"github.com/jcharette/jira-tui/internal/jira"
+	"github.com/jcharette/jira-tui/internal/startworkflow"
 	"github.com/jcharette/jira-tui/internal/ui"
 	"github.com/jcharette/jira-tui/internal/worker"
 	"github.com/jellydator/ttlcache/v3"
@@ -122,6 +124,20 @@ type Model struct {
 	actionPaletteEditor                textinput.Model
 	actionPaletteEditorReady           bool
 	selectedActionPalette              int
+	startWorkflowOpen                  bool
+	startWorkflowPreparing             bool
+	startWorkflowApplying              bool
+	startWorkflow                      startworkflow.Model
+	startWorkflowIssue                 jira.Issue
+	startWorkflowResult                startworkflow.Result
+	startWorkflowOutcomes              []startworkflow.Outcome
+	startWorkflowBranchSucceeded       bool
+	startWorkflowErr                   error
+	activeStartRepoReqID               int
+	activeStartBranchReqID             int
+	activeStartIssueReqID              int
+	gitConfig                          config.Git
+	gitClient                          gitworkflow.Client
 	transitionFocus                    bool
 	selectedTransition                 int
 	transitionFieldEditing             bool
@@ -591,6 +607,20 @@ func WithDisplay(display config.Display) Option {
 	}
 }
 
+func WithGitConfig(git config.Git) Option {
+	return func(m *Model) {
+		m.gitConfig = git
+	}
+}
+
+func WithGitWorkflowClient(client gitworkflow.Client) Option {
+	return func(m *Model) {
+		if client != nil {
+			m.gitClient = client
+		}
+	}
+}
+
 func WithDiagnosticLog(sink diagnosticSink, path string) Option {
 	return func(m *Model) {
 		m.diagnosticSink = sink
@@ -703,6 +733,8 @@ func NewModel(client worker.JiraClient, jql string, options ...Option) Model {
 		issueLayout:           issueLayoutLanes,
 		theme:                 ui.NewTheme(config.DefaultTheme()),
 		symbolMode:            symbolModeAuto,
+		gitConfig:             config.Defaults().Git,
+		gitClient:             gitworkflow.NewCLIClient(),
 		details:               make(map[string]jira.IssueDetail),
 		activeViewCache:       newIssueViewCache(),
 		detailCache:           newJiraCache[jira.IssueDetail](issueDetailCacheRetentionTTL),
@@ -809,6 +841,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case createAIPromptResultMsg:
 		return m.handleCreateAIPromptResult(msg)
+	case startRepoDetectedMsg:
+		return m.handleStartRepoDetected(msg)
+	case startBranchResultMsg:
+		return m.handleStartBranchResult(msg)
 	case createAIPromptTickMsg:
 		if m.createAIPromptLoading && msg.id == m.activeCreateAIPromptReqID {
 			return m, m.scheduleCreateAIPromptTick(msg.id)
@@ -929,6 +965,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m.updateCreateIssue(msg)
 		}
+		if m.mode == modeDetail && m.startWorkflowOpen {
+			return m.updateStartWorkflow(msg)
+		}
 		if m.mode == modeDetail && m.actionPaletteOpen {
 			return m.updateActionPalette(msg)
 		}
@@ -996,6 +1035,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.actionFocus {
 					m.actionFocus = false
 					m.detailNotice = ""
+					return m, nil
+				}
+				if m.startWorkflowOpen {
+					m.closeStartWorkflow()
 					return m, nil
 				}
 				if m.transitionFocus {

@@ -1,5 +1,31 @@
 # Task Plan
 
+## Jira Start Workflow
+
+- [x] Add git/repo detection and configurable branch-template foundations.
+- [x] Add the shared Start workflow model for ticket, repo, branch, review, apply, and done states.
+- [x] Add CLI `jira start [ticket]` with focused ticket picker behavior when no ticket is supplied.
+- [x] Add confirmed Jira Start writes: assign current user, transition to In Progress when metadata
+  supports it, and add a compact branch comment.
+- [x] Add selected-ticket TUI `Start Work` action that launches the shared workflow.
+- [x] Update docs, changelog, GitHub issue #4, and verification notes.
+
+### Jira Start Workflow Scope
+
+Implement GitHub issue #4. The workflow starts work on a Jira ticket from CLI or selected-ticket TUI
+context. It chooses a local repo, previews and allows editing the branch name, then applies only the
+actions the user confirms. Repo mappings and branch history stay local; Jira only receives explicit
+status, assignee, or comment writes.
+
+### Jira Start Workflow Review
+
+- Added `jira start [ticket]` plus a no-argument ticket picker backed by the default JQL.
+- Added a shared Start Work Bubble Tea workflow used by CLI and selected-ticket TUI actions.
+- Kept production Git shell execution behind `internal/gitworkflow`; app and TUI call the adapter.
+- Confirmed Start writes create/switch the branch first, then optionally assign, transition, and
+  add a compact branch comment. TUI Jira follow-ups run through the worker pool.
+- Updated README, project state, backlog index, changelog, and GitHub issue #4.
+
 ## CLI Git Workflow Decision
 
 - [x] Capture the agreed command-mode decision in an ADR.

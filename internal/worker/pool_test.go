@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jcharette/jira-tui/internal/jira"
+	"github.com/jcharette/jira-tui/internal/startworkflow"
 )
 
 func TestPoolSearchIssuesSuccess(t *testing.T) {
@@ -40,6 +42,33 @@ func TestPoolSearchIssuesSuccess(t *testing.T) {
 	}
 	if len(result.SearchIssues.Issues) != 1 || result.SearchIssues.Issues[0].Key != "ABC-1" {
 		t.Fatalf("Issues = %#v", result.SearchIssues.Issues)
+	}
+}
+
+func TestPoolGetCurrentUserSuccess(t *testing.T) {
+	pool := NewPool(&fakeIssueSearcher{
+		currentUser: jira.User{AccountID: "account-123", DisplayName: "Person Example"},
+	}, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:             8,
+		Kind:           KindGetCurrentUser,
+		GetCurrentUser: &GetCurrentUserRequest{},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.ID != 8 || result.Kind != KindGetCurrentUser {
+		t.Fatalf("result = %#v", result)
+	}
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if result.GetCurrentUser == nil || result.GetCurrentUser.User.AccountID != "account-123" {
+		t.Fatalf("GetCurrentUser = %#v", result.GetCurrentUser)
 	}
 }
 
@@ -579,6 +608,55 @@ func TestPoolGetTransitionsSuccess(t *testing.T) {
 	}
 	if len(result.GetTransitions.Transitions) != 1 || result.GetTransitions.Transitions[0].ID != "21" {
 		t.Fatalf("Transitions = %#v", result.GetTransitions.Transitions)
+	}
+}
+
+func TestPoolStartIssueAppliesConfirmedJiraActions(t *testing.T) {
+	searcher := &fakeIssueSearcher{
+		transitions: []jira.Transition{{ID: "21", Name: "Start Progress", ToStatus: "In Progress", IsAvailable: true}},
+		currentUser: jira.User{AccountID: "account-456", DisplayName: "Example User"},
+	}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	result := startworkflow.Result{
+		Issue:      jira.Issue{Key: "ABC-123", Summary: "Prepare release"},
+		RepoPath:   "/tmp/repo",
+		BranchName: "abc-123-prepare-release",
+		Actions: []startworkflow.ActionPlan{
+			{Kind: startworkflow.ActionBranch, Label: "Create or switch branch", Required: true},
+			{Kind: startworkflow.ActionAssign, Label: "Assign to me"},
+			{Kind: startworkflow.ActionTransition, Label: "Move to In Progress"},
+			{Kind: startworkflow.ActionComment, Label: "Add branch comment"},
+		},
+	}
+	err := pool.Submit(Request{
+		ID:         15,
+		Kind:       KindStartIssue,
+		StartIssue: &StartIssueRequest{Result: result, BranchSucceeded: true},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	workerResult := readResult(t, pool)
+	if workerResult.Err != nil {
+		t.Fatalf("Err = %v", workerResult.Err)
+	}
+	if workerResult.StartIssue == nil || workerResult.StartIssue.Key != "ABC-123" {
+		t.Fatalf("StartIssue = %#v", workerResult.StartIssue)
+	}
+	if len(workerResult.StartIssue.Outcomes) != 3 {
+		t.Fatalf("outcomes = %#v", workerResult.StartIssue.Outcomes)
+	}
+	if searcher.updateAssigneeKey != "ABC-123" || searcher.updateAssigneeValue.AccountID != "account-456" {
+		t.Fatalf("assignee update = %q %#v", searcher.updateAssigneeKey, searcher.updateAssigneeValue)
+	}
+	if searcher.transitionKey != "ABC-123" || searcher.transitionID != "21" {
+		t.Fatalf("transition update = %q %q", searcher.transitionKey, searcher.transitionID)
+	}
+	if !strings.Contains(searcher.addCommentBody, "abc-123-prepare-release") {
+		t.Fatalf("comment body = %q", searcher.addCommentBody)
 	}
 }
 
@@ -1790,6 +1868,20 @@ func TestPoolReturnsInvalidRequestResult(t *testing.T) {
 	}
 }
 
+func TestPoolReturnsInvalidCurrentUserRequestResult(t *testing.T) {
+	pool := NewPool(&fakeIssueSearcher{}, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	if err := pool.Submit(Request{ID: 8, Kind: KindGetCurrentUser}); err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if !errors.Is(result.Err, ErrInvalidRequest) {
+		t.Fatalf("Err = %v", result.Err)
+	}
+}
+
 func TestPoolReturnsInvalidTransitionRequestResults(t *testing.T) {
 	pool := NewPool(&fakeIssueSearcher{}, WithWorkerCount(1), WithQueueSize(2))
 	defer pool.Stop()
@@ -1885,6 +1977,7 @@ type fakeIssueSearcher struct {
 	details                map[string]jira.IssueDetail
 	comments               []jira.Comment
 	addedComment           jira.Comment
+	addCommentBody         string
 	addMentions            []jira.Mention
 	updatedComment         jira.Comment
 	updateCommentKey       string
@@ -1892,6 +1985,7 @@ type fakeIssueSearcher struct {
 	updateCommentBody      string
 	updateMentions         []jira.Mention
 	users                  []jira.User
+	currentUser            jira.User
 	assignableUsers        []jira.User
 	assignableIssueKey     string
 	assignableQuery        string
@@ -1975,6 +2069,16 @@ func (f *fakeIssueSearcher) SearchIssues(_ context.Context, jql string, _ int) (
 	return f.issues, nil
 }
 
+func (f *fakeIssueSearcher) CurrentUser(_ context.Context) (jira.User, error) {
+	if f.err != nil {
+		return jira.User{}, f.err
+	}
+	if f.currentUser.AccountID != "" {
+		return f.currentUser, nil
+	}
+	return jira.User{AccountID: "account-123", DisplayName: "Person Example"}, nil
+}
+
 func (f *fakeIssueSearcher) GetIssue(_ context.Context, key string) (jira.IssueDetail, error) {
 	if f.err != nil {
 		return jira.IssueDetail{}, f.err
@@ -2004,6 +2108,7 @@ func (f *fakeIssueSearcher) AddComment(_ context.Context, key string, body strin
 	if f.err != nil {
 		return jira.Comment{}, f.err
 	}
+	f.addCommentBody = body
 	f.addMentions = mentions
 	if f.addedComment.ID != "" {
 		return f.addedComment, nil
@@ -2318,6 +2423,19 @@ func (b *blockingIssueSearcher) SearchIssues(ctx context.Context, _ string, _ in
 		return nil, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	}
+}
+
+func (b *blockingIssueSearcher) CurrentUser(ctx context.Context) (jira.User, error) {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return jira.User{AccountID: "account-123", DisplayName: "Person Example"}, nil
+	case <-ctx.Done():
+		return jira.User{}, ctx.Err()
 	}
 }
 

@@ -4,6 +4,10 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Added `jira start [ticket]` and the focused-ticket Start Work action. Both use the same review
+  flow to choose a local repo, edit the branch name, create or switch the Git branch through the
+  Git adapter, and optionally assign, transition, and comment on the Jira ticket after confirmation.
+
 ## 0.2.2 - 2026-06-19
 
 - Completed the remaining Creation/Editing backlog batch: Jira issue links now retain link IDs,

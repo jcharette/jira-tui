@@ -44,11 +44,11 @@ func apiEndpointFamily(kind worker.Kind) string {
 		return "issue"
 	case worker.KindGetComments, worker.KindAddComment, worker.KindUpdateComment:
 		return "comment"
-	case worker.KindSearchUsers:
+	case worker.KindSearchUsers, worker.KindGetCurrentUser:
 		return "user"
 	case worker.KindExpandIssues:
 		return "hierarchy"
-	case worker.KindGetTransitions, worker.KindTransitionIssue:
+	case worker.KindGetTransitions, worker.KindTransitionIssue, worker.KindStartIssue:
 		return "transition"
 	case worker.KindGetEditMetadata:
 		return "edit_meta"
@@ -79,6 +79,10 @@ func apiDiagnosticScope(result worker.Result) string {
 		return issueScope(result.UpdateComment.Key)
 	case result.SearchUsers != nil:
 		return "user_query"
+	case result.GetCurrentUser != nil:
+		return "current_user"
+	case result.StartIssue != nil:
+		return issueScope(result.StartIssue.Key)
 	case result.ExpandIssues != nil:
 		return issueScope(result.ExpandIssues.ParentKey)
 	case result.GetTransitions != nil:
@@ -160,10 +164,14 @@ func apiDiagnosticMetrics(result worker.Result) string {
 		return countMetric("comments", len(result.GetComments.Comments))
 	case result.SearchUsers != nil:
 		return countMetric("users", len(result.SearchUsers.Users))
+	case result.GetCurrentUser != nil:
+		return countMetric("users", 1)
 	case result.ExpandIssues != nil:
 		return countMetric("issues", len(result.ExpandIssues.Issues))
 	case result.GetTransitions != nil:
 		return countMetric("transitions", len(result.GetTransitions.Transitions))
+	case result.StartIssue != nil:
+		return countMetric("actions", len(result.StartIssue.Outcomes))
 	case result.GetCreateIssueTypes != nil:
 		return countMetric("types", len(result.GetCreateIssueTypes.IssueTypes))
 	case result.GetCreateFields != nil:

@@ -1973,6 +1973,42 @@ func TestUpdateAssigneeWrapsAssignError(t *testing.T) {
 	}
 }
 
+func TestCurrentUserParsesMyselfAccount(t *testing.T) {
+	myself := &fakeMyselfService{
+		response: &model.UserScheme{
+			AccountID:    "account-123",
+			DisplayName:  "Person Example",
+			EmailAddress: "person@example.test",
+			Active:       true,
+		},
+	}
+	client := &Client{myself: myself}
+
+	user, err := client.CurrentUser(context.Background())
+	if err != nil {
+		t.Fatalf("CurrentUser() error = %v", err)
+	}
+
+	if user.AccountID != "account-123" || user.DisplayName != "Person Example" || user.Email != "person@example.test" || !user.Active {
+		t.Fatalf("user = %#v", user)
+	}
+	if !myself.called {
+		t.Fatal("expected MySelf.Details to be called")
+	}
+}
+
+func TestCurrentUserRejectsMissingAccountID(t *testing.T) {
+	client := &Client{myself: &fakeMyselfService{response: &model.UserScheme{DisplayName: "Person Example"}}}
+
+	err := func() error {
+		_, err := client.CurrentUser(context.Background())
+		return err
+	}()
+	if err == nil || !strings.Contains(err.Error(), "missing account ID") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestGetCommentsFetchesAndParsesADFComments(t *testing.T) {
 	comments := &fakeCommentService{
 		response: &model.IssueCommentPageScheme{
@@ -2608,6 +2644,17 @@ type fakeRESTConnector struct {
 	worklogPageResponse   model.IssueWorklogADFPageScheme
 	worklogResponse       model.IssueWorklogADFScheme
 	err                   error
+}
+
+type fakeMyselfService struct {
+	response *model.UserScheme
+	err      error
+	called   bool
+}
+
+func (f *fakeMyselfService) Details(_ context.Context, _ []string) (*model.UserScheme, *model.ResponseScheme, error) {
+	f.called = true
+	return f.response, nil, f.err
 }
 
 func (f *fakeRESTConnector) NewRequest(_ context.Context, method, endpoint, _ string, body interface{}) (*http.Request, error) {

@@ -138,6 +138,9 @@ func (m Model) renderDetailOverlay(layout browserLayout) string {
 	if m.genericFieldFocus || m.genericFieldSubmitting {
 		return m.renderGenericFieldDialog(width)
 	}
+	if m.startWorkflowOpen {
+		return m.renderStartWorkflowDialog(width)
+	}
 	if m.assigneeFocus || m.assigneeSubmitting {
 		return m.renderAssigneeDialog(width)
 	}
@@ -1497,6 +1500,7 @@ func (m Model) renderStatusSection(issue jira.Issue, width int) string {
 
 func (m Model) detailActions() []detailAction {
 	actions := []detailAction{
+		{ID: "start-work", Label: "Start Work", Description: "Choose repo, create branch, and apply confirmed Jira updates.", Enabled: true},
 		{ID: "comment", Label: "Add Comment", Description: "Write a Jira comment.", Enabled: true},
 		{ID: "browser", Label: "Open In Browser", Description: "Open this ticket in Jira.", Enabled: true},
 		{ID: "copy-key", Label: "Copy Key", Description: "Copy the ticket key.", Enabled: true},
@@ -1626,6 +1630,8 @@ func (m Model) runSelectedDetailAction() (Model, tea.Cmd) {
 		return m, nil
 	}
 	switch action.ID {
+	case "start-work":
+		return m.startSelectedIssueWorkflow()
 	case "comment":
 		m.startCommentComposer()
 		return m, nil

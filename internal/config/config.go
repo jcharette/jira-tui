@@ -16,6 +16,7 @@ const defaultJQL = "assignee = currentUser() AND resolution = Unresolved ORDER B
 const defaultRefreshInterval = 2 * time.Minute
 const defaultRequestTimeout = 20 * time.Second
 const defaultClaudeTimeout = 2 * time.Minute
+const defaultBranchTemplate = "{key}-{summary_slug}"
 const defaultWorkerCount = 2
 const defaultQueueSize = 16
 const currentVersion = 1
@@ -36,6 +37,7 @@ type Config struct {
 	RequestTimeout  time.Duration
 	WorkerCount     int
 	QueueSize       int
+	Git             Git
 	Claude          Claude
 }
 
@@ -66,6 +68,10 @@ type Theme struct {
 
 type Display struct {
 	SymbolMode string
+}
+
+type Git struct {
+	BranchTemplate string
 }
 
 type Claude struct {
@@ -132,6 +138,9 @@ func Defaults() Config {
 		RequestTimeout:  defaultRequestTimeout,
 		WorkerCount:     defaultWorkerCount,
 		QueueSize:       defaultQueueSize,
+		Git: Git{
+			BranchTemplate: defaultBranchTemplate,
+		},
 		Claude: Claude{
 			Timeout: defaultClaudeTimeout,
 			Gates: ClaudeGates{
@@ -257,6 +266,9 @@ func Save(path string, cfg Config) error {
 			Workers:         cfg.WorkerCount,
 			QueueSize:       cfg.QueueSize,
 		},
+		Git: gitConfig{
+			BranchTemplate: cfg.Git.BranchTemplate,
+		},
 		Claude: claudeConfig{
 			Enabled: cfg.Claude.Enabled,
 			Command: cfg.Claude.Command,
@@ -378,6 +390,9 @@ func Validate(cfg Config) error {
 	if cfg.QueueSize <= 0 {
 		problems = append(problems, "queue size must be greater than zero")
 	}
+	if strings.TrimSpace(cfg.Git.BranchTemplate) == "" {
+		problems = append(problems, "git branch_template is required")
+	}
 	if cfg.Claude.Timeout < 0 {
 		problems = append(problems, "Claude timeout cannot be negative")
 	}
@@ -415,6 +430,7 @@ type fileConfig struct {
 	Appearance    appearanceConfig         `toml:"appearance"`
 	Display       displayConfig            `toml:"display"`
 	Runtime       runtimeConfig            `toml:"runtime"`
+	Git           gitConfig                `toml:"git"`
 	Claude        claudeConfig             `toml:"claude"`
 }
 
@@ -462,6 +478,10 @@ type runtimeConfig struct {
 	RequestTimeout  string `toml:"request_timeout"`
 	Workers         int    `toml:"workers"`
 	QueueSize       int    `toml:"queue_size"`
+}
+
+type gitConfig struct {
+	BranchTemplate string `toml:"branch_template"`
 }
 
 type claudeConfig struct {
@@ -561,6 +581,9 @@ func applyFile(cfg *Config, fileCfg fileConfig, requestedProfile string) error {
 	}
 	if fileCfg.Runtime.QueueSize != 0 {
 		cfg.QueueSize = fileCfg.Runtime.QueueSize
+	}
+	if strings.TrimSpace(fileCfg.Git.BranchTemplate) != "" {
+		cfg.Git.BranchTemplate = strings.TrimSpace(fileCfg.Git.BranchTemplate)
 	}
 	cfg.Claude.Enabled = fileCfg.Claude.Enabled
 	if strings.TrimSpace(fileCfg.Claude.Command) != "" {

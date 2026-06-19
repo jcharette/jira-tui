@@ -163,7 +163,7 @@ func actionPaletteGroup(id string) string {
 		return "Open/Copy"
 	case "summary", "priority", "labels", "components", "assign":
 		return "Field"
-	case "transition":
+	case "start-work", "transition":
 		return "Workflow"
 	case "subtask":
 		return "Create"

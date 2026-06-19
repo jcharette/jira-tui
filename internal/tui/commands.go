@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/jcharette/jira-tui/internal/jira"
+	"github.com/jcharette/jira-tui/internal/startworkflow"
 	"github.com/jcharette/jira-tui/internal/worker"
 )
 
@@ -331,6 +332,40 @@ func (m Model) submitIssueDetailWithPriority(requestID int, key string, priority
 			}
 		}
 		return workSubmittedMsg{kind: worker.KindGetIssue, id: requestID, key: key}
+	}
+}
+
+func (m Model) submitStartIssue(requestID int, result startworkflow.Result, branchSucceeded bool) tea.Cmd {
+	return func() tea.Msg {
+		if strings.TrimSpace(result.Issue.Key) == "" {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindStartIssue,
+					Err:  worker.ErrInvalidRequest,
+				},
+			}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:       requestID,
+			Kind:     worker.KindStartIssue,
+			Timeout:  m.requestTimeout,
+			Priority: worker.PriorityWrite,
+			StartIssue: &worker.StartIssueRequest{
+				Result:          result,
+				BranchSucceeded: branchSucceeded,
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindStartIssue,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindStartIssue, id: requestID, key: result.Issue.Key}
 	}
 }
 

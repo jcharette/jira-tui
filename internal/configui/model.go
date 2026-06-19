@@ -68,6 +68,7 @@ const (
 	sectionAppearance
 	sectionDisplay
 	sectionRuntime
+	sectionGit
 	sectionClaude
 	sectionTest
 	sectionSave
@@ -80,6 +81,7 @@ var sectionLabels = []string{
 	"Appearance",
 	"Display",
 	"Runtime",
+	"Git",
 	"Claude",
 	"Test Connection",
 	"Save and Exit",
@@ -117,6 +119,7 @@ func NewModel(path string, cfg config.Config, problems []string) Model {
 			{section: sectionRuntime, label: "Request Timeout", value: cfg.RequestTimeout.String()},
 			{section: sectionRuntime, label: "Workers", value: strconv.Itoa(cfg.WorkerCount)},
 			{section: sectionRuntime, label: "Queue Size", value: strconv.Itoa(cfg.QueueSize)},
+			{section: sectionGit, label: "Branch Template", value: cfg.Git.BranchTemplate, help: "Used by jira start before branch creation. Supported tokens: {key}, {summary_slug}, {summary}."},
 			{section: sectionClaude, label: "Enabled", value: strconv.FormatBool(cfg.Claude.Enabled), boolean: true},
 			{section: sectionClaude, label: "Command", value: cfg.Claude.Command},
 			{section: sectionClaude, label: "Timeout", value: cfg.Claude.Timeout.String()},
@@ -683,6 +686,8 @@ func (m Model) configFromFields() (config.Config, error) {
 				return config.Config{}, config.ValidationError{Problems: []string{"queue size must be an integer"}}
 			}
 			cfg.QueueSize = parsed
+		case "Branch Template":
+			cfg.Git.BranchTemplate = value
 		case "Enabled":
 			parsed, err := parseBoolField("Claude enabled", value)
 			if err != nil {
