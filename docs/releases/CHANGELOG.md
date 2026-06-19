@@ -4,6 +4,8 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+## 0.2.3 - 2026-06-19
+
 - Added `jira commit [ticket]` and `jira finish [ticket]`. Commit reviews dirty work and unreported
   local commits before writing a Git commit, Jira progress note, local reported-commit state, and
   optional push. Finish pushes the branch, creates or reuses a GitHub draft pull request through a
