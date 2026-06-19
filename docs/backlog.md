@@ -21,13 +21,10 @@ index in the same change. When an item lands, close or update the issue and add 
 
 ### Git And AI Workflows
 
-- [#4 Add git workflow foundation for ticket branches](https://github.com/jcharette/jira-tui/issues/4)
-- [#5 Add PR helper and confirmed Jira update workflows](https://github.com/jcharette/jira-tui/issues/5)
+- [#4 Add `jira start` workflow for ticket branches](https://github.com/jcharette/jira-tui/issues/4)
+- [#5 Add `jira finish` workflow for PR and Jira completion](https://github.com/jcharette/jira-tui/issues/5)
 - [#6 Expand AI workflows behind provider-neutral ai.task events](https://github.com/jcharette/jira-tui/issues/6)
-
-### Product Decisions
-
-- [#7 Decide command mode versus CLI subcommands for fast actions](https://github.com/jcharette/jira-tui/issues/7)
+- [#8 Add `jira commit` workflow for commits and Jira updates](https://github.com/jcharette/jira-tui/issues/8)
 
 ## Local-Only Backlog Guidance
 
@@ -36,9 +33,10 @@ index in the same change. When an item lands, close or update the issue and add 
   create, assignee, labels, components, summary, or priority.
 - Multi-site Jira profiles stay Maybe Later unless real usage shows people regularly need to switch
   between unrelated Jira tenants from the same install.
+- Full Jira development-panel integration stays Maybe Later. V1 git workflows should link work with
+  Jira keys in branches/commits/PRs and short confirmed Jira comments containing branch or PR URLs.
 
 ## Open Product Questions
 
 - Should the app optimize first for personal assigned work, team triage, or project/release
   management?
-- Which fast actions deserve non-interactive CLI subcommands instead of only modal TUI workflows?

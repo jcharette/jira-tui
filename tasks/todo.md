@@ -1,5 +1,30 @@
 # Task Plan
 
+## CLI Git Workflow Decision
+
+- [x] Capture the agreed command-mode decision in an ADR.
+- [x] Reshape GitHub backlog issues around `jira start`, `jira commit`, `jira finish`, and reusable
+  AI support.
+- [x] Close the command-mode decision issue as complete.
+- [x] Sync the local backlog index with the updated GitHub issue set.
+- [x] Verify GitHub issue state, docs status, and diff hygiene.
+
+### CLI Git Workflow Decision Scope
+
+Document the product decision only. Do not implement CLI commands in this slice. The accepted shape
+is a hybrid model: first-class CLI commands for Start, Commit, and Finish; a shared Bubble Tea Start
+workflow launched from both CLI and selected-ticket TUI context; GitHub as the first PR provider
+behind an interface; and local repo/workflow state instead of writing repo mappings into Jira.
+
+### CLI Git Workflow Decision Review
+
+- Added ADR `0009` for the CLI-first git workflow model and shared Start workflow surface.
+- Updated public backlog issues so implementation can proceed as separate Start, Commit, Finish, and
+  AI support slices.
+- Closed the command-mode decision issue after recording the decision.
+- Kept full Jira development-panel integration deferred until simpler branch/commit/PR linking proves
+  insufficient.
+
 ## GitHub Backlog Publication
 
 - [x] Create the initial public GitHub issues for the actionable local backlog.
