@@ -25,6 +25,9 @@ index in the same change. When an item lands, close or update the issue and add 
 - [#6 Expand AI workflows behind provider-neutral ai.task events](https://github.com/jcharette/jira-tui/issues/6)
 - [#8 Add `jira commit` workflow for commits and Jira updates](https://github.com/jcharette/jira-tui/issues/8)
 
+Issue #5 and #8 are implemented on the `feat/git-commit-finish-workflows` branch and should remain
+open until that branch is merged to `main`.
+
 ## Local-Only Backlog Guidance
 
 - Add more metadata-backed Ticket Actions only when Jira workflows expose a concrete supported field

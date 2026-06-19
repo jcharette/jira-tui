@@ -46,6 +46,20 @@ func TestNewRootCommandExposesProfileFlag(t *testing.T) {
 	if startCmd.InheritedFlags().Lookup("profile") == nil && startCmd.Flags().Lookup("profile") == nil {
 		t.Fatal("expected start command to inherit --profile")
 	}
+	commitCmd, _, err := cmd.Find([]string{"commit"})
+	if err != nil {
+		t.Fatalf("Find(commit) error = %v", err)
+	}
+	if commitCmd.InheritedFlags().Lookup("profile") == nil && commitCmd.Flags().Lookup("profile") == nil {
+		t.Fatal("expected commit command to inherit --profile")
+	}
+	finishCmd, _, err := cmd.Find([]string{"finish"})
+	if err != nil {
+		t.Fatalf("Find(finish) error = %v", err)
+	}
+	if finishCmd.InheritedFlags().Lookup("profile") == nil && finishCmd.Flags().Lookup("profile") == nil {
+		t.Fatal("expected finish command to inherit --profile")
+	}
 }
 
 func TestSavedViewWriterPersistsViewToConfig(t *testing.T) {

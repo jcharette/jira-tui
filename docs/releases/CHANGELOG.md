@@ -4,6 +4,11 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Added `jira commit [ticket]` and `jira finish [ticket]`. Commit reviews dirty work and unreported
+  local commits before writing a Git commit, Jira progress note, local reported-commit state, and
+  optional push. Finish pushes the branch, creates or reuses a GitHub draft pull request through a
+  provider interface, posts a compact final Jira note with the PR URL, and applies only safe
+  terminal Jira transitions that require no extra fields.
 - Added `jira start [ticket]` and the focused-ticket Start Work action. Both use the same review
   flow to choose a local repo, edit the branch name, create or switch the Git branch through the
   Git adapter, and optionally assign, transition, and comment on the Jira ticket after confirmation.

@@ -42,6 +42,8 @@ func NewRootCommand() *cobra.Command {
 	}
 	root.AddCommand(configCmd)
 	root.AddCommand(newStartCommand(&profile))
+	root.AddCommand(newCommitCommand(&profile))
+	root.AddCommand(newFinishCommand(&profile))
 
 	return root
 }
