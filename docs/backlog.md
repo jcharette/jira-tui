@@ -1,48 +1,48 @@
 # Backlog
 
-Use this as the source of truth for pending work. Keep items short and move finished work to the
-changelog when it lands.
+GitHub Issues is the public source of truth for user-visible backlog, bugs, feature requests, and
+release-oriented work:
 
-Docs are part of done. When an item here is completed, remove or move it and add a matching entry
-to [releases/CHANGELOG.md](releases/CHANGELOG.md).
+- [jcharette/jira-tui issues](https://github.com/jcharette/jira-tui/issues)
 
-## Later: Creation And Editing
+This file is the local curated index. Keep it short and use it to preserve sequencing, grouping, and
+engineering context that should stay close to the codebase. Do not duplicate full issue bodies here.
 
-- Add more metadata-backed Ticket Actions only when Jira workflows expose a concrete supported
-  field or operation that is not already covered by generic edit, comments, status, links, worklogs,
+Docs are part of done. When user-visible backlog changes, update the matching GitHub issue and this
+index in the same change. When an item lands, close or update the issue and add a matching entry to
+[releases/CHANGELOG.md](releases/CHANGELOG.md).
+
+## Public Backlog Index
+
+### Backlog Process
+
+- [#1 Adopt GitHub Issues as the public backlog](https://github.com/jcharette/jira-tui/issues/1)
+
+### Security And Auth
+
+- [#2 Add Jira OAuth or device authorization](https://github.com/jcharette/jira-tui/issues/2)
+- [#3 Store Jira credentials in the OS keychain](https://github.com/jcharette/jira-tui/issues/3)
+
+### Git And AI Workflows
+
+- [#4 Add git workflow foundation for ticket branches](https://github.com/jcharette/jira-tui/issues/4)
+- [#5 Add PR helper and confirmed Jira update workflows](https://github.com/jcharette/jira-tui/issues/5)
+- [#6 Expand AI workflows behind provider-neutral ai.task events](https://github.com/jcharette/jira-tui/issues/6)
+
+### Product Decisions
+
+- [#7 Decide command mode versus CLI subcommands for fast actions](https://github.com/jcharette/jira-tui/issues/7)
+
+## Local-Only Backlog Guidance
+
+- Add more metadata-backed Ticket Actions only when Jira workflows expose a concrete supported field
+  or operation that is not already covered by generic edit, comments, status, links, worklogs,
   create, assignee, labels, components, summary, or priority.
+- Multi-site Jira profiles stay Maybe Later unless real usage shows people regularly need to switch
+  between unrelated Jira tenants from the same install.
 
-## Later: Security And Auth
+## Open Product Questions
 
-- Add browser-based Jira OAuth or device authorization flow so users can authenticate without
-  storing long-lived API tokens directly in the config file.
-- Store OAuth credentials in the OS keychain or another secure credential store, with config holding
-  only non-secret profile metadata.
-- Keep API token auth as the current fallback until OAuth scopes, callback handling, token refresh,
-  and enterprise Jira compatibility are designed intentionally.
-
-## Later: Git And AI Workflows
-
-- Add git integration for opening a branch from the selected or assigned ticket with configurable
-  branch naming.
-- Detect the current git branch and related ticket key so Jira actions can attach to the right
-  issue intentionally.
-- Add PR helper workflow that drafts PR titles and bodies from ticket context and local git state.
-- Add Jira update helpers for branch/PR links, ticket comments, and status suggestions with explicit
-  confirmation before every write.
-- Add AI-assisted ticket summaries, implementation notes, PR prep, and comment drafts with visible
-  source context and user approval before posting or changing Jira.
-- Route new AI features through the provider-neutral `ai.task.*` event boundary so Claude, Codex,
-  and future `auto` routing stay behind one command path.
-- Keep git provider integrations isolated behind internal boundaries so GitHub/GitLab/Bitbucket
-  support can be added without rewriting Jira UI flows.
-
-## Maybe Later
-
-- Multi-site Jira profiles, if real usage shows people regularly need to switch between unrelated
-  Jira tenants from the same install.
-
-## Questions
-
-- Should this optimize first for personal assigned work, team triage, or project/release management?
-- Should commands be modal inside one TUI, or should we also expose subcommands like `jira issue ABC-123`?
+- Should the app optimize first for personal assigned work, team triage, or project/release
+  management?
+- Which fast actions deserve non-interactive CLI subcommands instead of only modal TUI workflows?

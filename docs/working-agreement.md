@@ -17,7 +17,10 @@ Use them to avoid rediscovering previous decisions or repeating abandoned work.
 
 Keep changes aligned with the current milestone in [planning.md](planning.md).
 
-If the implementation reveals a new task, add it to [backlog.md](backlog.md) before finishing.
+If the implementation reveals a user-visible backlog task, create or update the matching GitHub
+issue before finishing, then keep [backlog.md](backlog.md) as the local curated index. Use local docs
+only for architecture context, implementation plans, lessons, and handoff notes that should stay
+close to the codebase.
 
 If a decision would change how future work should be done, add a decision record under
 [decisions/](decisions).
@@ -53,7 +56,8 @@ Before calling work complete:
 - Code is implemented and formatted.
 - Relevant tests pass, or the reason they could not run is recorded in the final note.
 - [project-state.md](project-state.md) is updated if commands, env vars, architecture, behavior, or constraints changed.
-- [backlog.md](backlog.md) is updated if work was completed, added, removed, or reprioritized.
+- GitHub Issues are updated if user-visible backlog work was completed, added, removed, or reprioritized.
+- [backlog.md](backlog.md) is updated as the local issue index when public backlog work changes.
 - [planning.md](planning.md) is updated if milestone sequencing or near-term direction changed.
 - [releases/CHANGELOG.md](releases/CHANGELOG.md) has an `Unreleased` entry for user-visible changes.
 - A decision record is added for durable architecture/product choices.
@@ -82,4 +86,6 @@ Keep backlog items actionable. Prefer verbs:
 - `Add issue comments view.`
 - `Persist the last successful query.`
 
-Move completed work out of the active backlog sections and describe it in the changelog.
+Keep user-visible backlog items in GitHub Issues and link them from [backlog.md](backlog.md). Move
+completed work out of the local active index, close or update the GitHub issue, and describe shipped
+behavior in the changelog.

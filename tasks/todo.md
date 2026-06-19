@@ -1,5 +1,28 @@
 # Task Plan
 
+## GitHub Backlog Publication
+
+- [x] Create the initial public GitHub issues for the actionable local backlog.
+- [x] Rewrite `docs/backlog.md` as a curated index that links to GitHub Issues.
+- [x] Update the working agreement so user-visible backlog changes include GitHub issue sync.
+- [x] Verify GitHub issue list, docs status, and diff hygiene.
+
+### GitHub Backlog Publication Scope
+
+Publish only actionable, user-visible backlog items to GitHub Issues. Keep local docs for
+architecture context, implementation notes, lessons, and the curated backlog index. Do not duplicate
+completed historical task notes from `tasks/todo.md` as issues.
+
+### GitHub Backlog Publication Review
+
+- Created GitHub issues #1-#7 for the initial public backlog.
+- Synced `docs/backlog.md` into a curated issue index.
+- Updated `docs/working-agreement.md` so future user-visible backlog changes require GitHub issue
+  updates alongside local docs.
+- Added a durable memory note for the GitHub backlog sync rule.
+- Verification passed: `gh issue list`, `make docs-status`, `rg` backlog-sync scan, and
+  `git diff --check`.
+
 ## README Positioning Refresh
 
 - [x] Rewrite the README opening around product value instead of implementation detail.
