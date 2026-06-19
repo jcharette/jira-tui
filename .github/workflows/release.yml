@@ -1,0 +1,140 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, with or without a leading v, for example 0.1.0"
+        required: true
+        type: string
+      ref:
+        description: "Git ref to release"
+        required: true
+        default: main
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Normalize version
+        id: version
+        shell: bash
+        run: |
+          version="${{ inputs.version }}"
+          version="${version#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid version: ${{ inputs.version }}" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Run checks
+        run: make check
+
+      - name: Build release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="${{ steps.version.outputs.version }}"
+          mkdir -p dist staging
+
+          build_archive() {
+            local goos="$1"
+            local goarch="$2"
+            local ext="$3"
+            local platform="${goos}_${goarch}"
+            local workdir="staging/jira-tui_${version}_${platform}"
+
+            rm -rf "$workdir"
+            mkdir -p "$workdir"
+
+            GOOS="$goos" GOARCH="$goarch" go build -o "$workdir/jira${ext}" ./cmd/jira-tui
+            GOOS="$goos" GOARCH="$goarch" go build -o "$workdir/adf-fixture${ext}" ./cmd/adf-fixture
+            cp README.md LICENSE "$workdir/"
+
+            if [[ "$goos" == "windows" ]]; then
+              (cd "$workdir" && zip -q -r "../../dist/jira-tui_${version}_${platform}.zip" .)
+            else
+              tar -C "$workdir" -czf "dist/jira-tui_${version}_${platform}.tar.gz" .
+            fi
+          }
+
+          build_archive darwin amd64 ""
+          build_archive darwin arm64 ""
+          build_archive linux amd64 ""
+          build_archive linux arm64 ""
+          build_archive windows amd64 ".exe"
+
+          (cd dist && sha256sum jira-tui_${version}_* > checksums.txt)
+
+      - name: Create release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          awk -v version="$version" '
+            $0 ~ "^## " version " - " {
+              capture = 1
+              next
+            }
+            capture && /^## / {
+              exit
+            }
+            capture {
+              print
+            }
+          ' docs/releases/CHANGELOG.md > release-notes.md
+          if [[ ! -s release-notes.md ]]; then
+            printf "Release %s\n" "${{ steps.version.outputs.tag }}" > release-notes.md
+          fi
+
+      - name: Create tag if needed
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.version.outputs.tag }}"
+          git fetch --tags
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "Tag $tag already exists; using existing tag."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$tag" -m "$tag"
+            git push origin "$tag"
+          fi
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.version.outputs.tag }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists." >&2
+            exit 1
+          fi
+          gh release create "$tag" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$tag" \
+            --notes-file release-notes.md

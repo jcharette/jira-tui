@@ -1,0 +1,15 @@
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                                                  │
+│  View Default  Filter All  Layout Lanes  Sort Jira  6 issues  not synced                                         │
+│                                                                                                                  │
+│  In Progress 1                                                                                                   │
+│       PROJ-099      Add support for private service routing                 In Progress    P3   Alex P.         │
+│                                                                                                                  │
+│  To Do 5                                                                                                         │
+│     ▾ PROJ-100      Deliver platform foundation milestone                   To Do          P4   Alex P.         │
+│  ➜  ╰─  ▾ PROJ-101      Build service deployment workflow                   To Do          P4   Alex P.         │
+│       ├─    PROJ-102      Spike: compare deployment automation options      To Do          P4   Rae S.          │
+│       ├─    PROJ-103      Create environment provisioning module            To Do          P4   Rae S.          │
+│       ╰─    PROJ-104      Define runtime scaling strategy                   To Do          P4   Rae S.          │
+│                                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯

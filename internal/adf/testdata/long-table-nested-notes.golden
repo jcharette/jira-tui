@@ -1,0 +1,14 @@
+### Rollout Checklist
+
+1. Deploy the renderer wrapper.
+
+   - Run `go test ./internal/adf`
+   - Check comment rendering for @Ops Reviewer
+2. Capture any Jira payload that still renders poorly.
+
+[table]
+| Area         | Evidence                                                                                                                                                            |
+|--------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Description  | Long acceptance criteria should stay readable even when the Jira table cell contains several clauses about migrations, fallbacks, and operator-visible diagnostics. |
+| Verification | Run `make check` / Attach results to DEVOPS-123 <https://example.test/browse/DEVOPS-123>                                                                            |
+[/table]

@@ -1,0 +1,253 @@
+# Lessons
+
+- Before recommending backlog work, verify whether the behavior already exists in code/tests. Treat
+  stale unchecked task notes as a signal to reconcile docs, not as proof that implementation is
+  missing.
+- Use task handoffs only when work can be parallelized cleanly across independent files or
+  subsystems. For sequential UI changes where state, rendering, navigation, and docs build on each
+  other, execute inline with checkpoints instead of splitting artificial handoff tasks.
+- Missing hierarchy context rows in the issue list must be explicitly labeled as placeholders, not
+  styled like greyed-out tickets. If a parent issue is outside the current result set, say that in
+  the row text so muted styling does not imply the ticket itself is disabled, stale, or closed.
+- Prefer maintained third-party libraries for reusable infrastructure when they fit the Go TUI
+  stack. Before feature or fix work, ask whether a library can reduce hand-rolled cache, sync,
+  concurrency, parsing, or UI primitive code; hand-roll only when library options are a poor fit.
+- For TUI actions, test the full interaction contract together: visible focused target or menu row,
+  advertised footer/help binding, key handling, and resulting mode/command. Do not test rendering
+  and key behavior as unrelated concerns.
+- Preview/context panes must visibly respond to selection changes even when deeper data has not
+  loaded yet. Include selected-item-specific fallback context from already-loaded rows, and add a
+  regression test that moves selection before assuming the preview feels live.
+- Do not expose implementation/cache state in primary UX labels. If retained data is useful, render
+  the user-facing content it enables, such as description preview or latest comment, and keep cache
+  terminology in Diagnostics.
+- Status lanes need product ordering, not input-order grouping. Put in-progress work before to-do
+  work, then keep less actionable or terminal states later.
+- Reuse the same selected-row marker helper across alternate issue-list layouts. A default layout
+  should not have a weaker or different cursor than the table/tree layout.
+- The TUI must always stay responsive. It is acceptable and encouraged to use more background
+  workers/threads for Jira reads, cache refresh, TTL expiry handling, and prefetch/sync work, as
+  long as those flows are bounded, use maintained libraries where they fit, and never block the
+  Bubble Tea update/render loop.
+- Prefer stale-while-refresh behavior for Jira read caches: show useful cached data immediately,
+  use TTL freshness to decide when to refresh, and perform refreshes through background workers
+  instead of making the TUI wait.
+- Diagnostics and observability surfaces should stay read-only and non-blocking. Record cheap
+  model-local events from existing worker/cache paths before adding heavier logging, persistence,
+  or new background requests.
+- When the user says the existing dirty tree is working, treat those changes as intentional working
+  state. Do not frame them as suspicious or unrelated caveats; verify the whole tree and commit the
+  cohesive working set if asked.
+- For TUI focusable lists, keep the selected row visible even before the sub-mode is activated.
+  Hiding the cursor until focus mode makes a selected section look non-interactive and can make
+  users think the feature disappeared.
+- If a TUI section displays a selection cursor, route movement keys to that cursor immediately.
+  Do not show a cursor while leaving `j/k` or arrow keys bound to unrelated panel scrolling.
+- Do not commit every small bug fix by default. Commit only when the user asks, when creating an
+  intentional checkpoint, or before a risky transition; otherwise leave verified changes in the
+  working tree for review.
+- Do not ask conversational approval again after the user gives run-level approval. Keep moving
+  unless there is a real product ambiguity or the tool sandbox itself requires an approval prompt.
+- Use subagents for dependent implementation tasks as sequential fresh-context review gates, not as
+  parallel speedups. If tasks depend on each other, say that plainly and avoid implying parallelism.
+- For Jira write workflows, do not default to an Actions menu as the primary UX. Prefer making
+  existing ticket detail sections and fields directly navigable: move to a field/section, press
+  enter to edit or act, then open a metadata-backed dialog populated from Jira.
+- For create/edit foundations, mirror the future user flow in the API shape. Fetch project issue
+  types first, then fields for the selected issue type, instead of preloading every field for every
+  possible type before the user chooses.
+- In modal edit flows, key hints are not selectable controls; make the keyboard-owned action clear
+  and keep instructional copy out of body notices when footer/dialog hints already explain it.
+- Detail dialogs must be composed into the visible detail body, not appended after rendered
+  scrollable content. Long descriptions should never push mutation modals below the visible panel.
+- Text-backed modal fields must use a real editor surface, not a hand-rolled string renderer. Set
+  value fields should use a picker/list surface with keyboard selection instead.
+- A shortcut that means "edit this field" should start the modal/edit flow directly. Do not stop in
+  a footer-only focus state that requires users to infer they need a second keypress.
+- Run `gofmt` freely on any touched Go file. Do not wait for file-specific formatting approval.
+- For ticket-detail focus tests, assert focused fields or sections by stable IDs/names instead of
+  raw `detailFocus` indexes. The focus order now mixes editable fields and sections, so numeric
+  indexes are brittle unless the test is explicitly about ordering.
+- Avoid redundant semantic key bindings. Conventional navigation aliases are fine when they mean
+  the same thing, but do not keep multiple conceptual paths for one workflow; `tab` should own focus
+  movement, `enter` should act on focus, and single-letter keys should be distinct accelerators.
+- User picker edit flows, such as Assignee, need type-to-filter input inside the picker. Do not
+  rely only on opening with a prefilled/current-value search; users must be able to type characters
+  like `jon` and refresh/reduce Jira user results as they go.
+- Create issue forms should render and submit from Jira create metadata wherever the field shape is
+  safely supported. Do not hide optional supported fields behind a Summary/Description-only form;
+  unsupported required fields must be visible and block submit before Jira rejects the request.
+- Jira create metadata paged endpoints can return empty mappings even when expanded create metadata
+  has usable data. For issue types or fields, treat an empty successful mapping response as
+  inconclusive and fall back to expanded `Issue.Metadata.Create` before concluding Jira returned no
+  metadata.
+- Claude/AI workflows must be feature-flagged and gate-checked from config before they are shown,
+  before background work is enqueued, and before generated changes are applied. Default AI features
+  disabled, require confirmation, and keep Jira/git/GitHub/code write gates closed until a workflow
+  explicitly earns them.
+- First-pass AI workflows should prove the interaction model with read-only outputs, bounded local
+  CLI execution, and Diagnostics breadcrumbs before adding Jira, git, GitHub, or code write paths.
+- Long-running AI calls must show visible progress context and offer cancellation. A modal that only
+  says "asking..." is indistinguishable from a dead CLI or frozen TUI.
+- Timeout errors need wall-clock evidence in the UI. Show start time, deadline, elapsed time,
+  timeout value, and command shape so users can tell whether the app timed out early or the external
+  process exceeded its configured deadline.
+- External CLI integrations should stream stdout/stderr/progress into the TUI when possible. Waiting
+  for final process exit hides auth prompts, plugin startup, partial model output, and useful errors.
+- Streaming protocol envelopes must be parsed into user-facing statuses or text before rendering.
+  Do not dump raw JSON stream events into a TUI modal unless the user explicitly opened a debug log.
+- Partial assistant streams can repeat or overlap. Render a rolling preview of the latest useful
+  assistant text instead of a chronological list of every partial chunk.
+- Final AI responses can be much longer than the terminal panel. Always bound modal result bodies
+  and provide line-range context instead of letting the overlay grow off-screen.
+- Bounded modal results also need their own scroll state and footer hints. Truncation alone fixes
+  layout but still leaves the user unable to inspect the full result.
+- Large read-only result modals should use responsive percentage-based width with min/max guards,
+  not the narrow fixed cap intended for small edit dialogs.
+- Long-running subprocess modals should separate product progress from debug evidence. The normal
+  waiting state should show activity, elapsed progress, useful streamed output, and cancel; command,
+  request, start, and deadline details belong in diagnostics or timeout/error states unless the user
+  explicitly opens a debug surface.
+- Do not stream partial AI assistant text into normal loading modals. Constantly changing partial
+  output is distracting and hard to read; show stable statuses such as waiting or receiving response,
+  and keep detailed stream content in Diagnostics and final result/error views.
+- AI result rendering needs Markdown-aware handling for common structures. Pipe tables should route
+  through the fitted table renderer instead of being wrapped as ordinary prose.
+- Code blocks in dense TUI text should use foreground/background styling and padding instead of
+  ASCII border rows. Borders spend vertical space and make code-heavy Jira descriptions feel noisier
+  than necessary.
+- Future AI/code workflows need ticket-to-local-workspace mapping. A ticket should be able to map to
+  one or more local repository folders so Claude can receive the right repo context without guessing
+  from the process working directory.
+- Do not treat ticket-to-local-workspace mapping as the next AI feature by default. The next AI
+  product slice should focus on ticket assistance first: generating better ticket content and
+  evaluating/sanitizing existing Jira tickets, with workspace mapping feeding later code-workflow
+  context.
+- AI-generated ticket content must pass through a user-editable draft review before any Jira create
+  or update workflow. Acceptance Criteria should be a first-class draft section, not buried in the
+  description prose, even if Jira stores the final text inside Description for now.
+- AI draft review modals must be usable before write/apply workflows exist. Long drafts need
+  visible line ranges, paging keys, and a copy/export command; otherwise the user cannot practically
+  do anything with the generated content.
+- In AI draft review modals, the editable draft is the primary artifact. Do not cap it like a small
+  inline field or let review text visually merge with it; give the draft primary modal space and a
+  distinct editable block, hiding review preview first on cramped terminals.
+- AI result modals should separate generated review, local draft, and available actions as distinct
+  zones. When those concepts share one text flow, users cannot tell what Claude produced, what they
+  can edit, or what will happen next.
+- AI ticket assistance needs both edit and comment outputs. Direct field edits are useful for owned
+  tickets; comment posting is the safer default for clarifying tickets created or owned by someone
+  else.
+- AI refinement prompts must include the current user-edited draft, not only the original ticket or
+  prior Claude output. Otherwise Claude has to reinvent context and can discard user corrections.
+- In ticket detail, `a` is the AI/Claude accelerator when AI actions are available. Avoid reusing it
+  for add-comment as the primary path; comment creation remains available through the Actions
+  workflow and focused comment composer.
+- Local Claude integration should prefer `exec.LookPath("claude")` for auto-detection and allow a
+  manual command/path override for users whose terminal PATH does not expose the CLI.
+- Claude Code workflows in this app must work without an Anthropic API key. Use the user's local
+  `claude` CLI/session by default; treat direct API SDK integration as a separate optional provider.
+- Binary config values should use picker/toggle behavior in the TUI, not free-text editing. Users
+  should not have to type raw `true` or `false` for feature flags, gates, or other boolean settings.
+- For create/AI workflows, don't overload summary/description text entry with extra one-key actions.
+  Navigate with focus movement keys (`tab`) and activate generate/apply actions on explicit focus state
+  (`enter`) so editing text never silently consumes workflow shortcuts.
+- AI-assisted ticket creation must be discoverable on the first create-ticket screen. Do not hide
+  generation behind issue-type selection or later field-entry state; use a visible mode/tab on the
+  initial create modal, then return generated drafts to the Jira metadata-driven manual flow for
+  review and final creation.
+- For compact TUI mode tabs, prefer plain selected markers like `>` over filled background styles.
+  Do not pass styled Lip Gloss strings through byte-based truncation; it can render as broken blocks
+  or clipped labels in real terminals.
+- Create-ticket forms must be bounded and focused-field aware. Jira metadata can return enough
+  fields/options to exceed the terminal height, so render a windowed body with line-range context
+  and keep the focused field plus its selected value visible.
+- AI-generated create drafts should preserve named sections beyond Summary/Description and apply
+  them conservatively to supported Jira create fields after metadata loads. Only map values through
+  actual Jira field names/options returned by Jira; never invent presets.
+- Jira create metadata can mark `project` and `issuetype` as required even though the create flow
+  already owns those values. Treat metadata-owned Project and Issue Type as built-in context, not as
+  unsupported user-fillable fields that block submit.
+- Optional create-ticket pickers must not default to Jira's first allowed value. Start optional
+  option fields unselected and require either user selection or a Jira-metadata-matched AI
+  recommendation before submitting them.
+- In create-ticket forms, keep the authoring surface primary. Summary/Description and AI draft
+  actions should appear before Jira metadata, while unfocused dropdown-backed metadata fields should
+  collapse to compact `Field: value` rows and expand only when focused.
+- Claude-assisted create-ticket prompts must feed only Jira-returned issue types and fields. Do not
+  guess common types like Task/Story/Epic unless Jira metadata for the selected project actually
+  returned them, and only auto-apply AI recommendations that match returned Jira metadata.
+- Create-ticket AI loading should use calm product progress, not stream/debug evidence. Hide partial
+  assistant snippets, command paths, start/deadline metadata, and other noisy execution details from
+  the normal modal; keep those details in diagnostics or error states.
+- Create-ticket authoring dialogs need responsive width and field-specific editor sizing. Summary can
+  be a compact multiline editor, while Description should take substantial vertical space when
+  focused because AI-generated drafts are long and need review in context.
+- AI-generated `Open Questions` should become actionable local feedback, not static description
+  text. Parse them into a focused panel, let users answer locally, and feed those answers into the
+  next Claude refinement prompt while keeping Jira writes behind explicit create/apply actions.
+- Open Questions need a multi-answer local loop. Do not make users submit one answer and call Claude
+  for each question; `enter` while answering should save and advance so several answers can be
+  batched into one later refinement request.
+- After users answer Open Questions, the Claude resync path must be visible in the same panel. Add
+  an explicit focused action such as `ctrl+r refine with answers` instead of requiring users to tab
+  away and infer that Generate Draft is the resync control.
+- TUI component migrations must prioritize consistency over isolated cleanup. When replacing
+  hand-rolled picker/list/input behavior, introduce one reusable internal adapter pattern and migrate
+  surfaces onto it incrementally instead of creating one-off wrappers for each screen.
+- Watch file and package boundaries before they become cleanup projects. In Go, prefer proactive
+  same-package file splits when one file starts owning multiple workflows; do not wait for a
+  10,000-line file before asking whether the current boundary is still maintainable.
+- For caching, queues, and other infrastructure primitives, reach for maintained third-party
+  libraries already in the project or a vetted dependency before writing local data-structure code.
+  Only hand-roll the small adapter/glue around app-specific policy.
+- Collapsed hierarchy state must be visible on the row itself in every issue-list layout. Do not
+  rely on `z` behavior or hidden-count text alone; parent rows need an explicit collapsed/expandable
+  affordance next to the issue-type glyph.
+- Collapsed-row affordances must be keyed from collapsed state, not only from visible hidden-child
+  counts. A parent can need an expand marker even when the current view has not rendered a hidden
+  descendant count.
+- Do not infer a collapsed-row glyph from issue type alone. Collapsed glyphs represent local
+  collapsed state; type glyphs represent issue type, and both should render together when a row is
+  collapsed.
+- Issue-type glyphs must not reuse hierarchy connector shapes. Subtask rows still need a distinct
+  type glyph even though the tree gutter already communicates parent/child nesting.
+- When debugging missing collapsed icons, log and inspect the local collapsed state before changing
+  issue-type rendering. The right question is whether the row is actually collapsed, whether `z`
+  no-opped due to missing loaded children, or whether rendering dropped the collapsed marker.
+- When a UI bug survives multiple code/test iterations, stop recompiling similar renderer changes.
+  Gather runtime evidence first from persistent logs, config, cache, and actual rendered state so
+  the next change targets the observed failure instead of another guessed path.
+- In config menus, advertised navigation keys must only navigate. Do not reuse `left/right`, `tab`,
+  or `shift+tab` for picker mutation, because a one-field section can trap users before later
+  sections like Runtime or Git.
+- For unclear runtime UI bugs, do not lead with more Go tests after the user says tests are not
+  helping. Gather evidence, solve the observed behavior, manually inspect the rendered result, then
+  add tests around the confirmed fix.
+- `symbol_mode = auto` should actually run the app's symbol detection path. It may infer Nerd mode
+  only from reasonable runtime evidence such as a Nerd-capable iTerm profile signal, and must keep
+  explicit `symbols`, `emoji`, `nerd`, and `plain` overrides for users when detection is wrong.
+- Do not make text badges the default answer for visual issue-type scanning. For the main issue list,
+  `auto` should prefer compact font-safe glyphs with theme color; reserve text badges for explicit
+  plain fallback or inaccessible terminals.
+- When recommending optional terminal/font setup inside the app, include concrete commands and the
+  exact follow-up action. Describing "install and configure a Nerd Font" is not enough.
+- Status-lane layouts must group rendered root subtrees, not individual visible rows. Flattening
+  every row by status destroys expanded Epic/child indentation and makes hierarchy look broken.
+- Issue ordering must preserve full recursive hierarchy, not just one parent-child level. Dropping
+  grandchildren from `orderIssues` makes expanded subtasks disappear even when Jira/cache returned
+  them correctly.
+- For visual TUI work, do not rely only on focused unit assertions. Add representative fixture-backed
+  rendered-screen checks for the layouts the user will inspect, including default mode, expanded
+  hierarchy, collapsed hierarchy, and configured symbol modes.
+- Never commit user/company-specific Jira keys, summaries, project names, or roadmap details into
+  tests, snapshots, docs, or fixtures. Use generic sanitized examples such as `PROJ-100` and neutral
+  platform/task summaries.
+- Alternate issue-list layouts must make rendered visual order the source of truth for interaction,
+  not just rendering. If a layout groups or reorders rows, movement, paging, first/last navigation,
+  and viewport scrolling all need to consume that same visual row model.
+- Git CLI interactions for Jira workflow features must stay behind a single adapter boundary. Do
+  not scatter `exec.Command("git", ...)` through app, TUI, or workflow code; add capabilities to the
+  adapter and keep callers on narrow interfaces.
+- Do not close GitHub backlog issues just because implementation is committed or pushed to a feature
+  branch. Keep the issue open until the work is merged to `main` or otherwise actually delivered.
