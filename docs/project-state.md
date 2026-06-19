@@ -12,11 +12,9 @@ The intended scope includes normal Jira user workflows such as editing tickets, 
 subtasks, epics, sprints, boards, comments, and transitions. Jira administration is out of scope.
 The feature roadmap and dependency-aware milestones live in [roadmap.md](roadmap.md).
 
-The Read/View backlog bucket is complete as of 2026-06-18. The active Creation/Editing backlog now
-has metadata-backed comments, workflow transitions, ticket creation, safe generic custom-field
-editing, issue-link creation, and worklog list/add flows. Remaining editing work is focused on
-field-specific complex schemas, issue-link removal once Jira link IDs are retained, worklog
-edit/delete, and fuller sprint/board UX.
+The Read/View and Creation/Editing backlog buckets are complete as of 2026-06-19. Current product
+work is focused on Git-backed developer workflows: Start Work is implemented for CLI and selected
+TUI tickets, while commit, finish, and broader AI workflow support remain in the public backlog.
 
 ## Current Stack
 
@@ -53,11 +51,19 @@ Open the config editor:
 jira config
 ```
 
+Start work on a ticket:
+
+```bash
+jira start ABC-123
+jira start
+```
+
 Run with a saved profile:
 
 ```bash
 jira --profile work
 jira --profile work config
+jira --profile work start ABC-123
 ```
 
 Build a local binary:
@@ -176,6 +182,9 @@ request_timeout = "20s"
 workers = 2
 queue_size = 16
 
+[git]
+branch_template = "{key}-{summary_slug}"
+
 [claude]
 enabled = false
 command = ""
@@ -264,6 +273,12 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   issue. This reuses the same create modal, filters the issue type picker to Jira metadata entries
   marked as subtasks, keeps required-field validation in the create form, and submits the selected
   issue key as the Jira parent only when the user explicitly creates the ticket.
+- `jira start [ticket]` and focused ticket detail Ticket Actions -> Start Work share the same
+  Bubble Tea workflow for selecting a ticket, choosing a local repo, editing the branch name, and
+  reviewing writes before anything changes. The Git branch action runs through the single
+  `internal/gitworkflow` adapter boundary. Confirmed Jira follow-ups assign to the current user,
+  choose the best available In Progress-like transition when no required unsupported fields are
+  present, and add a compact branch comment only after branch creation/switch succeeds.
 - Startup runs a local Claude Code/CLI preflight from config. Disabled Claude records a disabled
   status; enabled Claude resolves `claude` from PATH unless a command/path override is configured,
   runs a bounded `--version` check, and records ready/unavailable status in Diagnostics. When

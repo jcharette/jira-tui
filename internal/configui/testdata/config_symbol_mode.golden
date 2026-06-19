@@ -9,10 +9,11 @@
 │    Appearance                  │  │  Auto detects Nerd-capable iTerm profiles, then falls back to colored safe     │
 │    Display                     │  │  glyphs.                                                                       │
 │    Runtime                     │  │  Nerd setup: brew install --cask font-jetbrains-mono-nerd-font                 │
-│    Claude                      │  │  Then set your terminal profile font to JetBrainsMono Nerd Font, restart       │
-│    Test Connection             │  │  the terminal, and select nerd if auto does not switch.                        │
-│    Save and Exit               │  │                                                                                │
-│    Quit Without Saving         │  ╰────────────────────────────────────────────────────────────────────────────────╯
+│    Git                         │  │  Then set your terminal profile font to JetBrainsMono Nerd Font, restart       │
+│    Claude                      │  │  the terminal, and select nerd if auto does not switch.                        │
+│    Test Connection             │  │                                                                                │
+│    Save and Exit               │  ╰────────────────────────────────────────────────────────────────────────────────╯
+│    Quit Without Saving         │
 │                                │
 ╰────────────────────────────────╯
 

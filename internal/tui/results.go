@@ -44,6 +44,8 @@ func (m Model) handleWorkerResult(result worker.Result) (Model, tea.Cmd) {
 		return m.handleGetTransitionsResult(result), nil
 	case worker.KindTransitionIssue:
 		return m.handleTransitionIssueResult(result), nil
+	case worker.KindStartIssue:
+		return m.handleStartIssueResult(result)
 	case worker.KindGetEditMetadata:
 		return m.handleEditMetadataResult(result), nil
 	case worker.KindUpdateSummary:

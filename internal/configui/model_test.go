@@ -173,6 +173,29 @@ func TestConfigFromFieldsIncludesClaudeSettings(t *testing.T) {
 	}
 }
 
+func TestConfigFromFieldsIncludesGitBranchTemplate(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.ActiveProfile = "default"
+	cfg.BaseURL = "https://example.atlassian.net"
+	cfg.Email = "person@example.com"
+	cfg.APIToken = "secret"
+	cfg.DefaultProject = "ABC"
+	cfg.DefaultJQL = config.DefaultJQLForProject("ABC")
+	cfg.Views = config.DefaultViews("ABC")
+	cfg.ActiveView = cfg.Views[0].Name
+	model := NewModel("/tmp/jira.toml", cfg, nil)
+	setFieldForTest(&model, "Branch Template", "feature/{key}/{summary_slug}")
+
+	next, err := model.Config()
+	if err != nil {
+		t.Fatalf("Config() error = %v", err)
+	}
+
+	if next.Git.BranchTemplate != "feature/{key}/{summary_slug}" {
+		t.Fatalf("Git.BranchTemplate = %q", next.Git.BranchTemplate)
+	}
+}
+
 func TestConfigFromFieldsIncludesEditedActiveProfile(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.ActiveProfile = "default"

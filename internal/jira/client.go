@@ -28,6 +28,7 @@ type Client struct {
 	issue          issueService
 	comment        commentService
 	userSearch     userSearchService
+	myself         myselfService
 	metadata       metadataService
 	rest           restConnector
 	board          agileBoardService
@@ -55,6 +56,10 @@ type commentService interface {
 
 type userSearchService interface {
 	Do(ctx context.Context, accountID, query string, startAt, maxResults int) ([]*model.UserScheme, *model.ResponseScheme, error)
+}
+
+type myselfService interface {
+	Details(ctx context.Context, expand []string) (*model.UserScheme, *model.ResponseScheme, error)
 }
 
 type metadataService interface {
@@ -318,6 +323,7 @@ func NewClient(cfg config.Config) *Client {
 			issue:          failingIssueService{err: err},
 			comment:        failingCommentService{err: err},
 			userSearch:     failingUserSearchService{err: err},
+			myself:         failingMyselfService{err: err},
 			metadata:       failingMetadataService{err: err},
 			board:          failingAgileBoardService{err: err},
 			requestTimeout: requestTimeout,
@@ -333,6 +339,7 @@ func NewClient(cfg config.Config) *Client {
 			issue:          failingIssueService{err: err},
 			comment:        failingCommentService{err: err},
 			userSearch:     failingUserSearchService{err: err},
+			myself:         failingMyselfService{err: err},
 			metadata:       failingMetadataService{err: err},
 			board:          failingAgileBoardService{err: err},
 			requestTimeout: requestTimeout,
@@ -340,21 +347,42 @@ func NewClient(cfg config.Config) *Client {
 	}
 	agileAPI.Auth.SetBasicAuth(cfg.Email, cfg.APIToken)
 
-	return newClient(cfg.BaseURL, api.Issue.Search, api.Issue, api.Issue.Comment, api.User.Search, api.Issue.Metadata, api, agileAPI.Board, requestTimeout)
+	return newClient(cfg.BaseURL, api.Issue.Search, api.Issue, api.Issue.Comment, api.User.Search, api.MySelf, api.Issue.Metadata, api, agileAPI.Board, requestTimeout)
 }
 
-func newClient(baseURL string, search jiraservice.SearchADFConnector, issue jiraservice.IssueADFConnector, comment commentService, userSearch userSearchService, metadata jiraservice.MetadataConnector, rest restConnector, board agileBoardService, requestTimeout time.Duration) *Client {
+func newClient(baseURL string, search jiraservice.SearchADFConnector, issue jiraservice.IssueADFConnector, comment commentService, userSearch userSearchService, myself myselfService, metadata jiraservice.MetadataConnector, rest restConnector, board agileBoardService, requestTimeout time.Duration) *Client {
 	return &Client{
 		baseURL:        baseURL,
 		search:         search,
 		issue:          issue,
 		comment:        comment,
 		userSearch:     userSearch,
+		myself:         myself,
 		metadata:       metadata,
 		rest:           rest,
 		board:          board,
 		requestTimeout: requestTimeout,
 	}
+}
+
+func (c *Client) CurrentUser(ctx context.Context) (User, error) {
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+	if c.myself == nil {
+		return User{}, fmt.Errorf("get current Jira user: service unavailable")
+	}
+	raw, _, err := c.myself.Details(ctx, nil)
+	if err != nil {
+		return User{}, fmt.Errorf("get current Jira user: %w", err)
+	}
+	user, ok := parseUser(raw)
+	if !ok {
+		return User{}, fmt.Errorf("get current Jira user: missing account ID")
+	}
+	return user, nil
 }
 
 func (c *Client) SearchIssues(ctx context.Context, jql string, maxResults int) ([]Issue, error) {
@@ -2300,6 +2328,14 @@ type failingUserSearchService struct {
 }
 
 func (f failingUserSearchService) Do(_ context.Context, _, _ string, _, _ int) ([]*model.UserScheme, *model.ResponseScheme, error) {
+	return nil, nil, f.err
+}
+
+type failingMyselfService struct {
+	err error
+}
+
+func (f failingMyselfService) Details(_ context.Context, _ []string) (*model.UserScheme, *model.ResponseScheme, error) {
 	return nil, nil, f.err
 }
 

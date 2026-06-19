@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jcharette/jira-tui/internal/jira"
+	"github.com/jcharette/jira-tui/internal/startworkflow"
 	"github.com/panjf2000/ants/v2"
 )
 
@@ -28,6 +29,8 @@ type Kind string
 
 const (
 	KindSearchIssues        Kind = "search_issues"
+	KindGetCurrentUser      Kind = "get_current_user"
+	KindStartIssue          Kind = "start_issue"
 	KindGetIssue            Kind = "get_issue"
 	KindGetComments         Kind = "get_comments"
 	KindAddComment          Kind = "add_comment"
@@ -72,6 +75,7 @@ const (
 
 type JiraClient interface {
 	SearchIssues(ctx context.Context, jql string, maxResults int) ([]jira.Issue, error)
+	CurrentUser(ctx context.Context) (jira.User, error)
 	GetIssue(ctx context.Context, key string) (jira.IssueDetail, error)
 	GetComments(ctx context.Context, key string, maxResults int) ([]jira.Comment, error)
 	AddComment(ctx context.Context, key string, body string, mentions []jira.Mention) (jira.Comment, error)
@@ -111,6 +115,8 @@ type Request struct {
 	CoalesceKey string
 
 	SearchIssues        *SearchIssuesRequest
+	GetCurrentUser      *GetCurrentUserRequest
+	StartIssue          *StartIssueRequest
 	GetIssue            *GetIssueRequest
 	GetComments         *GetCommentsRequest
 	AddComment          *AddCommentRequest
@@ -146,6 +152,13 @@ type SearchIssuesRequest struct {
 	JQL             string
 	MaxResults      int
 	IncludeChildren bool
+}
+
+type GetCurrentUserRequest struct{}
+
+type StartIssueRequest struct {
+	Result          startworkflow.Result
+	BranchSucceeded bool
 }
 
 type GetIssueRequest struct {
@@ -316,6 +329,8 @@ type Result struct {
 	Err  error
 
 	SearchIssues        *SearchIssuesResult
+	GetCurrentUser      *GetCurrentUserResult
+	StartIssue          *StartIssueResult
 	GetIssue            *GetIssueResult
 	GetComments         *GetCommentsResult
 	AddComment          *AddCommentResult
@@ -349,6 +364,17 @@ type Result struct {
 
 type SearchIssuesResult struct {
 	Issues   []jira.Issue
+	SyncedAt time.Time
+}
+
+type GetCurrentUserResult struct {
+	User     jira.User
+	SyncedAt time.Time
+}
+
+type StartIssueResult struct {
+	Key      string
+	Outcomes []startworkflow.Outcome
 	SyncedAt time.Time
 }
 
@@ -832,6 +858,10 @@ func (p *Pool) handle(request Request) Result {
 	switch request.Kind {
 	case KindSearchIssues:
 		return p.handleSearchIssues(request)
+	case KindGetCurrentUser:
+		return p.handleGetCurrentUser(request)
+	case KindStartIssue:
+		return p.handleStartIssue(request)
 	case KindGetIssue:
 		return p.handleGetIssue(request)
 	case KindGetComments:
@@ -892,6 +922,57 @@ func (p *Pool) handle(request Request) Result {
 		return p.handleCreateIssue(request)
 	default:
 		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+}
+
+func (p *Pool) handleStartIssue(request Request) Result {
+	if request.StartIssue == nil || strings.TrimSpace(request.StartIssue.Result.Issue.Key) == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	outcomes := startworkflow.ApplyJiraActions(ctx, p.client, request.StartIssue.Result, request.StartIssue.BranchSucceeded)
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		StartIssue: &StartIssueResult{
+			Key:      request.StartIssue.Result.Issue.Key,
+			Outcomes: outcomes,
+			SyncedAt: time.Now(),
+		},
+	}
+}
+
+func (p *Pool) handleGetCurrentUser(request Request) Result {
+	if request.GetCurrentUser == nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	user, err := p.client.CurrentUser(ctx)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		GetCurrentUser: &GetCurrentUserResult{
+			User:     user,
+			SyncedAt: time.Now(),
+		},
 	}
 }
 

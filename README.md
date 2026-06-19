@@ -4,9 +4,10 @@ A terminal-first Jira client for engineers who want Jira to feel like part of th
 workflow instead of a browser chore.
 
 `jira-tui` gives you fast saved views, status-oriented issue lanes, focused ticket detail, comments,
-workflow transitions, ticket creation, metadata-backed edits, worklogs, issue links, and sanitized
-diagnostics from one keyboard-driven TUI. It is built for Jira Cloud and keeps Jira reads/writes on
-bounded background workers so the interface stays responsive while data loads.
+workflow transitions, ticket creation, metadata-backed edits, worklogs, issue links, ticket-to-branch
+start workflows, and sanitized diagnostics from one keyboard-driven TUI. It is built for Jira Cloud
+and keeps Jira reads/writes on bounded background workers so the interface stays responsive while
+data loads.
 
 ## Highlights
 
@@ -22,6 +23,9 @@ bounded background workers so the interface stays responsive while data loads.
 - **Real Jira edits:** create tickets and subtasks, edit summary/priority/assignee/labels/components,
   apply status transitions with required fields, add/edit comments, create/remove issue links, and
   add/edit/delete worklogs through worker-backed Jira requests.
+- **Ticket-to-branch start flow:** run `jira start ABC-123` or use Ticket Actions -> Start Work to
+  choose a repo, edit the branch name, and explicitly confirm branch, assignee, status, and comment
+  updates.
 - **Rich comments and readable details:** Jira ADF descriptions and comments render in the terminal,
   links are detected, comments support basic formatting controls, and Jira mentions use account IDs
   selected through search.
@@ -85,8 +89,8 @@ Required settings:
 - Jira API token
 - Default Jira project key
 
-The config editor also includes saved views, profiles, runtime settings, appearance colors, and
-display symbol mode.
+The config editor also includes saved views, profiles, runtime settings, appearance colors, display
+symbol mode, and the default Git branch template used by Start Work.
 
 ## Recommended Terminal Setup
 
@@ -141,6 +145,16 @@ non-ASCII symbols, then restart the terminal and run `jira config`.
 - Links include Jira issue links, detected URLs, email addresses, and copy/open actions.
 - Ticket Actions (`.`) gives a searchable command surface for edits, comments, status, assignment,
   links, subtasks, and worklogs.
+
+### Start Work
+
+- `jira start ABC-123` opens the same Start Work flow from the CLI.
+- Running `jira start` without a ticket loads a focused picker from the default JQL first.
+- Ticket Actions -> Start Work launches the flow for the selected ticket inside the TUI.
+- The flow detects the current Git repo, lets you edit the repo path and branch name, then shows a
+  review screen before any writes happen.
+- Confirmed writes create or switch the local branch, optionally assign the ticket to you, move it to
+  the best available In Progress-like transition, and add a compact branch comment.
 
 ### Create And Edit
 
@@ -202,8 +216,11 @@ keymap.
 ```bash
 jira
 jira config
+jira start ABC-123
+jira start
 jira --profile work
 jira --profile work config
+jira --profile work start ABC-123
 ```
 
 ## Development
