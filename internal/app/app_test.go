@@ -142,8 +142,20 @@ func (f *fakeGitClient) DetectRepo(context.Context, string) (gitworkflow.RepoSta
 	return gitworkflow.RepoStatus{Path: "/tmp/repo", Detected: true}, nil
 }
 
+func (f *fakeGitClient) Analyze(context.Context, string) (gitworkflow.Analysis, error) {
+	return gitworkflow.Analysis{Repo: gitworkflow.RepoStatus{Path: "/tmp/repo", Detected: true}}, nil
+}
+
 func (f *fakeGitClient) CreateOrSwitchBranch(_ context.Context, repoPath string, branch string) error {
 	f.branchRepo = repoPath
 	f.branchName = branch
+	return nil
+}
+
+func (f *fakeGitClient) CommitAll(context.Context, string, string) (gitworkflow.Commit, error) {
+	return gitworkflow.Commit{SHA: "1111111", Subject: "ABC-123 commit"}, nil
+}
+
+func (f *fakeGitClient) PushCurrentBranch(context.Context, string) error {
 	return nil
 }

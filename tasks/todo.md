@@ -2,9 +2,9 @@
 
 ## Git Commit And Finish Workflows
 
-- [ ] Extend the Git adapter with repo analysis, commit, and push support.
-- [ ] Add local reported-commit state keyed by repo, branch, ticket, and SHA.
-- [ ] Add shared planning helpers for commit notes, final notes, and default messages.
+- [x] Extend the Git adapter with repo analysis, commit, and push support.
+- [x] Add local reported-commit state keyed by repo, branch, ticket, and SHA.
+- [x] Add shared planning helpers for commit notes, final notes, and default messages.
 - [ ] Add `jira commit [ticket]` with reviewed commit, Jira note, reported-state, and push actions.
 - [ ] Add a provider-neutral PR interface with a GitHub CLI implementation.
 - [ ] Add `jira finish [ticket]` with commit cleanup, push, PR, final Jira note, and safe terminal transition.
