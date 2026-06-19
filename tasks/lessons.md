@@ -246,3 +246,5 @@
 - Git CLI interactions for Jira workflow features must stay behind a single adapter boundary. Do
   not scatter `exec.Command("git", ...)` through app, TUI, or workflow code; add capabilities to the
   adapter and keep callers on narrow interfaces.
+- Do not close GitHub backlog issues just because implementation is committed or pushed to a feature
+  branch. Keep the issue open until the work is merged to `main` or otherwise actually delivered.

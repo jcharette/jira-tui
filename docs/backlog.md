@@ -21,6 +21,7 @@ index in the same change. When an item lands, close or update the issue and add 
 
 ### Git And AI Workflows
 
+- [#4 Add `jira start` workflow for ticket branches](https://github.com/jcharette/jira-tui/issues/4)
 - [#5 Add `jira finish` workflow for PR and Jira completion](https://github.com/jcharette/jira-tui/issues/5)
 - [#6 Expand AI workflows behind provider-neutral ai.task events](https://github.com/jcharette/jira-tui/issues/6)
 - [#8 Add `jira commit` workflow for commits and Jira updates](https://github.com/jcharette/jira-tui/issues/8)
