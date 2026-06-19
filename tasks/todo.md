@@ -1,5 +1,27 @@
 # Task Plan
 
+## Git Commit And Finish Workflows
+
+- [ ] Extend the Git adapter with repo analysis, commit, and push support.
+- [ ] Add local reported-commit state keyed by repo, branch, ticket, and SHA.
+- [ ] Add shared planning helpers for commit notes, final notes, and default messages.
+- [ ] Add `jira commit [ticket]` with reviewed commit, Jira note, reported-state, and push actions.
+- [ ] Add a provider-neutral PR interface with a GitHub CLI implementation.
+- [ ] Add `jira finish [ticket]` with commit cleanup, push, PR, final Jira note, and safe terminal transition.
+- [ ] Update README, project state, backlog, changelog, GitHub issues #5/#8, and verification notes.
+
+### Git Commit And Finish Workflows Scope
+
+Implement GitHub issues #5 and #8 together on one feature branch. The workflows are CLI-first and
+operate from the current repo/branch. Git operations stay behind `internal/gitworkflow`, GitHub PR
+operations stay behind `internal/prprovider`, and reported commit state is stored locally so retries
+do not duplicate Jira comments. Every Git, Jira, GitHub, and local state write is reviewed before it
+runs.
+
+### Git Commit And Finish Workflows Review
+
+- Pending implementation.
+
 ## Jira Start Workflow
 
 - [x] Add git/repo detection and configurable branch-template foundations.
