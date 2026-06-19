@@ -1,5 +1,35 @@
 # Task Plan
 
+## Git Commit And Finish Workflows
+
+- [x] Extend the Git adapter with repo analysis, commit, and push support.
+- [x] Add local reported-commit state keyed by repo, branch, ticket, and SHA.
+- [x] Add shared planning helpers for commit notes, final notes, and default messages.
+- [x] Add `jira commit [ticket]` with reviewed commit, Jira note, reported-state, and push actions.
+- [x] Add a provider-neutral PR interface with a GitHub CLI implementation.
+- [x] Add `jira finish [ticket]` with commit cleanup, push, PR, final Jira note, and safe terminal transition.
+- [x] Update README, project state, backlog, changelog, GitHub issues #5/#8, and verification notes.
+
+### Git Commit And Finish Workflows Scope
+
+Implement GitHub issues #5 and #8 together on one feature branch. The workflows are CLI-first and
+operate from the current repo/branch. Git operations stay behind `internal/gitworkflow`, GitHub PR
+operations stay behind `internal/prprovider`, and reported commit state is stored locally so retries
+do not duplicate Jira comments. Every Git, Jira, GitHub, and local state write is reviewed before it
+runs.
+
+### Git Commit And Finish Workflows Review
+
+- Added `jira commit [ticket]` with repo analysis, branch ticket detection, reviewed writes, dirty
+  work commits, Jira progress notes, local reported-SHA state, and branch push.
+- Added `jira finish [ticket]` with the same commit/report state, branch push, GitHub draft PR
+  create/reuse through `internal/prprovider`, final Jira PR note, and safe terminal transition
+  selection that skips required transition-screen fields.
+- Posted progress comments to GitHub issues #5 and #8 and left both open until this branch merges to
+  `main`.
+- Verification: `git diff --check`, `go test ./... -count=1`, `make docs-status`, `make check`, and
+  `make install-user` passed.
+
 ## Jira Start Workflow
 
 - [x] Add git/repo detection and configurable branch-template foundations.

@@ -82,6 +82,67 @@ func TestCreateOrSwitchBranchCreatesThenSwitchesExistingBranch(t *testing.T) {
 	}
 }
 
+func TestAnalyzeDetectsIssueDirtyFilesAndLocalCommits(t *testing.T) {
+	repo := initTempRepo(t)
+	gitTest(t, repo, "switch", "-c", "abc-123-prepare-release")
+	writeFile(t, filepath.Join(repo, "feature.txt"), "done\n")
+	gitTest(t, repo, "add", "feature.txt")
+	gitTest(t, repo, "commit", "-m", "ABC-123 add release prep")
+	writeFile(t, filepath.Join(repo, "notes.txt"), "draft\n")
+
+	analysis, err := NewCLIClient().Analyze(context.Background(), repo)
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+
+	if analysis.IssueKey != "ABC-123" {
+		t.Fatalf("IssueKey = %q", analysis.IssueKey)
+	}
+	if analysis.BaseBranch == "" {
+		t.Fatal("BaseBranch is empty")
+	}
+	if !analysis.Changes.Dirty || len(analysis.Changes.Files) != 1 || analysis.Changes.Files[0].Path != "notes.txt" {
+		t.Fatalf("Changes = %#v", analysis.Changes)
+	}
+	if len(analysis.Commits) != 1 || analysis.Commits[0].Subject != "ABC-123 add release prep" {
+		t.Fatalf("Commits = %#v", analysis.Commits)
+	}
+}
+
+func TestCommitAllStagesAllChangesAndReturnsCommit(t *testing.T) {
+	repo := initTempRepo(t)
+	gitTest(t, repo, "switch", "-c", "abc-123-work")
+	writeFile(t, filepath.Join(repo, "feature.txt"), "done\n")
+
+	commit, err := NewCLIClient().CommitAll(context.Background(), repo, "ABC-123 commit work")
+	if err != nil {
+		t.Fatalf("CommitAll() error = %v", err)
+	}
+
+	if commit.SHA == "" || commit.Subject != "ABC-123 commit work" {
+		t.Fatalf("CommitAll() = %#v", commit)
+	}
+	status := gitTestOutput(t, repo, "status", "--porcelain")
+	if status != "" {
+		t.Fatalf("status = %q", status)
+	}
+}
+
+func TestDetectIssueKeyFindsBranchTicket(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  string
+	}{
+		{value: "abc-123-prepare-release", want: "ABC-123"},
+		{value: "feature/PROJ-456/do-work", want: "PROJ-456"},
+		{value: "no-ticket", want: ""},
+	} {
+		if got := DetectIssueKey(tc.value); got != tc.want {
+			t.Fatalf("DetectIssueKey(%q) = %q, want %q", tc.value, got, tc.want)
+		}
+	}
+}
+
 func initTempRepo(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()

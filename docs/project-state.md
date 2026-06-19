@@ -279,6 +279,14 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   `internal/gitworkflow` adapter boundary. Confirmed Jira follow-ups assign to the current user,
   choose the best available In Progress-like transition when no required unsupported fields are
   present, and add a compact branch comment only after branch creation/switch succeeds.
+- `jira commit [ticket]` analyzes the current Git repo through `internal/gitworkflow`, detects the
+  Jira issue from the branch when possible, separates dirty work from already-reported and
+  unreported local commits, previews the commit/Jira/push writes, stores reported commit SHAs under
+  the OS cache directory, and skips duplicate Jira progress notes on later retries.
+- `jira finish [ticket]` reuses the same commit/report state, pushes the branch, creates or reuses a
+  GitHub draft pull request through `internal/prprovider`, posts a compact final Jira note with the
+  PR URL, and applies only the best available terminal Jira transition when Jira metadata says no
+  required extra fields are needed.
 - Startup runs a local Claude Code/CLI preflight from config. Disabled Claude records a disabled
   status; enabled Claude resolves `claude` from PATH unless a command/path override is configured,
   runs a bounded `--version` check, and records ready/unavailable status in Diagnostics. When

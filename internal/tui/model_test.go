@@ -956,9 +956,24 @@ func (f *fakeGitWorkflowClient) DetectRepo(context.Context, string) (gitworkflow
 	return f.repo, nil
 }
 
+func (f *fakeGitWorkflowClient) Analyze(context.Context, string) (gitworkflow.Analysis, error) {
+	if f.err != nil {
+		return gitworkflow.Analysis{}, f.err
+	}
+	return gitworkflow.Analysis{Repo: f.repo}, nil
+}
+
 func (f *fakeGitWorkflowClient) CreateOrSwitchBranch(_ context.Context, repoPath string, branch string) error {
 	f.branchRepo = repoPath
 	f.branchName = branch
+	return f.err
+}
+
+func (f *fakeGitWorkflowClient) CommitAll(context.Context, string, string) (gitworkflow.Commit, error) {
+	return gitworkflow.Commit{SHA: "1111111", Subject: "ABC-123 commit"}, f.err
+}
+
+func (f *fakeGitWorkflowClient) PushCurrentBranch(context.Context, string) error {
 	return f.err
 }
 

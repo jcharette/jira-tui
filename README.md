@@ -156,6 +156,18 @@ non-ASCII symbols, then restart the terminal and run `jira config`.
 - Confirmed writes create or switch the local branch, optionally assign the ticket to you, move it to
   the best available In Progress-like transition, and add a compact branch comment.
 
+### Commit And Finish Work
+
+- `jira commit [ABC-123]` reviews the current repo, detects the ticket from the branch when possible,
+  commits dirty work, reports unreported local commits to Jira, records reported SHAs locally, and
+  offers to push the branch after confirmation.
+- `jira finish [ABC-123]` reuses the same commit/report state, pushes the branch, creates or reuses a
+  GitHub draft pull request through `gh`, posts a compact final Jira note with the PR URL, and moves
+  the ticket through the safest available terminal transition when Jira metadata has no required
+  extra fields.
+- Git operations stay behind the app's Git adapter, GitHub operations stay behind a provider
+  interface, and Jira/Git/GitHub writes are previewed before they run.
+
 ### Create And Edit
 
 - `n` opens Jira-backed ticket creation with issue type, Summary, Description, and supported
