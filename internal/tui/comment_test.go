@@ -89,6 +89,105 @@ func TestCommentComposerConfirmsAndPostsComment(t *testing.T) {
 	}
 }
 
+func TestCommentSectionFocusEditsSelectedComment(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story"}}
+	model.details = map[string]jira.IssueDetail{"ABC-1": {Issue: model.issues[0]}}
+	model.comments = map[string][]jira.Comment{
+		"ABC-1": {
+			{ID: "10001", Author: "Jane", Body: "First comment"},
+			{ID: "10002", Author: "Jon", Body: "Second comment"},
+		},
+	}
+	focusDetailSectionForTest(t, &model, "Comments")
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+	if !next.commentFocus {
+		t.Fatal("expected comment list focus")
+	}
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "down", Code: tea.KeyDown}))
+	next = updated.(Model)
+	updated, cmd := next.Update(tea.KeyPressMsg(tea.Key{Text: "e", Code: 'e'}))
+	next = updated.(Model)
+	if cmd != nil {
+		t.Fatal("opening edit composer should not submit work")
+	}
+	if next.mode != modeComment {
+		t.Fatalf("mode = %v", next.mode)
+	}
+	if !next.commentEditing || next.commentEditID != "10002" || next.commentEditIssueKey != "ABC-1" {
+		t.Fatalf("edit target = editing:%v issue:%q id:%q", next.commentEditing, next.commentEditIssueKey, next.commentEditID)
+	}
+	if next.commentDraft != "Second comment" {
+		t.Fatalf("commentDraft = %q", next.commentDraft)
+	}
+	view := next.render()
+	for _, want := range []string{"Edit Comment", "Second comment"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in:\n%s", want, view)
+		}
+	}
+}
+
+func TestCommentEditConfirmsUpdatesAndRefreshesComments(t *testing.T) {
+	store := newFakeActiveViewStore()
+	model := NewModel(&fakeIssueSearcher{
+		updatedComment: jira.Comment{ID: "10001", Author: "Jane", Body: "Updated comment"},
+		comments:       []jira.Comment{{ID: "10001", Author: "Jane", Body: "Updated comment"}},
+	}, "project = ABC", WithActiveViewStore(store, "https://example.atlassian.net"))
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeComment
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1"}}
+	model.comments = map[string][]jira.Comment{"ABC-1": {{ID: "10001", Author: "Jane", Body: "Old comment"}}}
+	model.commentEditing = true
+	model.commentEditIssueKey = "ABC-1"
+	model.commentEditID = "10001"
+	model.commentDraft = "Updated comment"
+	model.commentEditor = newCommentEditor("Updated comment")
+	model.commentEditorReady = true
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "tab", Code: tea.KeyTab}))
+	next := updated.(Model)
+	if !next.commentConfirm {
+		t.Fatal("expected confirmation state")
+	}
+	updated, cmd := next.Update(tea.KeyPressMsg(tea.Key{Text: "y", Code: 'y'}))
+	next = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected update comment command")
+	}
+	updated, _ = next.Update(cmd())
+	next = updated.(Model)
+
+	resultMsg := next.waitForWorkerResult()()
+	updated, cmd = next.Update(resultMsg)
+	next = updated.(Model)
+	if next.mode != modeDetail {
+		t.Fatalf("mode after update = %v", next.mode)
+	}
+	if !strings.Contains(next.detailNotice, "Comment updated") {
+		t.Fatalf("detailNotice = %q", next.detailNotice)
+	}
+	if cmd == nil || !next.commentsLoading {
+		t.Fatal("expected comments refresh after update")
+	}
+	if _, ok := next.comments["ABC-1"]; ok {
+		t.Fatalf("expected stale comments cleared: %#v", next.comments["ABC-1"])
+	}
+	if store.deletedComments != "ABC-1" {
+		t.Fatalf("deleted persistent comments = %q", store.deletedComments)
+	}
+}
+
 func TestCommentComposerCancelReturnsToDetail(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()

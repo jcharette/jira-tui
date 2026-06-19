@@ -6,35 +6,16 @@ changelog when it lands.
 Docs are part of done. When an item here is completed, remove or move it and add a matching entry
 to [releases/CHANGELOG.md](releases/CHANGELOG.md).
 
-## Next: Navigation And Query
+## Next: Creation And Editing
 
-- Add bounded concurrency controls for sprint and board fetches when parallel loading expands beyond
-  the current issue/detail/comment/cache worker paths.
-
-## Later: Creation And Editing
-
-- Extend Jira metadata discovery adapters beyond the current create/edit metadata foundation:
-  assignable user search by project/issue and field options.
-- Expand transition field handling beyond the current Resolution and Comment support to additional
-  Jira field schemas when real workflow screens require them.
-- Add a ticket action menu/command palette for edit workflows so growing actions do not overload
-  single-key detail bindings.
-- Add remaining metadata-backed implementations behind the Actions tab only as their underlying
-  workflows land.
-- Expand the first create issue flow beyond Summary/Description: render supported required fields
-  from Jira create metadata, validate allowed values, and add custom field shapes without hard-coded
-  presets.
-- Edit issue flow that uses Jira edit metadata, supports all editable fields cleanly, and validates
-  against Jira-provided options before submitting updates.
-- Add issue link management using Jira metadata/API responses for link types and valid targets.
-- Add subtask creation from a selected issue using Jira create metadata for required fields.
-- Add comment editing with explicit confirmation and clear failure feedback.
-- Add assignment flow with Jira assignable-user lookup/search, account ID handling,
-  disambiguation, and permission-aware errors.
-- Worklog support.
+- Add remaining metadata-backed implementations beyond Labels and Components through the Ticket
+  Actions palette only as their underlying workflows land.
+- Extend generic edit issue support beyond safe custom text/number/date and inline option fields:
+  add field-specific workflows for users, versions, sprints, autocomplete-only options, and other
+  complex Jira schemas as real usage demands them.
+- Add issue link removal/editing after parsed issue-link detail retains Jira link IDs.
+- Worklog edit/delete support after add/list usage has proven the right terminal UX.
 - Sprint/board views.
-- Saved filters.
-- Multi-site Jira profiles.
 - Homebrew tap/formula after the release binary and `go install` paths are stable.
 
 ## Later: Security And Auth
@@ -61,6 +42,11 @@ to [releases/CHANGELOG.md](releases/CHANGELOG.md).
   and future `auto` routing stay behind one command path.
 - Keep git provider integrations isolated behind internal boundaries so GitHub/GitLab/Bitbucket
   support can be added without rewriting Jira UI flows.
+
+## Maybe Later
+
+- Multi-site Jira profiles, if real usage shows people regularly need to switch between unrelated
+  Jira tenants from the same install.
 
 ## Questions
 

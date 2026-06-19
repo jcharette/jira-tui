@@ -34,11 +34,11 @@ func (m Model) renderCommentComposer(layout browserLayout) string {
 	b.WriteString(m.renderCommentComposerTitle(selected, bodyWidth))
 	b.WriteString("\n\n")
 	if m.commentSubmitting {
-		b.WriteString(m.detailSectionHeader("comment-compose", "Posting Comment", "", bodyWidth))
+		b.WriteString(m.detailSectionHeader("comment-compose", m.commentSubmittingTitle(), "", bodyWidth))
 		b.WriteString("\n")
-		b.WriteString(m.theme.Muted.Render("Posting comment..."))
+		b.WriteString(m.theme.Muted.Render(m.commentSubmittingMessage()))
 	} else if m.commentConfirm {
-		b.WriteString(m.detailSectionHeader("comment-compose", "Review Comment", "", bodyWidth))
+		b.WriteString(m.detailSectionHeader("comment-compose", m.commentReviewTitle(), "", bodyWidth))
 		b.WriteString("\n")
 		b.WriteString(m.renderCommentDraft(bodyWidth, editorRows))
 		if preview := m.renderCommentLinkPreview(bodyWidth); preview != "" {
@@ -50,9 +50,9 @@ func (m Model) renderCommentComposer(layout browserLayout) string {
 			b.WriteString(preview)
 		}
 		b.WriteString("\n\n")
-		b.WriteString(m.theme.Warning.Render("Post this comment to " + selected.Key + "?"))
+		b.WriteString(m.theme.Warning.Render(m.commentConfirmPrompt(selected.Key)))
 	} else {
-		b.WriteString(m.detailSectionHeader("comment-compose", "Add Comment", "", bodyWidth))
+		b.WriteString(m.detailSectionHeader("comment-compose", m.commentComposerTitle(), "", bodyWidth))
 		b.WriteString("\n")
 		b.WriteString(m.renderCommentDraft(bodyWidth, editorRows))
 		if preview := m.renderCommentLinkPreview(bodyWidth); preview != "" {
@@ -73,6 +73,41 @@ func (m Model) renderCommentComposer(layout browserLayout) string {
 		b.WriteString(m.renderDetailNotice(m.detailNotice, bodyWidth))
 	}
 	return m.theme.ActivePane.Width(layout.contentWidth).Render(b.String())
+}
+
+func (m Model) commentComposerTitle() string {
+	if m.commentEditing {
+		return "Edit Comment"
+	}
+	return "Add Comment"
+}
+
+func (m Model) commentReviewTitle() string {
+	if m.commentEditing {
+		return "Review Comment Edit"
+	}
+	return "Review Comment"
+}
+
+func (m Model) commentSubmittingTitle() string {
+	if m.commentEditing {
+		return "Updating Comment"
+	}
+	return "Posting Comment"
+}
+
+func (m Model) commentSubmittingMessage() string {
+	if m.commentEditing {
+		return "Updating comment..."
+	}
+	return "Posting comment..."
+}
+
+func (m Model) commentConfirmPrompt(issueKey string) string {
+	if m.commentEditing {
+		return "Update this comment on " + issueKey + "?"
+	}
+	return "Post this comment to " + issueKey + "?"
 }
 
 func (m Model) renderCommentComposerTitle(issue jira.Issue, width int) string {
@@ -239,14 +274,52 @@ func (m Model) renderMentionUsers(width int) []string {
 func (m *Model) startCommentComposer() {
 	m.mode = modeComment
 	m.linkFocus = false
+	m.hierarchyFocus = false
+	m.commentFocus = false
+	m.actionFocus = false
 	m.commentDraft = ""
 	m.commentEditor = newCommentEditor(m.commentDraft)
 	m.commentEditorReady = true
 	m.commentConfirm = false
 	m.commentSubmitting = false
+	m.commentEditing = false
+	m.commentEditIssueKey = ""
+	m.commentEditID = ""
+	m.commentEditOriginal = ""
 	m.commentMentions = nil
 	m.closeMentionPicker()
 	m.detailNotice = ""
+}
+
+func (m Model) startSelectedCommentEditor() (Model, tea.Cmd) {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		m.detailNotice = "No issue selected."
+		return m, nil
+	}
+	comment, ok := m.selectedCommentForEdit()
+	if !ok || strings.TrimSpace(comment.ID) == "" {
+		m.detailNotice = "Select a comment before editing."
+		return m, nil
+	}
+	m.mode = modeComment
+	m.linkFocus = false
+	m.hierarchyFocus = false
+	m.commentFocus = false
+	m.actionFocus = false
+	m.commentDraft = comment.Body
+	m.commentEditor = newCommentEditor(comment.Body)
+	m.commentEditorReady = true
+	m.commentConfirm = false
+	m.commentSubmitting = false
+	m.commentEditing = true
+	m.commentEditIssueKey = selected.Key
+	m.commentEditID = comment.ID
+	m.commentEditOriginal = comment.Body
+	m.commentMentions = nil
+	m.closeMentionPicker()
+	m.detailNotice = ""
+	return m, nil
 }
 
 func (m Model) updateCommentComposer(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -265,6 +338,10 @@ func (m Model) updateCommentComposer(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.commentEditorReady = true
 			m.commentConfirm = false
 			m.commentSubmitting = false
+			m.commentEditing = false
+			m.commentEditIssueKey = ""
+			m.commentEditID = ""
+			m.commentEditOriginal = ""
 			m.commentMentions = nil
 			m.closeMentionPicker()
 			m.detailNotice = "Comment canceled."
@@ -567,5 +644,17 @@ func (m Model) submitCommentDraft() (Model, tea.Cmd) {
 	m.commentRequestKey = selected.Key
 	m.commentSubmitting = true
 	m.detailNotice = ""
+	if m.commentEditing {
+		issueKey := strings.TrimSpace(m.commentEditIssueKey)
+		commentID := strings.TrimSpace(m.commentEditID)
+		if issueKey == "" || commentID == "" {
+			m.commentSubmitting = false
+			m.commentConfirm = false
+			m.detailNotice = "Comment update failed: missing comment target."
+			return m, nil
+		}
+		m.commentRequestKey = issueKey
+		return m, m.submitUpdateComment(m.activeCommentReqID, issueKey, commentID, body, m.commentMentions)
+	}
 	return m, m.submitAddComment(m.activeCommentReqID, selected.Key, body, m.commentMentions)
 }

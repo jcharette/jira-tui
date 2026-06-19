@@ -15,6 +15,16 @@
 - For TUI actions, test the full interaction contract together: visible focused target or menu row,
   advertised footer/help binding, key handling, and resulting mode/command. Do not test rendering
   and key behavior as unrelated concerns.
+- Preview/context panes must visibly respond to selection changes even when deeper data has not
+  loaded yet. Include selected-item-specific fallback context from already-loaded rows, and add a
+  regression test that moves selection before assuming the preview feels live.
+- Do not expose implementation/cache state in primary UX labels. If retained data is useful, render
+  the user-facing content it enables, such as description preview or latest comment, and keep cache
+  terminology in Diagnostics.
+- Status lanes need product ordering, not input-order grouping. Put in-progress work before to-do
+  work, then keep less actionable or terminal states later.
+- Reuse the same selected-row marker helper across alternate issue-list layouts. A default layout
+  should not have a weaker or different cursor than the table/tree layout.
 - The TUI must always stay responsive. It is acceptable and encouraged to use more background
   workers/threads for Jira reads, cache refresh, TTL expiry handling, and prefetch/sync work, as
   long as those flows are bounded, use maintained libraries where they fit, and never block the
@@ -191,3 +201,45 @@
 - For caching, queues, and other infrastructure primitives, reach for maintained third-party
   libraries already in the project or a vetted dependency before writing local data-structure code.
   Only hand-roll the small adapter/glue around app-specific policy.
+- Collapsed hierarchy state must be visible on the row itself in every issue-list layout. Do not
+  rely on `z` behavior or hidden-count text alone; parent rows need an explicit collapsed/expandable
+  affordance next to the issue-type glyph.
+- Collapsed-row affordances must be keyed from collapsed state, not only from visible hidden-child
+  counts. A parent can need an expand marker even when the current view has not rendered a hidden
+  descendant count.
+- Do not infer a collapsed-row glyph from issue type alone. Collapsed glyphs represent local
+  collapsed state; type glyphs represent issue type, and both should render together when a row is
+  collapsed.
+- Issue-type glyphs must not reuse hierarchy connector shapes. Subtask rows still need a distinct
+  type glyph even though the tree gutter already communicates parent/child nesting.
+- When debugging missing collapsed icons, log and inspect the local collapsed state before changing
+  issue-type rendering. The right question is whether the row is actually collapsed, whether `z`
+  no-opped due to missing loaded children, or whether rendering dropped the collapsed marker.
+- When a UI bug survives multiple code/test iterations, stop recompiling similar renderer changes.
+  Gather runtime evidence first from persistent logs, config, cache, and actual rendered state so
+  the next change targets the observed failure instead of another guessed path.
+- For unclear runtime UI bugs, do not lead with more Go tests after the user says tests are not
+  helping. Gather evidence, solve the observed behavior, manually inspect the rendered result, then
+  add tests around the confirmed fix.
+- `symbol_mode = auto` should actually run the app's symbol detection path. It may infer Nerd mode
+  only from reasonable runtime evidence such as a Nerd-capable iTerm profile signal, and must keep
+  explicit `symbols`, `emoji`, `nerd`, and `plain` overrides for users when detection is wrong.
+- Do not make text badges the default answer for visual issue-type scanning. For the main issue list,
+  `auto` should prefer compact font-safe glyphs with theme color; reserve text badges for explicit
+  plain fallback or inaccessible terminals.
+- When recommending optional terminal/font setup inside the app, include concrete commands and the
+  exact follow-up action. Describing "install and configure a Nerd Font" is not enough.
+- Status-lane layouts must group rendered root subtrees, not individual visible rows. Flattening
+  every row by status destroys expanded Epic/child indentation and makes hierarchy look broken.
+- Issue ordering must preserve full recursive hierarchy, not just one parent-child level. Dropping
+  grandchildren from `orderIssues` makes expanded subtasks disappear even when Jira/cache returned
+  them correctly.
+- For visual TUI work, do not rely only on focused unit assertions. Add representative fixture-backed
+  rendered-screen checks for the layouts the user will inspect, including default mode, expanded
+  hierarchy, collapsed hierarchy, and configured symbol modes.
+- Never commit user/company-specific Jira keys, summaries, project names, or roadmap details into
+  tests, snapshots, docs, or fixtures. Use generic sanitized examples such as `PROJ-100` and neutral
+  platform/task summaries.
+- Alternate issue-list layouts must make rendered visual order the source of truth for interaction,
+  not just rendering. If a layout groups or reorders rows, movement, paging, first/last navigation,
+  and viewport scrolling all need to consume that same visual row model.

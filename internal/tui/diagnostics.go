@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ const (
 	diagnosticKindClaude diagnosticKind = "claude"
 	diagnosticKindEvent  diagnosticKind = "event"
 	diagnosticKindAPI    diagnosticKind = "api"
+	diagnosticKindState  diagnosticKind = "state"
 )
 
 type diagnosticEvent struct {
@@ -46,6 +48,10 @@ func (m Model) renderDiagnostics(layout browserLayout) string {
 	var b strings.Builder
 	b.WriteString(m.detailSectionHeader("diagnostics", "Diagnostics", "Background Activity", max(32, layout.contentWidth-4)))
 	b.WriteString("\n\n")
+	if m.diagnosticLogPath != "" {
+		b.WriteString(m.theme.Muted.Render("Log ") + m.theme.Text.Render(truncate(m.diagnosticLogPath, max(20, layout.contentWidth-10))))
+		b.WriteString("\n")
+	}
 	if len(events) == 0 {
 		b.WriteString(renderWorkerQueueSummary(m.workerStats(), max(20, layout.contentWidth-6)))
 		if cacheSummary := m.renderCacheFamilySummary(max(20, layout.contentWidth-6)); cacheSummary != "" {
@@ -223,7 +229,7 @@ func diagnosticStatsFor(events []diagnosticEvent) diagnosticStats {
 			}
 		case diagnosticKindCache:
 			stats.Cache++
-		case diagnosticKindEvent:
+		case diagnosticKindEvent, diagnosticKindState:
 			stats.Events++
 		case diagnosticKindAPI:
 			stats.API++
@@ -275,16 +281,20 @@ func (m *Model) recordDiagnosticEvent(kind diagnosticKind, label string, status 
 	if label == "" && detail == "" {
 		return
 	}
-	m.diagnosticsEvents = append(m.diagnosticsEvents, diagnosticEvent{
-		At:     time.Now(),
+	event := diagnosticEvent{
+		At:     m.currentTime(),
 		Kind:   kind,
 		Label:  label,
 		Status: status,
 		Detail: detail,
-	})
+	}
+	m.diagnosticsEvents = append(m.diagnosticsEvents, event)
 	if len(m.diagnosticsEvents) > maxDiagnosticsEvents {
 		start := len(m.diagnosticsEvents) - maxDiagnosticsEvents
 		m.diagnosticsEvents = append([]diagnosticEvent(nil), m.diagnosticsEvents[start:]...)
+	}
+	if m.diagnosticSink != nil {
+		m.diagnosticSink.RecordDiagnosticEvent(event)
 	}
 }
 
@@ -352,6 +362,14 @@ func workerDiagnosticDetail(id int, key string, err error) string {
 	return strings.Join(parts, " ")
 }
 
+func diagnosticToken(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "-"
+	}
+	return strings.ReplaceAll(value, " ", "_")
+}
+
 func resultDiagnosticKey(result worker.Result) string {
 	switch {
 	case result.GetIssue != nil:
@@ -395,6 +413,8 @@ func resultDiagnosticKey(result worker.Result) string {
 
 func resultDiagnosticMetrics(result worker.Result) string {
 	switch {
+	case result.SearchIssues != nil:
+		return "types=" + issueTypeCountSummary(result.SearchIssues.Issues, 6)
 	case result.GetCreateIssueTypes != nil:
 		return fmt.Sprintf("types=%d", len(result.GetCreateIssueTypes.IssueTypes))
 	case result.GetCreateFields != nil:
@@ -413,6 +433,39 @@ func resultDiagnosticMetrics(result worker.Result) string {
 	default:
 		return ""
 	}
+}
+
+func issueTypeCountSummary(issues []jira.Issue, limit int) string {
+	if len(issues) == 0 {
+		return "-"
+	}
+	counts := make(map[string]int)
+	for _, issue := range issues {
+		issueType := displayValue(issue.IssueType, "Unknown")
+		counts[issueType]++
+	}
+	types := make([]string, 0, len(counts))
+	for issueType := range counts {
+		types = append(types, issueType)
+	}
+	sort.Slice(types, func(left, right int) bool {
+		if counts[types[left]] != counts[types[right]] {
+			return counts[types[left]] > counts[types[right]]
+		}
+		return strings.ToLower(types[left]) < strings.ToLower(types[right])
+	})
+	if limit <= 0 {
+		limit = len(types)
+	}
+	parts := make([]string, 0, min(len(types), limit))
+	for index, issueType := range types {
+		if index >= limit {
+			parts = append(parts, "...")
+			break
+		}
+		parts = append(parts, fmt.Sprintf("%s:%d", diagnosticToken(issueType), counts[issueType]))
+	}
+	return strings.Join(parts, ",")
 }
 
 func createFieldDiagnosticSample(fields []jira.CreateField, limit int) string {

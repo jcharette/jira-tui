@@ -417,6 +417,7 @@ func TestQueryModalRecentSavePersistsNamedViewWithoutRunningQuery(t *testing.T) 
 		{JQL: "project = ABC AND status = \"In Progress\"", Source: cache.QueryHistorySourceDirect},
 	}
 	model.querySaveViewOpen = true
+	model.querySaveViewJQL = "project = ABC AND status = \"In Progress\""
 	model.setQuerySaveViewName("Active Work")
 
 	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
@@ -461,6 +462,7 @@ func TestQueryModalRecentSaveRejectsDuplicateViewName(t *testing.T) {
 		{JQL: "project = ABC AND status = \"In Progress\"", Source: cache.QueryHistorySourceDirect},
 	}
 	model.querySaveViewOpen = true
+	model.querySaveViewJQL = "project = ABC AND status = \"In Progress\""
 	model.setQuerySaveViewName(" assigned ")
 
 	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
@@ -477,5 +479,251 @@ func TestQueryModalRecentSaveRejectsDuplicateViewName(t *testing.T) {
 	}
 	if !strings.Contains(next.detailNotice, "already exists") {
 		t.Fatalf("detailNotice = %q", next.detailNotice)
+	}
+}
+
+func TestTableViewKeySavesCurrentQueryAsViewWithoutRunningQuery(t *testing.T) {
+	var saved config.IssueView
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC AND issuetype = Epic ORDER BY updated DESC",
+		WithViews([]config.IssueView{
+			{Name: "Epics", JQL: "project = ABC AND issuetype = Epic ORDER BY updated DESC", IncludeChildren: true},
+		}, "Epics"),
+		WithSavedViewWriter(func(view config.IssueView) error {
+			saved = view
+			return nil
+		}),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeTable
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "v", Code: 'v'}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("opening current-query save prompt should not submit work")
+	}
+	if !next.queryOpen || !next.querySaveViewOpen {
+		t.Fatalf("queryOpen=%v querySaveViewOpen=%v, want both true", next.queryOpen, next.querySaveViewOpen)
+	}
+	if next.querySaveViewJQL != model.jql {
+		t.Fatalf("querySaveViewJQL = %q, want current JQL %q", next.querySaveViewJQL, model.jql)
+	}
+	if !next.querySaveViewIncludeChildren {
+		t.Fatal("current saved view include_children should seed the save prompt")
+	}
+
+	next.setQuerySaveViewName("Epic Copy")
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next = updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("saving current query should not submit Jira work")
+	}
+	if saved.Name != "Epic Copy" || saved.JQL != model.jql || !saved.IncludeChildren {
+		t.Fatalf("saved view = %#v", saved)
+	}
+	if next.jql != model.jql || next.view != model.view {
+		t.Fatalf("save should not change active query/view, jql=%q view=%d", next.jql, next.view)
+	}
+}
+
+func TestQueryModalDirectSavePersistsDraftWithoutRunningQuery(t *testing.T) {
+	var saved config.IssueView
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithSavedViewWriter(func(view config.IssueView) error {
+			saved = view
+			return nil
+		}),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.startQueryModal()
+	model.setQueryJQLDraft("project = ABC AND status = \"In Progress\" ORDER BY updated DESC")
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+v"}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("opening direct-save prompt should not submit work")
+	}
+	if !next.querySaveViewOpen {
+		t.Fatal("direct save prompt should open")
+	}
+	if next.querySaveViewJQL != "project = ABC AND status = \"In Progress\" ORDER BY updated DESC" {
+		t.Fatalf("querySaveViewJQL = %q", next.querySaveViewJQL)
+	}
+
+	next.setQuerySaveViewName("Active Work")
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next = updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("saving direct draft should not submit Jira work")
+	}
+	if saved.Name != "Active Work" || saved.JQL != "project = ABC AND status = \"In Progress\" ORDER BY updated DESC" {
+		t.Fatalf("saved view = %#v", saved)
+	}
+	if next.jql != model.jql {
+		t.Fatalf("active JQL changed to %q", next.jql)
+	}
+}
+
+func TestQueryModalAIPreviewSavePersistsGeneratedJQL(t *testing.T) {
+	var saved config.IssueView
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithSavedViewWriter(func(view config.IssueView) error {
+			saved = view
+			return nil
+		}),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.startQueryModal()
+	model.queryMode = queryModeAI
+	model.queryGeneratedPrompt = "my bugs"
+	model.queryGeneratedJQL = "project = ABC AND issuetype = Bug ORDER BY updated DESC"
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+v"}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("opening AI preview save prompt should not submit work")
+	}
+	if next.querySaveViewNameValue() != "my bugs" {
+		t.Fatalf("default name = %q", next.querySaveViewNameValue())
+	}
+
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next = updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("saving AI preview should not submit Jira work")
+	}
+	if saved.Name != "my bugs" || saved.JQL != model.queryGeneratedJQL {
+		t.Fatalf("saved view = %#v", saved)
+	}
+	if next.queryOpen == false {
+		t.Fatal("saving AI preview should keep query modal open")
+	}
+}
+
+func TestQueryModalTemplateSavePersistsSelectedTemplate(t *testing.T) {
+	var saved config.IssueView
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC ORDER BY updated DESC",
+		WithSavedViewWriter(func(view config.IssueView) error {
+			saved = view
+			return nil
+		}),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.startQueryModal()
+	model.queryMode = queryModeTemplates
+	model.queryTemplateSelected = 2
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "s", Code: 's'}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("opening template save prompt should not submit work")
+	}
+	if !next.querySaveViewOpen {
+		t.Fatal("template save prompt should open")
+	}
+	if next.querySaveViewNameValue() != "Project Open" {
+		t.Fatalf("default template name = %q", next.querySaveViewNameValue())
+	}
+
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+
+	if cmd != nil {
+		t.Fatal("saving template should not submit Jira work")
+	}
+	if saved.Name != "Project Open" || saved.JQL != "project = ABC AND resolution = Unresolved ORDER BY updated DESC" {
+		t.Fatalf("saved template = %#v", saved)
+	}
+}
+
+func TestQueryModalViewManagerRenamesReordersTogglesAndDeletesViews(t *testing.T) {
+	var writes [][]config.IssueView
+	var activeWrites []string
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithViews([]config.IssueView{
+			{Name: "Assigned", JQL: "assignee = currentUser()"},
+			{Name: "Project", JQL: "project = ABC"},
+			{Name: "Epics", JQL: "issuetype = Epic"},
+		}, "Assigned"),
+		WithSavedViewsWriter(func(views []config.IssueView, activeView string) error {
+			writes = append(writes, append([]config.IssueView(nil), views...))
+			activeWrites = append(activeWrites, activeView)
+			return nil
+		}),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.startQueryModal()
+	model.queryMode = queryModeViews
+	model.queryViewSelected = 1
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "r", Code: 'r'}))
+	next := updated.(Model)
+	if cmd != nil {
+		t.Fatal("opening rename prompt should not submit work")
+	}
+	if !next.querySaveViewOpen || next.querySaveViewNameValue() != "Project" {
+		t.Fatalf("rename prompt state name=%q open=%v", next.querySaveViewNameValue(), next.querySaveViewOpen)
+	}
+	next.setQuerySaveViewName("Project Open")
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next = updated.(Model)
+	if cmd != nil {
+		t.Fatal("renaming view should not submit Jira work")
+	}
+	if next.views[1].Name != "Project Open" || writes[len(writes)-1][1].Name != "Project Open" {
+		t.Fatalf("views=%#v writes=%#v", next.views, writes)
+	}
+
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "K", Code: 'K'}))
+	next = updated.(Model)
+	if cmd != nil {
+		t.Fatal("reordering view should not submit Jira work")
+	}
+	if next.views[0].Name != "Project Open" || next.queryViewSelected != 0 {
+		t.Fatalf("reordered views=%#v selected=%d", next.views, next.queryViewSelected)
+	}
+	if next.view != 1 || activeWrites[len(activeWrites)-1] != "Assigned" {
+		t.Fatalf("active view changed after reorder: view=%d activeWrites=%#v", next.view, activeWrites)
+	}
+
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "i", Code: 'i'}))
+	next = updated.(Model)
+	if cmd != nil {
+		t.Fatal("toggling view metadata should not submit Jira work")
+	}
+	if !next.views[0].IncludeChildren {
+		t.Fatalf("include_children was not toggled: %#v", next.views[0])
+	}
+
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "d", Code: 'd'}))
+	next = updated.(Model)
+	if cmd != nil {
+		t.Fatal("deleting view should not submit Jira work")
+	}
+	if len(next.views) != 2 || next.views[0].Name == "Project Open" {
+		t.Fatalf("delete did not remove selected view: %#v", next.views)
+	}
+	if len(writes) != 4 {
+		t.Fatalf("writes count = %d, want 4", len(writes))
 	}
 }

@@ -13,10 +13,17 @@ const (
 	keyContextDetail         keyContext = "Ticket Detail"
 	keyContextLinks          keyContext = "Links"
 	keyContextHierarchy      keyContext = "Hierarchy"
+	keyContextComments       keyContext = "Comments"
 	keyContextActions        keyContext = "Actions"
+	keyContextActionPalette  keyContext = "Ticket Actions"
 	keyContextStatus         keyContext = "Status"
 	keyContextPriority       keyContext = "Priority"
+	keyContextLabels         keyContext = "Labels"
+	keyContextComponents     keyContext = "Components"
+	keyContextGenericField   keyContext = "Field"
 	keyContextAssignee       keyContext = "Assignee"
+	keyContextIssueLink      keyContext = "Issue Link"
+	keyContextWorklog        keyContext = "Worklog"
 	keyContextSummary        keyContext = "Summary"
 	keyContextComment        keyContext = "Add Comment"
 	keyContextMentionPicker  keyContext = "Mention Picker"
@@ -77,6 +84,8 @@ func activeKeyContext(m Model) keyContext {
 		return keyContextCreate
 	case m.mode == modeComment:
 		return keyContextComment
+	case m.mode == modeDetail && m.actionPaletteOpen:
+		return keyContextActionPalette
 	case m.mode == modeDetail && m.linkFocus:
 		return keyContextLinks
 	case m.mode == modeDetail && m.actionFocus:
@@ -85,12 +94,24 @@ func activeKeyContext(m Model) keyContext {
 		return keyContextStatus
 	case m.mode == modeDetail && m.priorityFocus:
 		return keyContextPriority
+	case m.mode == modeDetail && m.labelsFocus:
+		return keyContextLabels
+	case m.mode == modeDetail && m.componentsFocus:
+		return keyContextComponents
+	case m.mode == modeDetail && m.genericFieldFocus:
+		return keyContextGenericField
 	case m.mode == modeDetail && m.assigneeFocus:
 		return keyContextAssignee
+	case m.mode == modeDetail && m.issueLinkFocus:
+		return keyContextIssueLink
+	case m.mode == modeDetail && m.worklogFocus:
+		return keyContextWorklog
 	case m.mode == modeDetail && m.summaryFocus:
 		return keyContextSummary
 	case m.mode == modeDetail && m.hierarchyFocus:
 		return keyContextHierarchy
+	case m.mode == modeDetail && m.commentFocus:
+		return keyContextComments
 	case m.mode == modeDetail:
 		return keyContextDetail
 	default:
@@ -119,14 +140,28 @@ func keyBindings(context keyContext) []keyBinding {
 		bindings = append(bindings, linkBindings()...)
 	case keyContextHierarchy:
 		bindings = append(bindings, hierarchyBindings()...)
+	case keyContextComments:
+		bindings = append(bindings, commentsSectionBindings()...)
 	case keyContextActions:
 		bindings = append(bindings, actionBindings()...)
+	case keyContextActionPalette:
+		bindings = append(bindings, actionPaletteBindings()...)
 	case keyContextStatus:
 		bindings = append(bindings, statusBindings()...)
 	case keyContextPriority:
 		bindings = append(bindings, priorityBindings()...)
+	case keyContextLabels:
+		bindings = append(bindings, labelsBindings()...)
+	case keyContextComponents:
+		bindings = append(bindings, componentsBindings()...)
+	case keyContextGenericField:
+		bindings = append(bindings, genericFieldBindings()...)
 	case keyContextAssignee:
 		bindings = append(bindings, assigneeBindings()...)
+	case keyContextIssueLink:
+		bindings = append(bindings, issueLinkBindings()...)
+	case keyContextWorklog:
+		bindings = append(bindings, worklogBindings()...)
 	case keyContextSummary:
 		bindings = append(bindings, summaryBindings()...)
 	case keyContextComment:
@@ -163,7 +198,7 @@ func globalBindings(context keyContext) []keyBinding {
 			{Keys: []string{"ctrl+c"}, Label: "quit", Description: "Quit Jira.", Group: "Global"},
 		}
 	}
-	if context == keyContextComment || context == keyContextMentionPicker || context == keyContextCommentConfirm {
+	if context == keyContextComment || context == keyContextMentionPicker || context == keyContextCommentConfirm || context == keyContextActionPalette || context == keyContextLabels || context == keyContextComponents || context == keyContextGenericField {
 		return []keyBinding{
 			{Keys: []string{"?"}, Label: "help", Description: "Open the keyboard help screen.", Group: "Global", Footer: true},
 			{Keys: []string{"ctrl+c"}, Label: "quit", Description: "Quit Jira.", Group: "Global"},
@@ -187,6 +222,8 @@ func tableBindings() []keyBinding {
 		{Keys: []string{"X"}, Label: "expand-all", Description: "Load all child issues for the selected parent, including resolved issues.", Group: "Issue"},
 		{Keys: []string{"r"}, Label: "refresh", Description: "Refresh the active issue view.", Group: "Global", Footer: true},
 		{Keys: []string{"/"}, Label: "query", Description: "Open direct JQL and AI-assisted JQL query input.", Group: "Views", Footer: true},
+		{Keys: []string{"v"}, Label: "new view", Description: "Save the current JQL as a named saved view.", Group: "Views"},
+		{Keys: []string{"L"}, Label: "layout", Description: "Cycle the issue list layout mode.", Group: "Views", Footer: true},
 		{Keys: []string{"tab", "]", "shift+tab", "["}, FooterKey: "tab", Label: "view", Description: "Switch saved issue views.", Group: "Views", Footer: true},
 		{Keys: []string{"f"}, Label: "active", Description: "Toggle local active-status filtering for loaded issues.", Group: "Views", Footer: true},
 		{Keys: []string{"o", "O"}, Label: "sort", Description: "Cycle issue table sorting forward or backward.", Group: "Views", Footer: true},
@@ -197,10 +234,11 @@ func tableBindings() []keyBinding {
 func queryBindings() []keyBinding {
 	return []keyBinding{
 		{Keys: []string{"type"}, Label: "edit", Description: "Edit the query text or AI prompt.", Group: "Query", Footer: true},
-		{Keys: []string{"tab"}, Label: "mode", Description: "Switch between direct JQL, AI-assisted JQL, and recent queries.", Group: "Query", Footer: true},
+		{Keys: []string{"tab"}, Label: "mode", Description: "Switch between direct JQL, AI-assisted JQL, templates, recent queries, and saved views.", Group: "Query", Footer: true},
 		{Keys: []string{"j", "k", "up", "down"}, FooterKey: "j/k", Label: "recent", Description: "Move through recent queries.", Group: "Query"},
 		{Keys: []string{"enter"}, Label: "review", Description: "Copy a generated or recent query into direct JQL for review.", Group: "Query"},
-		{Keys: []string{"s"}, Label: "save view", Description: "Save the selected recent query as a named saved view.", Group: "Query"},
+		{Keys: []string{"s", "ctrl+v"}, FooterKey: "s/ctrl+v", Label: "save view", Description: "Save the current query, generated preview, recent query, or template as a named saved view.", Group: "Query"},
+		{Keys: []string{"r", "d", "i", "J", "K"}, FooterKey: "r/d/i/J/K", Label: "manage", Description: "Rename, delete, toggle child loading, or reorder saved views in Views mode.", Group: "Query"},
 		{Keys: []string{"ctrl+s"}, Label: "run", Description: "Run direct JQL, generate AI JQL, or run the selected recent query.", Group: "Query", Footer: true},
 		{Keys: []string{"esc"}, Label: "cancel", Description: "Close query input without changing the active query.", Group: "Query", Footer: true},
 	}
@@ -214,6 +252,7 @@ func detailBindings() []keyBinding {
 		{Keys: []string{"g", "G", "home", "end"}, FooterKey: "g/G", Label: "top/bottom", Description: "Jump to the top or bottom of ticket detail.", Group: "Navigation"},
 		{Keys: []string{"tab", "shift+tab"}, FooterKey: "tab", Label: "section", Description: "Move focus across ticket detail sections.", Group: "Sections", Footer: true},
 		{Keys: []string{"enter"}, Label: "select", Description: "Jump to or activate the focused ticket detail section.", Group: "Sections"},
+		{Keys: []string{"."}, Label: "actions", Description: "Open the searchable ticket action palette.", Group: "Issue", Footer: true},
 		{Keys: []string{"n"}, Label: "new", Description: "Create a new Jira ticket.", Group: "Issue", Footer: true},
 		{Keys: []string{"d"}, Label: "description", Description: "Jump to the Description section.", Group: "Sections"},
 		{Keys: []string{"m"}, Label: "comments", Description: "Jump to the Comments section.", Group: "Sections"},
@@ -256,6 +295,24 @@ func actionBindings() []keyBinding {
 	}
 }
 
+func actionPaletteBindings() []keyBinding {
+	return []keyBinding{
+		{Keys: []string{"esc"}, Label: "close", Description: "Close the ticket action palette.", Group: "Navigation", Footer: true},
+		{Keys: []string{"j", "k", "up", "down"}, FooterKey: "j/k", Label: "action", Description: "Select a ticket action.", Group: "Actions", Footer: true},
+		{Keys: []string{"enter"}, Label: "run", Description: "Run the selected ticket action.", Group: "Actions", Footer: true},
+		{Keys: []string{"type"}, Label: "filter", Description: "Filter ticket actions by name, category, or detail.", Group: "Actions", Footer: true},
+	}
+}
+
+func commentsSectionBindings() []keyBinding {
+	return []keyBinding{
+		{Keys: []string{"esc"}, Label: "leave", Description: "Leave comment list focus and return to normal ticket detail navigation.", Group: "Navigation", Footer: true},
+		{Keys: []string{"j", "k", "up", "down"}, FooterKey: "j/k", Label: "comment", Description: "Select a loaded Jira comment.", Group: "Comments", Footer: true},
+		{Keys: []string{"e"}, Label: "edit", Description: "Edit the selected Jira comment.", Group: "Comments", Footer: true},
+		{Keys: []string{"enter"}, Label: "add", Description: "Add a new Jira comment.", Group: "Comments", Footer: true},
+	}
+}
+
 func statusBindings() []keyBinding {
 	return []keyBinding{
 		{Keys: []string{"esc"}, Label: "leave", Description: "Leave status transition focus and return to normal ticket detail navigation.", Group: "Navigation", Footer: true},
@@ -269,6 +326,33 @@ func priorityBindings() []keyBinding {
 		{Keys: []string{"esc"}, Label: "cancel", Description: "Cancel priority editing.", Group: "Navigation", Footer: true},
 		{Keys: []string{"j", "k", "up", "down"}, FooterKey: "j/k", Label: "priority", Description: "Select a Jira priority.", Group: "Priority", Footer: true},
 		{Keys: []string{"enter"}, Label: "apply", Description: "Apply the selected priority.", Group: "Priority", Footer: true},
+	}
+}
+
+func labelsBindings() []keyBinding {
+	return []keyBinding{
+		{Keys: []string{"esc"}, Label: "cancel", Description: "Cancel Labels editing.", Group: "Labels", Footer: true},
+		{Keys: []string{"enter"}, Label: "save", Description: "Save Labels through Jira.", Group: "Labels", Footer: true},
+	}
+}
+
+func componentsBindings() []keyBinding {
+	return []keyBinding{
+		{Keys: []string{"esc"}, Label: "cancel", Description: "Cancel Components editing.", Group: "Components", Footer: true},
+		{Keys: []string{"j", "k", "up", "down"}, FooterKey: "j/k", Label: "component", Description: "Select a component option.", Group: "Components", Footer: true},
+		{Keys: []string{"space"}, Label: "toggle", Description: "Toggle the selected component.", Group: "Components", Footer: true},
+		{Keys: []string{"enter"}, Label: "save", Description: "Save Components through Jira.", Group: "Components", Footer: true},
+		{Keys: []string{"type"}, Label: "filter", Description: "Filter Jira component options.", Group: "Components", Footer: true},
+	}
+}
+
+func genericFieldBindings() []keyBinding {
+	return []keyBinding{
+		{Keys: []string{"esc"}, Label: "cancel", Description: "Cancel field editing.", Group: "Field", Footer: true},
+		{Keys: []string{"j", "k", "up", "down"}, FooterKey: "j/k", Label: "option", Description: "Select a Jira field option when options are shown.", Group: "Field", Footer: true},
+		{Keys: []string{"space"}, Label: "toggle", Description: "Toggle a multi-select field option.", Group: "Field", Footer: true},
+		{Keys: []string{"enter"}, Label: "save", Description: "Save the field through Jira.", Group: "Field", Footer: true},
+		{Keys: []string{"type"}, Label: "edit", Description: "Edit text-backed field values.", Group: "Field", Footer: true},
 	}
 }
 

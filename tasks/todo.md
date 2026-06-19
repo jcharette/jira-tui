@@ -1,5 +1,625 @@
 # Task Plan
 
+## Worklog Support
+
+- [x] Add Jira client and worker support for loading and adding issue worklogs.
+- [x] Add a Worklog detail section with loading/error/empty states and count badge.
+- [x] Add a Ticket Actions `Log Work` dialog with duration and optional note fields.
+- [x] Refresh worklogs after a successful log-work write.
+- [x] Update backlog, project state, and changelog docs.
+- [x] Backfill focused Jira, worker, and TUI tests after the runtime path is implemented.
+
+### Worklog Support Scope
+
+Implement the first worklog slice: read recent worklogs for the selected ticket and add a new
+worklog with a Jira duration and optional note. This does not edit/delete worklogs or persist
+worklog data to disk.
+
+### Worklog Support Review
+
+- Added REST-backed Jira worklog list/add support with ADF note payloads.
+- Routed `get_worklogs` and `add_worklog` through the worker pool.
+- Added a Worklog detail section with badges, loading/error/empty states, and compact table rows.
+- Added a Ticket Actions `Log Work` dialog with duration and optional multi-line note fields.
+- Worklogs refresh after successful log-work writes and stay in memory only for this slice.
+- Backfilled focused Jira client, worker, and TUI tests after the runtime path compiled.
+
+## Issue Link Creation Flow
+
+- [x] Add Jira client and worker support for link type discovery and issue link creation.
+- [x] Add a Ticket Actions entry that opens a bounded link dialog from the selected issue.
+- [x] Let users enter a target key and choose the Jira relationship direction before submitting.
+- [x] Refresh the selected ticket detail after a successful link write so the Links workspace updates.
+- [x] Update backlog, project state, and changelog docs.
+- [x] Backfill focused Jira, worker, and TUI tests after the runtime path is implemented.
+
+### Issue Link Creation Flow Scope
+
+Implement the first write slice of issue link management: create a Jira issue link from the selected
+ticket to a user-entered target key using Jira link types. This intentionally does not remove links
+yet because the current parsed detail model does not retain Jira link IDs.
+
+### Issue Link Creation Flow Review
+
+- Added REST-backed Jira link type discovery and issue-link creation payloads.
+- Routed link type loading and create-link writes through the worker pool.
+- Added a Ticket Actions `Link Issue` dialog with target-key input and Jira relationship direction
+  selection.
+- A successful link write invalidates the selected ticket detail cache and reloads detail so the
+  Links workspace can show the new relationship.
+- Backfilled focused Jira client, worker, and TUI tests after the runtime path compiled.
+
+## Generic Edit Field Flow
+
+- [x] Add a metadata-backed generic update request for safe Jira custom field schemas.
+- [x] Route generic field updates through the worker pool and existing diagnostics/result path.
+- [x] Replace disabled unsupported Ticket Actions rows with enabled generic edit actions for safe schemas.
+- [x] Add a bounded generic edit dialog for text/number/date and option/multi-option fields.
+- [x] Compile and install for runtime validation before backfilling focused regression tests.
+- [x] Backfill Jira, worker, and TUI regression tests after the runtime UX is shaped.
+
+### Generic Edit Field Flow Scope
+
+Support additional Jira edit metadata fields through Ticket Actions without a catch-all unsafe editor.
+This slice edits custom fields with safe schemas only: string/text/number/date/datetime values,
+single-select option fields, and multi-select option arrays with inline Jira allowed values. User,
+version, sprint, autocomplete-only, unknown schemas, and standard fields without dedicated flows stay
+visible but disabled until their own workflow is implemented.
+
+### Generic Edit Field Flow Review
+
+- Added `jira.EditFieldValue` and `Client.UpdateEditField` for safe custom-field update payloads.
+- Added worker-backed `update_edit_field` requests/results so generic field writes stay off the TUI
+  loop.
+- Ticket Actions now enables safe custom fields and keeps unsafe editable fields disabled with field
+  schema/source context.
+- Added a bounded generic field dialog for text-like fields, number/date values, single-select
+  options, and multi-select option arrays.
+- Backfilled focused Jira, worker, and TUI coverage after the runtime path compiled and rendered.
+
+## Lanes Visual-Order Navigation
+
+- [x] Add failing regression coverage for Lanes movement using rendered visual order.
+- [x] Route issue movement, paging, and first/last selection through the active layout's visual issue order.
+- [x] Keep Lanes viewport scrolling tied to the rendered Lanes rows, including headers and hierarchy rows.
+- [x] Run focused TUI tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+
+### Lanes Visual-Order Navigation Scope
+
+Fix keyboard navigation in the default Lanes layout so `j/k`, arrow keys, page up/down, and first/last
+selection follow the order the user sees on screen. This is local UX behavior only; it does not change
+Jira queries, issue loading, or sorting.
+
+### Lanes Visual-Order Navigation Review
+
+- Lanes now exposes the same rendered row model to movement and viewport logic that it uses to draw
+  the screen.
+- `j/k`, arrow keys, page up/down, `g`, and `G` now select issues in visible lane order instead of
+  raw `m.issues` order.
+- Viewport scrolling now accounts for Lanes headers and hierarchy rows, so keeping the selected row
+  visible follows the actual screen.
+- Added sanitized `PROJ-*` regression coverage for visual-order movement, paging, and first/last
+  navigation.
+- Verification passed: focused Lanes navigation tests, `go test ./internal/tui -count=1`,
+  `go test ./... -count=1`, `make check`, `make install-user`, and `git diff --check`.
+
+## Lanes UX Golden Snapshots
+
+- [x] Add a snapshot helper for normalized rendered TUI screens.
+- [x] Add golden coverage for expanded Lanes hierarchy in Nerd mode.
+- [x] Add golden coverage for collapsed Lanes hierarchy in symbols mode.
+- [x] Add golden coverage for config Symbol Mode setup guidance.
+- [ ] Run focused snapshot tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+
+### Lanes UX Golden Snapshot Scope
+
+Add high-signal rendered-screen regression tests for the visual areas that have repeatedly regressed:
+issue type glyphs, collapsed/expanded hierarchy affordances, and Symbol Mode setup guidance. This is
+test-only except for any small test helper code. It should not change Jira queries or runtime UI
+behavior.
+
+### Lanes UX Golden Snapshot Review
+
+- Added sanitized golden snapshots with generic `PROJ-*` issues only. The snapshots cover expanded
+  Lanes hierarchy in Nerd mode, collapsed hierarchy in symbols mode, and the config Symbol Mode help
+  text with the Nerd Font install command.
+- Fixed a hierarchy ordering bug found by runtime review: expanded cached grandchildren were loaded
+  but dropped by `orderIssues` because it only appended one child level. Ordering is now recursive,
+  and active-view hydration recursively merges cached expanded children.
+
+## Issue Type Glyph Runtime Fix
+
+- [ ] Confirm from screenshot/log evidence whether Jira issue types are correct.
+- [x] Replace fragile private-use issue-type icons with colored terminal-safe glyphs plus a hierarchy marker.
+- [x] Restore `auto` detection for Nerd-capable terminals and document Nerd Font as the premium override setup.
+- [x] Improve Nerd mode with recognizable issue-type glyphs.
+- [x] Compile and install the app for runtime verification.
+- [ ] After user confirms the UX is fixed, add/update regression tests for the final behavior.
+
+### Issue Type Glyph Scope
+
+Fix the Lanes/table issue-type affordance so issue type and collapsed/expandable hierarchy state are
+clear in the running app. This is UX-only and should not add Jira queries or change issue loading.
+
+### Issue Type Glyph Review
+
+- `auto` is the default and now calls the runtime detection path. In this iTerm profile with Nerd
+  fonts configured, it should select Nerd mode; elsewhere it falls back to compact, colored
+  terminal-safe glyphs.
+- `nerd` remains the premium manual override. Users should install a Nerd Font, configure their
+  terminal profile, then select `nerd` in `jira config` if auto does not switch.
+- Nerd mode now uses a more recognizable glyph set: book for Epic, bookmark for Story, checked box
+  for Task, bug for Bug, bolt for Enhancement, and a separate `▸` hierarchy marker when children are
+  loaded/collapsed.
+- Runtime build/install passed with `go build -o /tmp/jira-icon-default-check ./cmd/jira-tui` and
+  `make install-user`. Go regression tests are intentionally deferred until the in-app UX is
+  confirmed.
+
+## Persistent Diagnostics And Collapse Glyph Evidence
+
+- [x] Inspect the latest screenshots and existing diagnostics output before changing behavior.
+- [x] Add failing regression tests for collapse state breadcrumbs and layout-change breadcrumbs.
+- [x] Keep collapsed glyph rendering keyed to actual local collapsed state, not issue type.
+- [x] Add a bounded persistent diagnostics JSONL writer under the user cache directory.
+- [x] Wire Diagnostics to show the log path and mirror sanitized in-memory events to disk without
+  blocking the TUI loop.
+- [x] Record collapse no-op/collapsed/expanded state with layout, view, descendant count, collapsed
+  boolean, and issue type.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, `make install-user`, and
+  `git diff --check`.
+
+### Persistent Diagnostics Scope
+
+Add enough durable observability to debug intermittent lockups and collapsed-glyph confusion from
+user-provided logs. The log mirrors existing sanitized Diagnostics events plus compact UI state
+breadcrumbs. It does not log raw JQL, tokens, request/response bodies, descriptions, comments, or
+keystroke streams.
+
+### Persistent Diagnostics UX Review
+
+- Diagnostics now shows the persistent log path when logging is available.
+- The app writes JSONL diagnostics to the OS user cache directory, rotating the file before startup
+  if it grows beyond 2 MiB.
+- Disk writes happen on a buffered background writer; if the writer is saturated, new log rows are
+  dropped instead of blocking Bubble Tea updates.
+- Collapse actions now record whether `z` collapsed, expanded, or no-opped because no loaded child
+  issues were present. This should explain cases where a row has an issue-type glyph but no
+  collapsed folder marker.
+- The screenshot from 20:48 showed worker queue `running=0 pending=0 active=0`, so that moment did
+  not prove a stuck worker. Persistent logs should give us the missing timeline when the intermittent
+  lockup happens.
+- Verification passed: focused diagnostics/collapse/layout tests, `go test ./... -count=1`,
+  `make check`, `make install-user`, and `git diff --check`.
+
+## Collapsed Issue Glyphs
+
+- [x] Record the row-glyph UX correction and bounded plan.
+- [x] Add failing lanes tests for collapsed parent affordance and issue-type glyph scanning.
+- [x] Render collapsed parents with an explicit folder/expand affordance and hidden count in lanes.
+- [x] Keep issue-type glyphs visible for Epic, Story, and Task rows.
+- [x] Update backlog, project state, changelog, and task review notes.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, `make install-user`, and
+  `git diff --check`.
+
+### Collapsed Issue Glyphs Scope
+
+Make hierarchy state visible in the default Lanes layout without adding Jira queries or new
+controls. Collapsed parent rows should show a compact collapsed marker next to the existing issue
+type glyph and retain the hidden descendant count.
+
+### Collapsed Issue Glyphs UX Review
+
+- Collapsed parent rows now prepend a folder/collapsed marker before the issue-type glyph.
+- Lanes uses the same display tree metadata as the table renderer, so hidden descendant counts are
+  preserved when a parent is collapsed.
+- Collapsed rows keep the folder marker even when no hidden-descendant count is available in the
+  current loaded view.
+- Epic, Story, and Task glyphs remain visible in Lanes for fast type scanning.
+- Verification passed: focused lanes/tree rendering tests, `go test ./internal/tui -count=1`,
+  `go test ./... -count=1`, `make check`, `make install-user`, and `git diff --check`.
+
+## Transition Field Schemas
+
+- [x] Record a bounded plan for remaining transition field schema support.
+- [x] Add failing Jira client tests for text, date, user, multi-select, and autocomplete metadata.
+- [x] Add failing TUI tests for text/date/user/multi-select transition field submission.
+- [x] Add failing TUI tests for autocomplete-backed transition option lookup.
+- [x] Implement explicit transition payloads for text, date, user, and multi-select schemas.
+- [x] Implement transition form UX for text/date inputs, user/option pickers, multi-select toggles,
+  and autocomplete-backed option loading.
+- [x] Update backlog, project state, changelog, and task review notes.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, `make install-user`, and
+  `git diff --check`.
+
+### Transition Field Schemas Scope
+
+Expand transition-screen required-field handling beyond Resolution, Comment, and custom
+single-select option fields. This slice supports the practical Jira workflow-screen schemas that
+block status moves: custom text/string fields, date/datetime fields, user pickers, multi-select
+option/user arrays, and metadata-backed autocomplete option lookup. It does not create a generic
+edit-all-fields modal.
+
+### Transition Field Schemas UX Review
+
+- Required transition-screen text/date fields render in the same bounded field form as comments.
+- User and option fields use the existing picker model, including worker-backed autocomplete when
+  Jira provides `autoCompleteUrl`.
+- Multi-select transition fields use `space` to toggle choices and keep selected values visible.
+- Transition custom field payloads are schema-aware for text/date, accountId user values, and
+  option/user arrays instead of borrowing the create-field single-value path.
+- Verification passed: focused Jira/TUI transition schema tests, `go test ./... -count=1`,
+  `make check`, `make install-user`, and `git diff --check`.
+
+## Transition Option Fields
+
+- [x] Record a bounded plan for additional transition field schema support.
+- [x] Add failing Jira client tests for custom single-select transition field payloads.
+- [x] Add failing TUI tests for required custom option transition fields.
+- [x] Support custom single-select option fields in transition field forms and payloads.
+- [x] Update backlog, project state, changelog, and task review notes.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+
+### Transition Option Fields Scope
+
+Expand transition-screen field handling from Resolution and Comment to required custom single-select
+option fields. This reuses the existing bounded picker pattern and Jira custom field payload shape.
+It does not add free-text, date, multi-select, user, or autocomplete-backed transition fields yet.
+
+### Transition Option Fields UX Review
+
+- Required custom option fields now open the same bounded transition field form instead of blocking
+  as unsupported.
+- `j`/`k` changes the selected option, and `ctrl+s` submits the transition after required choices
+  are present.
+- Text, date, user, multi-select, and autocomplete-backed transition fields remain explicit backlog
+  follow-ups.
+- Verification passed: focused Jira/TUI transition option tests, `go test ./internal/jira
+  ./internal/worker ./internal/tui ./internal/cache -count=1`, `go test ./... -count=1`,
+  `make check`, `make install-user`, and `git diff --check`.
+
+## Autocomplete Field Options
+
+- [x] Record a bounded plan for autocomplete-backed field option fetching.
+- [x] Add failing Jira client tests for `autoCompleteUrl` option search and response parsing.
+- [x] Add failing worker tests for the field option search request/result path.
+- [x] Add failing create-ticket TUI tests for loading autocomplete options into picker fields.
+- [x] Implement Jira client and worker autocomplete option fetching.
+- [x] Wire create-ticket picker fields with `autoCompleteUrl` to worker-backed option searches.
+- [x] Update backlog, project state, changelog, and task review notes.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+
+### Autocomplete Field Options Scope
+
+Fetch Jira field options from metadata-provided `autoCompleteUrl` values for create-ticket picker
+fields when inline `allowedValues` are absent or filtered. This slice uses the worker pool and only
+updates local create-form picker options; it does not submit generic edit fields or persist option
+search results.
+
+### Autocomplete Field Options UX Review
+
+- Create-ticket picker fields now show a calm loading state while Jira option lookup runs.
+- Typing in an autocomplete-backed picker updates the local filter and requests Jira options through
+  the worker pool.
+- Returned options reuse the existing bounded picker UI and selection behavior.
+- Generic edit-field autocomplete remains future work until the generic edit modal exists.
+- Verification passed: focused Jira/worker/TUI autocomplete option tests, `go test ./internal/jira
+  ./internal/worker ./internal/tui ./internal/cache -count=1`, `go test ./... -count=1`,
+  `make check`, `make install-user`, and `git diff --check`.
+
+## Field Option Metadata Sources
+
+- [x] Record a bounded plan for create/edit field option metadata source discovery.
+- [x] Add failing Jira client tests for edit metadata schema, operations, and autocomplete option sources.
+- [x] Add failing TUI tests showing unsupported edit actions include field option source context.
+- [x] Extend edit metadata parsing to retain schema, operations, default, and autocomplete fields.
+- [x] Surface option source context in unsupported Ticket Actions rows without enabling generic submit.
+- [x] Update backlog, project state, changelog, and task review notes.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+
+### Field Option Metadata Scope
+
+Extend Jira metadata discovery so edit fields retain the same option-source clues already captured
+for create fields: schema, operations, default markers, inline allowed values, and autocomplete URLs.
+This does not fetch autocomplete results, add field-specific editors, or submit arbitrary edit fields.
+
+### Field Option Metadata UX Review
+
+- Unsupported Ticket Actions rows now explain option source context such as `options: autocomplete`,
+  inline value counts, schema, and operations.
+- The next concrete adapter work is autocomplete option fetching for fields with `autoCompleteUrl`.
+- Generic edit submission remains blocked until field-specific input and validation rules exist.
+- Verification passed: focused Jira/TUI field option metadata tests, `go test ./internal/jira
+  ./internal/tui ./internal/cache ./internal/worker -count=1`, `go test ./... -count=1`,
+  `make check`, `make install-user`, and `git diff --check`.
+
+## Generic Edit Issue Groundwork
+
+- [x] Record a bounded plan for generic edit metadata discovery without adding a catch-all write path.
+- [x] Add failing Jira client and TUI tests for metadata-backed editable field discovery.
+- [x] Parse all Jira edit metadata fields into a stable catalog while preserving supported field helpers.
+- [x] Show unsupported editable fields in Ticket Actions as disabled, searchable rows.
+- [x] Update backlog, project state, changelog, and task review notes.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+
+### Generic Edit Issue Scope
+
+Add the foundation for a future generic edit issue flow by retaining Jira's full edit metadata field
+catalog and exposing unsupported editable fields in Ticket Actions. This slice keeps supported fields
+on their existing dedicated workflows and does not add a generic arbitrary-field Jira update payload.
+
+### Generic Edit Issue UX Review
+
+- Keep Summary, Priority, Labels, and Components on their existing dedicated flows.
+- Treat Jira edit metadata as the source of truth for discovering additional editable fields.
+- Show unsupported editable fields in the searchable Ticket Actions palette with an `Unsupported`
+  state so users can find them without accidentally submitting unimplemented field shapes.
+- Preserve the remaining backlog item for the actual generic editor: field-schema-specific inputs,
+  option validation, and worker-backed updates.
+- Verification passed: focused Jira/TUI generic edit metadata tests, `go test ./internal/jira
+  ./internal/tui -count=1`, `go test ./... -count=1`, `make check`, `make install-user`, and
+  `git diff --check`.
+
+## Primary View UX Redesign Backlog
+
+- [x] Review focused ticket detail UX from screenshot and user feedback.
+- [x] Produce browser mockups for ticket detail layout proposals.
+- [x] Select Proposal B: `Overview + Control Strip` for ticket detail.
+- [x] Save ticket-detail redesign spec and implementation plan.
+- [x] Produce browser mockups for starting-page layout proposals.
+- [x] Save main-view layout modes spec.
+- [x] Update `docs/backlog.md` so primary-view UX work is the clear top priority.
+- [x] Implement main-view layout modes: `Table`, `Workbench`, and `Lanes`.
+- [x] Implement ticket-detail `Overview + Control Strip` redesign.
+
+### Primary View UX Decisions
+
+- Saved views and filters define ticket scope; layout modes only change presentation of the same
+  loaded issues.
+- `Lanes` is now the default renderer; `Table` remains the dense scan layout when users cycle
+  layouts.
+- `Workbench` should use a selected-ticket context panel only when width allows, and should not
+  repeat the selected row's key, summary, status, priority, or owner.
+- `Lanes` groups the currently loaded/scoped view by status; it is valuable for `Mine`, `Active`,
+  `Sprint`, and `Epics` views without becoming an all-ticket dashboard.
+- Ticket detail should open on `Overview`, not `Description`; Status belongs in the control strip,
+  not as a one-action tab.
+- Verification passed: focused main-view and ticket-detail UX tests, `go test ./internal/tui
+  -count=1`, `go test ./... -count=1`, `make check`, `make install-user`, and
+  `git diff --check`.
+
+## Components Editing
+
+- [x] Write spec and implementation plan for metadata-backed Components editing.
+- [x] Add failing Jira client, worker, and TUI tests for Components metadata and updates.
+- [x] Implement Jira Components edit metadata parsing and update payload.
+- [x] Route Components updates through the worker pool.
+- [x] Add a bounded multi-select Components picker reachable from Ticket Actions and Actions.
+- [x] Patch loaded issue detail/cache components after successful updates.
+- [x] Update backlog, project state, changelog, and task review notes.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+
+### Components Editing Scope
+
+Add Components editing for the selected ticket using Jira edit metadata `components.allowedValues`.
+This slice uses a bounded multi-select picker with local filtering and worker-backed Jira updates.
+It does not add component creation, project-wide component discovery outside edit metadata, or the
+full generic edit-all-fields framework.
+
+### Components Editing UX Review
+
+- Surface Components through the Ticket Actions palette and existing Actions section.
+- Use Jira-returned component options only; no hard-coded values.
+- Let users type to filter, move with `j`/`k`, toggle with `space`, save with `enter`, and cancel
+  with `esc`.
+- Keep the selected set visible in the modal so multi-select state is scan-friendly.
+- Focused verification passed: `go test ./internal/jira ./internal/worker ./internal/tui -run
+  'Test(GetEditMetadataParsesComponentsAllowedValues|UpdateComponents|PoolUpdateComponents|DetailActionsMenuStartsComponentsEditor|ComponentsPicker|ComponentsUpdate)'
+  -count=1` and `go test ./internal/jira ./internal/worker ./internal/tui -count=1`.
+- Full verification passed: `go test ./... -count=1`, `make check`, and `make install-user`.
+
+## Labels Editing
+
+- [x] Write spec and implementation plan for metadata-backed Labels editing.
+- [x] Add failing Jira client, worker, and TUI tests for Labels metadata and updates.
+- [x] Implement Jira Labels edit metadata parsing and update payload.
+- [x] Route Labels updates through the worker pool.
+- [x] Add a bounded Labels editor reachable from Ticket Actions and the Actions section.
+- [x] Patch loaded issue detail/cache labels after successful updates.
+- [x] Update backlog, project state, changelog, and task review notes.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+
+### Labels Editing Scope
+
+Add one more concrete Creation/Editing workflow: edit Jira Labels for the selected ticket. This
+slice uses Jira edit metadata to confirm `labels` is editable, presents a bounded comma-separated
+label editor, and submits through the worker pool. It does not build the full generic edit-all-fields
+framework and does not add autocomplete-backed label suggestions.
+
+### Labels Editing UX Review
+
+- Surface Labels from the Ticket Actions palette and existing Actions section rather than adding
+  another memorized single-key shortcut.
+- Use a compact modal with current labels and a bounded text editor.
+- Parse comma-separated labels locally, trimming whitespace and dropping empty entries.
+- Treat unchanged labels as a local no-op with clear feedback.
+- Keep future component/fix-version/multi-option editing as follow-up metadata-backed slices.
+- Focused verification passed: `go test ./internal/jira ./internal/worker ./internal/tui -run
+  'Test(GetEditMetadataParsesLabelsField|UpdateLabels|PoolUpdateLabels|DetailActionsMenuStartsLabelsEditor|LabelsEditor|LabelsUpdate)'
+  -count=1` and `go test ./internal/jira ./internal/worker ./internal/tui -count=1`.
+- Full verification passed: `go test ./... -count=1`, `make check`, and `make install-user`.
+
+## Ticket Action Palette
+
+- [x] Write spec and implementation plan for the ticket action palette.
+- [x] Add failing TUI tests for opening, filtering, and running a palette action.
+- [x] Add a bounded Ticket Actions modal with a cursor-aware filter.
+- [x] Route selected palette rows through the existing detail action workflows.
+- [x] Keep existing detail shortcuts and inline Actions behavior working.
+- [x] Update backlog, project state, changelog, and task review notes.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+
+### Ticket Action Palette Scope
+
+Complete the Creation/Editing action-surface item by adding a searchable Ticket Actions palette
+from focused ticket detail. This is UX-only over existing action workflows: it does not add a new
+Jira query, does not introduce generic edit-all-fields submission, and does not remove existing
+shortcuts.
+
+### Ticket Action Palette UX Review
+
+- Use `.` from ticket detail to open a bounded modal instead of requiring users to tab to the
+  Actions section.
+- Keep action rows table-like with Action, Type, and Detail columns.
+- Let users type to filter actions by label, category, or detail.
+- Run selected rows through the existing Add Comment, browser/copy, Summary, Priority, Transition,
+  Assign, and Create Subtask paths.
+- Leave the deep UX review backlog item in place for the broader two-view cleanup after
+  Creation/Editing is complete.
+- Verification passed: `go test ./internal/tui -run 'TestActionPalette' -count=1`,
+  `go test ./internal/tui -count=1`, `go test ./... -count=1`, `make check`, and
+  `make install-user`.
+
+## Comment Editing
+
+- [x] Write spec and implementation plan for explicit comment editing.
+- [x] Add Jira client and worker comment update tests.
+- [x] Implement worker-backed Jira comment update path.
+- [x] Add comments-section selection and edit composer flow.
+- [x] Invalidate comments caches and refresh after successful edits.
+- [x] Update backlog, project state, changelog, and task review notes.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+
+### Comment Editing Scope
+
+Complete the next Creation/Editing item by allowing loaded comments to be selected and edited from
+focused ticket detail. This slice reuses the existing comment composer/review flow and does not add
+comment deletion or pre-submit permission prediction.
+
+### Comment Editing UX Review
+
+- Keep `enter` on Comments useful for adding comments.
+- Add explicit comment-list focus before selecting a comment to edit.
+- Use `e` only while the comment list is focused.
+- Reuse the existing comment editor and review confirmation.
+- Refresh comments and invalidate comment caches after a successful update.
+- Carry forward the requested deep UX review direction after Creation/Editing is complete: make both
+  primary views less text-heavy, reduce clutter, use stronger visual affordances, and consider
+  color/icon/dropdown-table controls instead of relying on tabbing and memorized keys.
+- Verification passed: focused Jira/worker/TUI comment tests, `go test ./... -count=1`,
+  `make check`, and `make install-user`.
+
+## Subtask Creation
+
+- [x] Write spec and implementation plan for metadata-backed subtask creation.
+- [x] Add parent-aware Jira client and worker create request tests.
+- [x] Implement parent-aware create payload and worker routing.
+- [x] Enable Actions `Create Subtask` through the existing create modal.
+- [x] Filter subtask create issue types to Jira metadata subtask types.
+- [x] Update backlog, project state, changelog, and task review notes.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+
+### Subtask Creation Scope
+
+Complete the next concrete Creation/Editing workflow by enabling the existing Actions `Create
+Subtask` row. This slice reuses the current metadata-backed create form, filters issue types to
+Jira-returned subtask types, and sends the selected issue as the parent key on explicit submit.
+
+### Subtask Creation UX Review
+
+- Keep `n` as normal ticket creation.
+- Use the focused Actions row for parent-scoped subtask creation.
+- Reuse the bounded create modal rather than adding a second form.
+- Show only Jira metadata subtask issue types when creating under a parent.
+- Keep create writes behind `ctrl+s`.
+- Removed the stale first-create-flow backlog line because the current metadata-backed create form
+  already supports Jira required-field validation, supported dynamic fields, and no hard-coded
+  presets.
+- Verification passed: focused Jira/worker/TUI create tests, `go test ./... -count=1`,
+  `make check`, and `make install-user`.
+
+## Assignable User Metadata
+
+- [x] Add an issue-scoped Jira assignable-user search client method.
+- [x] Route assignable-user search through the worker pool for assignee editing.
+- [x] Keep mention search on global Jira user search while assignee search uses assignable results.
+- [x] Scope assignee search cache by issue and query to avoid invalid assignment candidates.
+- [x] Preserve the existing assignee picker UX while improving result correctness.
+- [x] Update backlog, project state, changelog, spec/plan docs, and task review notes.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+
+### Assignable User Metadata Scope
+
+Start the Creation/Editing track with the lowest-risk UX-critical foundation: assignee editing should
+only show Jira users assignable to the selected issue. This slice does not redesign the picker or add
+new edit fields; it makes the current picker permission-aware and keeps all Jira reads on the worker
+path.
+
+### Assignable User Metadata UX Review
+
+- Kept the existing `Change Assignee` picker interaction model unchanged.
+- Changed assignee typeahead from global user search to selected-issue assignable-user search.
+- Kept comment mention search on global Jira user search.
+- Added issue-scoped assignee cache keys so global mention results cannot appear as assignment
+  candidates.
+- Preserved worker-backed Jira reads and stale-result guards.
+- Verification passed: focused Jira/worker/TUI assignee tests, `go test ./... -count=1`,
+  `make check`, and `make install-user`.
+
+## Bounded Agile Metadata Loading
+
+- [x] Keep board discovery single-flight for sprint-oriented views.
+- [x] Add a bounded sprint-fetch scheduler for boards returned by Agile board discovery.
+- [x] Queue extra board sprint reads and start the next queued read when an active sprint request
+  finishes.
+- [x] Preserve compact header and Diagnostics behavior while avoiding extra issue JQL reads.
+- [x] Update backlog, project state, changelog, spec/plan docs, and task review notes.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+
+### Bounded Agile Metadata Loading Scope
+
+Complete the Navigation/Query backlog item by adding TUI-level scheduling around Jira Agile
+metadata reads. This slice keeps the worker pool as the execution engine, keeps board discovery
+single-flight, and bounds active board-sprint reads so future multi-board loading cannot flood the
+background queue.
+
+### Bounded Agile Metadata Loading Review
+
+- Kept board discovery single-flight for sprint-oriented views.
+- Added a bounded sprint scheduler with at most two active board-sprint requests.
+- Queued additional returned boards and drained the queue as sprint results completed.
+- Preserved worker-backed requests, Diagnostics result flow, issue JQL, saved views, and loaded
+  issues.
+- Updated the header sprint count to aggregate loaded sprint metadata across boards.
+- Verification passed: focused Agile scheduler and view-creation tests, `go test ./... -count=1`,
+  `make check`, and `make install-user`.
+
+## View Creation UX
+
+- [x] Add direct saved-view creation from the current table query, direct JQL drafts, generated AI
+  previews, recent queries, and view templates.
+- [x] Add a query-modal template picker for common saved-view starters.
+- [x] Add a query-modal view manager for rename, reorder, delete, and include-children toggles.
+- [x] Keep every create/manage action local to saved-view config writes; do not run Jira or change
+  the active issue query unless the user explicitly runs a query.
+- [x] Update project state, backlog, changelog, and task review notes.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, and `make install-user`.
+
+### View Creation UX Scope
+
+Make saved-view creation obvious and durable from the existing query modal. This slice reuses the
+current config-backed saved-view storage and query modal instead of introducing a new persistence
+path, new Jira reads, or a separate full-screen settings area.
+
+### View Creation UX Review
+
+- Added `v` from the issue table to save the current JQL as a new view.
+- Added `ctrl+v` in query modal editors for saving direct JQL drafts and generated AI previews.
+- Added a Templates mode backed by project-scoped default view templates.
+- Added a Views mode for rename, reorder, delete, `include_children` toggle, and load-for-review.
+- Added full saved-view-list persistence through the existing config save path.
+- Verification passed: focused config/TUI tests, `go test ./... -count=1`, `make check`, and
+  `make install-user`.
+
 ## Config Profiles And Default Queries
 
 - [x] Preserve multiple saved TOML profiles across load/save.

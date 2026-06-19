@@ -3,8 +3,10 @@ package jira
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -534,6 +536,18 @@ func TestGetTransitionsParsesTransitionFields(t *testing.T) {
 					HasScreen:   true,
 					To:          &model.StatusScheme{Name: "Done"},
 					Fields: map[string]transitionFieldRaw{
+						"customfield_10022": {
+							Name:            "Reviewer",
+							Required:        true,
+							AutoCompleteURL: "https://example.atlassian.net/rest/api/3/user/picker?fieldName=customfield_10022",
+							Schema: transitionFieldSchema{
+								Type:   "user",
+								Custom: "com.atlassian.jira.plugin.system.customfieldtypes:userpicker",
+							},
+							AllowedValues: []transitionAllowedValue{
+								{AccountID: "abc-123", DisplayName: "Jane Doe"},
+							},
+						},
 						"resolution": {
 							Name:     "Resolution",
 							Required: true,
@@ -576,17 +590,23 @@ func TestGetTransitionsParsesTransitionFields(t *testing.T) {
 		t.Fatalf("transitions = %#v", transitions)
 	}
 	fields := transitions[0].Fields
-	if len(fields) != 2 {
+	if len(fields) != 3 {
 		t.Fatalf("fields = %#v", fields)
 	}
 	if fields[0].ID != "comment" || fields[0].Name != "Comment" || fields[0].Required {
 		t.Fatalf("comment field = %#v", fields[0])
 	}
-	if fields[1].ID != "resolution" || fields[1].Name != "Resolution" || !fields[1].Required {
-		t.Fatalf("resolution field = %#v", fields[1])
+	if fields[1].ID != "customfield_10022" || fields[1].SchemaType != "user" || fields[1].AutoCompleteURL == "" {
+		t.Fatalf("custom user field = %#v", fields[1])
 	}
-	if len(fields[1].AllowedValues) != 2 || fields[1].AllowedValues[0].ID != "10000" {
-		t.Fatalf("resolution allowed values = %#v", fields[1].AllowedValues)
+	if len(fields[1].AllowedValues) != 1 || fields[1].AllowedValues[0].ID != "abc-123" || fields[1].AllowedValues[0].Name != "Jane Doe" {
+		t.Fatalf("custom user allowed values = %#v", fields[1].AllowedValues)
+	}
+	if fields[2].ID != "resolution" || fields[2].Name != "Resolution" || !fields[2].Required {
+		t.Fatalf("resolution field = %#v", fields[2])
+	}
+	if len(fields[2].AllowedValues) != 2 || fields[2].AllowedValues[0].ID != "10000" {
+		t.Fatalf("resolution allowed values = %#v", fields[2].AllowedValues)
 	}
 }
 
@@ -666,6 +686,94 @@ func TestTransitionIssueSendsResolutionAndCommentFields(t *testing.T) {
 	if nodes[0].Text != "Ship " || nodes[1].Text != "this" || nodes[1].Marks[0].Type != "strong" {
 		t.Fatalf("comment nodes = %#v", nodes)
 	}
+}
+
+func TestTransitionIssueSendsCustomOptionField(t *testing.T) {
+	issue := &fakeIssueService{}
+	client := &Client{
+		issue: issue,
+	}
+
+	err := client.TransitionIssue(context.Background(), "ABC-123", TransitionIssueRequest{
+		TransitionID: "31",
+		Fields: []TransitionFieldValue{
+			{FieldID: "customfield_10010", SchemaType: "option", Option: FieldOption{ID: "20001", Name: "Production"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("TransitionIssue() error = %v", err)
+	}
+
+	if issue.moveOptions == nil || issue.moveOptions.CustomFields == nil || len(issue.moveOptions.CustomFields.Fields) != 1 {
+		t.Fatalf("custom fields = %#v", issue.moveOptions)
+	}
+	fieldsNode := issue.moveOptions.CustomFields.Fields[0]["fields"].(map[string]interface{})
+	option := fieldsNode["customfield_10010"].(map[string]interface{})
+	if option["id"] != "20001" || option["value"] != "Production" {
+		t.Fatalf("custom option = %#v", option)
+	}
+}
+
+func TestTransitionIssueSendsCustomTextDateUserAndMultiSelectFields(t *testing.T) {
+	issue := &fakeIssueService{}
+	client := &Client{
+		issue: issue,
+	}
+
+	err := client.TransitionIssue(context.Background(), "ABC-123", TransitionIssueRequest{
+		TransitionID: "31",
+		Fields: []TransitionFieldValue{
+			{FieldID: "customfield_10020", SchemaType: "string", Text: "Root cause text"},
+			{FieldID: "customfield_10021", SchemaType: "date", Text: "2026-06-20"},
+			{FieldID: "customfield_10022", SchemaType: "user", Option: FieldOption{ID: "abc-123", Name: "Jane Doe"}},
+			{
+				FieldID:     "customfield_10023",
+				SchemaType:  "array",
+				SchemaItems: "option",
+				Options: []FieldOption{
+					{ID: "1", Name: "Backend"},
+					{ID: "2", Name: "Frontend"},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("TransitionIssue() error = %v", err)
+	}
+
+	custom := mergedTransitionCustomFieldsForTest(t, issue.moveOptions.CustomFields)
+	if custom["customfield_10020"] != "Root cause text" {
+		t.Fatalf("text field = %#v", custom["customfield_10020"])
+	}
+	if custom["customfield_10021"] != "2026-06-20" {
+		t.Fatalf("date field = %#v", custom["customfield_10021"])
+	}
+	user := custom["customfield_10022"].(map[string]interface{})
+	if user["accountId"] != "abc-123" {
+		t.Fatalf("user field = %#v", user)
+	}
+	options := custom["customfield_10023"].([]map[string]interface{})
+	if len(options) != 2 || options[0]["id"] != "1" || options[1]["value"] != "Frontend" {
+		t.Fatalf("multi-select field = %#v", options)
+	}
+}
+
+func mergedTransitionCustomFieldsForTest(t *testing.T, customFields *model.CustomFields) map[string]interface{} {
+	t.Helper()
+	if customFields == nil {
+		t.Fatal("expected custom fields")
+	}
+	merged := make(map[string]interface{})
+	for _, field := range customFields.Fields {
+		fieldsNode, ok := field["fields"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("custom field node = %#v", field)
+		}
+		for key, value := range fieldsNode {
+			merged[key] = value
+		}
+	}
+	return merged
 }
 
 func TestTransitionIssueWrapsTransitionError(t *testing.T) {
@@ -761,6 +869,212 @@ func TestGetEditMetadataParsesPriorityAllowedValues(t *testing.T) {
 	}
 	if !reflect.DeepEqual(edit.Priority.AllowedValues, want) {
 		t.Fatalf("AllowedValues = %#v, want %#v", edit.Priority.AllowedValues, want)
+	}
+}
+
+func TestGetEditMetadataParsesLabelsField(t *testing.T) {
+	metadata := &fakeMetadataService{
+		response: `{
+			"fields": {
+				"labels": {
+					"required": false,
+					"name": "Labels",
+					"schema": {"type": "array", "items": "string", "system": "labels"},
+					"operations": ["set"]
+				}
+			}
+		}`,
+	}
+	client := &Client{
+		metadata: metadata,
+	}
+
+	edit, err := client.GetEditMetadata(context.Background(), "ABC-123")
+	if err != nil {
+		t.Fatalf("GetEditMetadata() error = %v", err)
+	}
+
+	if !edit.Labels.Editable {
+		t.Fatal("expected labels editable")
+	}
+	if edit.Labels.Name != "Labels" {
+		t.Fatalf("Name = %q", edit.Labels.Name)
+	}
+}
+
+func TestGetEditMetadataParsesComponentsAllowedValues(t *testing.T) {
+	metadata := &fakeMetadataService{
+		response: `{
+			"fields": {
+				"components": {
+					"required": false,
+					"name": "Components",
+					"schema": {"type": "array", "items": "component", "system": "components"},
+					"operations": ["set"],
+					"allowedValues": [
+						{"id": "101", "name": "Platform"},
+						{"id": "102", "name": "API"}
+					]
+				}
+			}
+		}`,
+	}
+	client := &Client{
+		metadata: metadata,
+	}
+
+	edit, err := client.GetEditMetadata(context.Background(), "ABC-123")
+	if err != nil {
+		t.Fatalf("GetEditMetadata() error = %v", err)
+	}
+
+	if !edit.Components.Editable {
+		t.Fatal("expected components editable")
+	}
+	want := []FieldOption{{ID: "101", Name: "Platform"}, {ID: "102", Name: "API"}}
+	if !reflect.DeepEqual(edit.Components.AllowedValues, want) {
+		t.Fatalf("AllowedValues = %#v, want %#v", edit.Components.AllowedValues, want)
+	}
+}
+
+func TestGetEditMetadataParsesAllEditableFields(t *testing.T) {
+	metadata := &fakeMetadataService{
+		response: `{
+			"fields": {
+				"priority": {
+					"required": false,
+					"name": "Priority",
+					"schema": {"type": "priority", "system": "priority"},
+					"operations": ["set"],
+					"allowedValues": [{"id": "3", "name": "Medium"}]
+				},
+				"customfield_10016": {
+					"required": false,
+					"name": "Story Points",
+					"schema": {
+						"type": "number",
+						"custom": "com.atlassian.jira.plugin.system.customfieldtypes:float",
+						"customId": 10016
+					},
+					"operations": ["set"]
+				},
+				"summary": {
+					"required": true,
+					"name": "Summary",
+					"schema": {"type": "string", "system": "summary"},
+					"operations": ["set"]
+				},
+				"customfield_10017": {
+					"required": false,
+					"name": "Read Only Team",
+					"schema": {"type": "string"},
+					"operations": ["view"]
+				}
+			}
+		}`,
+	}
+	client := &Client{
+		metadata: metadata,
+	}
+
+	edit, err := client.GetEditMetadata(context.Background(), "ABC-123")
+	if err != nil {
+		t.Fatalf("GetEditMetadata() error = %v", err)
+	}
+
+	if !edit.Summary.Editable || edit.Summary.Name != "Summary" {
+		t.Fatalf("Summary = %#v", edit.Summary)
+	}
+	if !edit.Priority.Editable || len(edit.Priority.AllowedValues) != 1 {
+		t.Fatalf("Priority = %#v", edit.Priority)
+	}
+	want := []EditField{
+		{ID: "priority", Name: "Priority", Editable: true, SchemaType: "priority", SchemaSystem: "priority", Operations: []string{"set"}, AllowedValues: []FieldOption{{ID: "3", Name: "Medium"}}},
+		{ID: "customfield_10017", Name: "Read Only Team", SchemaType: "string", Operations: []string{"view"}},
+		{ID: "customfield_10016", Name: "Story Points", Editable: true, SchemaType: "number", SchemaCustom: "com.atlassian.jira.plugin.system.customfieldtypes:float", SchemaCustomID: 10016, Operations: []string{"set"}},
+		{ID: "summary", Name: "Summary", Required: true, Editable: true, SchemaType: "string", SchemaSystem: "summary", Operations: []string{"set"}},
+	}
+	if !reflect.DeepEqual(edit.Fields, want) {
+		t.Fatalf("Fields = %#v, want %#v", edit.Fields, want)
+	}
+}
+
+func TestGetEditMetadataParsesAutocompleteOptionSource(t *testing.T) {
+	metadata := &fakeMetadataService{
+		response: `{
+			"fields": {
+				"customfield_10020": {
+					"required": false,
+					"name": "Target Team",
+					"hasDefaultValue": true,
+					"schema": {
+						"type": "array",
+						"items": "option",
+						"custom": "com.atlassian.jira.plugin.system.customfieldtypes:multiselect",
+						"customId": 10020
+					},
+					"operations": ["add", "remove", "set"],
+					"autoCompleteUrl": "https://example.atlassian.net/rest/api/3/customFieldOption/suggest"
+				}
+			}
+		}`,
+	}
+	client := &Client{metadata: metadata}
+
+	edit, err := client.GetEditMetadata(context.Background(), "ABC-123")
+	if err != nil {
+		t.Fatalf("GetEditMetadata() error = %v", err)
+	}
+
+	if len(edit.Fields) != 1 {
+		t.Fatalf("Fields = %#v", edit.Fields)
+	}
+	want := EditField{
+		ID:              "customfield_10020",
+		Name:            "Target Team",
+		HasDefaultValue: true,
+		Editable:        true,
+		SchemaType:      "array",
+		SchemaItems:     "option",
+		SchemaCustom:    "com.atlassian.jira.plugin.system.customfieldtypes:multiselect",
+		SchemaCustomID:  10020,
+		Operations:      []string{"add", "remove", "set"},
+		AutoCompleteURL: "https://example.atlassian.net/rest/api/3/customFieldOption/suggest",
+	}
+	if !reflect.DeepEqual(edit.Fields[0], want) {
+		t.Fatalf("field = %#v, want %#v", edit.Fields[0], want)
+	}
+}
+
+func TestSearchFieldOptionsUsesAutocompleteURLAndParsesResults(t *testing.T) {
+	rest := &fakeRESTConnector{
+		fieldOptionResponse: fieldOptionSearchResponse{
+			Results: []fieldOptionSearchItem{
+				{ID: "101", DisplayName: "Platform"},
+				{Value: "Security"},
+			},
+		},
+	}
+	client := &Client{
+		baseURL: "https://example.atlassian.net",
+		rest:    rest,
+	}
+
+	options, err := client.SearchFieldOptions(context.Background(), "https://example.atlassian.net/rest/api/3/customFieldOption/suggest?fieldName=customfield_10010", "plat", 25)
+	if err != nil {
+		t.Fatalf("SearchFieldOptions() error = %v", err)
+	}
+
+	if rest.method != http.MethodGet {
+		t.Fatalf("method = %q", rest.method)
+	}
+	wantEndpoint := "rest/api/3/customFieldOption/suggest?fieldName=customfield_10010&maxResults=25&query=plat"
+	if rest.endpoint != wantEndpoint {
+		t.Fatalf("endpoint = %q, want %q", rest.endpoint, wantEndpoint)
+	}
+	want := []FieldOption{{ID: "101", Name: "Platform"}, {Name: "Security"}}
+	if !reflect.DeepEqual(options, want) {
+		t.Fatalf("options = %#v, want %#v", options, want)
 	}
 }
 
@@ -1127,6 +1441,33 @@ func TestCreateIssueSendsProjectTypeSummaryAndDescription(t *testing.T) {
 	}
 }
 
+func TestCreateIssueSendsParentKeyForSubtask(t *testing.T) {
+	issue := &fakeIssueService{
+		createResponse: &model.IssueResponseScheme{ID: "10002", Key: "ABC-124", Self: "https://example.atlassian.net/rest/api/3/issue/10002"},
+	}
+	client := &Client{
+		baseURL: "https://example.atlassian.net",
+		issue:   issue,
+	}
+
+	_, err := client.CreateIssue(context.Background(), CreateIssueRequest{
+		ProjectKey:  "ABC",
+		IssueTypeID: "10002",
+		ParentKey:   "ABC-123",
+		Summary:     "Add regression coverage",
+	})
+	if err != nil {
+		t.Fatalf("CreateIssue() error = %v", err)
+	}
+
+	if issue.createPayload == nil || issue.createPayload.Fields == nil {
+		t.Fatal("expected create payload fields")
+	}
+	if issue.createPayload.Fields.Parent == nil || issue.createPayload.Fields.Parent.Key != "ABC-123" {
+		t.Fatalf("Parent = %#v", issue.createPayload.Fields.Parent)
+	}
+}
+
 func TestCreateIssueSendsPriorityLabelsAndCustomFieldValues(t *testing.T) {
 	issue := &fakeIssueService{
 		createResponse: &model.IssueResponseScheme{ID: "10001", Key: "ABC-123"},
@@ -1392,6 +1733,201 @@ func TestUpdatePriorityWrapsUpdateError(t *testing.T) {
 	}
 }
 
+func TestUpdateLabelsSendsLabelsOnly(t *testing.T) {
+	issue := &fakeIssueService{}
+	client := &Client{
+		issue: issue,
+	}
+
+	err := client.UpdateLabels(context.Background(), "ABC-123", []string{"platform", "needs-review"})
+	if err != nil {
+		t.Fatalf("UpdateLabels() error = %v", err)
+	}
+
+	if issue.updateKey != "ABC-123" {
+		t.Fatalf("updateKey = %q", issue.updateKey)
+	}
+	if issue.updatePayload == nil || issue.updatePayload.Fields == nil {
+		t.Fatal("expected update payload fields")
+	}
+	if !reflect.DeepEqual(issue.updatePayload.Fields.Labels, []string{"platform", "needs-review"}) {
+		t.Fatalf("Labels = %#v", issue.updatePayload.Fields.Labels)
+	}
+	if issue.updatePayload.Fields.Summary != "" {
+		t.Fatalf("Summary = %q", issue.updatePayload.Fields.Summary)
+	}
+	if issue.updatePayload.Fields.Priority != nil {
+		t.Fatalf("Priority = %#v", issue.updatePayload.Fields.Priority)
+	}
+}
+
+func TestUpdateLabelsTrimsAndDropsEmptyLabels(t *testing.T) {
+	issue := &fakeIssueService{}
+	client := &Client{
+		issue: issue,
+	}
+
+	err := client.UpdateLabels(context.Background(), "ABC-123", []string{" platform ", "", "needs-review", "platform"})
+	if err != nil {
+		t.Fatalf("UpdateLabels() error = %v", err)
+	}
+
+	want := []string{"platform", "needs-review"}
+	if !reflect.DeepEqual(issue.updatePayload.Fields.Labels, want) {
+		t.Fatalf("Labels = %#v, want %#v", issue.updatePayload.Fields.Labels, want)
+	}
+}
+
+func TestUpdateLabelsAllowsClearingLabels(t *testing.T) {
+	issue := &fakeIssueService{}
+	client := &Client{
+		issue: issue,
+	}
+
+	err := client.UpdateLabels(context.Background(), "ABC-123", nil)
+	if err != nil {
+		t.Fatalf("UpdateLabels() error = %v", err)
+	}
+
+	if issue.updatePayload == nil || issue.updatePayload.Fields == nil {
+		t.Fatal("expected update payload fields")
+	}
+	if issue.updatePayload.Fields.Labels == nil {
+		t.Fatal("expected empty labels slice so Jira clears labels")
+	}
+	if len(issue.updatePayload.Fields.Labels) != 0 {
+		t.Fatalf("Labels = %#v", issue.updatePayload.Fields.Labels)
+	}
+}
+
+func TestUpdateLabelsWrapsUpdateError(t *testing.T) {
+	issue := &fakeIssueService{
+		updateErr: errors.New("update failed"),
+	}
+	client := &Client{
+		issue: issue,
+	}
+
+	err := client.UpdateLabels(context.Background(), "ABC-123", []string{"platform"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, issue.updateErr) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestUpdateComponentsSendsComponentsOnly(t *testing.T) {
+	issue := &fakeIssueService{}
+	client := &Client{
+		issue: issue,
+	}
+
+	err := client.UpdateComponents(context.Background(), "ABC-123", []FieldOption{{ID: "101", Name: "Platform"}, {ID: "102", Name: "API"}})
+	if err != nil {
+		t.Fatalf("UpdateComponents() error = %v", err)
+	}
+
+	if issue.updateKey != "ABC-123" {
+		t.Fatalf("updateKey = %q", issue.updateKey)
+	}
+	if issue.updatePayload == nil || issue.updatePayload.Fields == nil {
+		t.Fatal("expected update payload fields")
+	}
+	got := issue.updatePayload.Fields.Components
+	if len(got) != 2 || got[0].ID != "101" || got[0].Name != "Platform" || got[1].ID != "102" || got[1].Name != "API" {
+		t.Fatalf("Components = %#v", got)
+	}
+	if issue.updatePayload.Fields.Summary != "" {
+		t.Fatalf("Summary = %q", issue.updatePayload.Fields.Summary)
+	}
+	if issue.updatePayload.Fields.Priority != nil {
+		t.Fatalf("Priority = %#v", issue.updatePayload.Fields.Priority)
+	}
+}
+
+func TestUpdateComponentsAllowsClearingComponents(t *testing.T) {
+	issue := &fakeIssueService{}
+	client := &Client{
+		issue: issue,
+	}
+
+	err := client.UpdateComponents(context.Background(), "ABC-123", nil)
+	if err != nil {
+		t.Fatalf("UpdateComponents() error = %v", err)
+	}
+
+	if issue.updatePayload == nil || issue.updatePayload.Fields == nil {
+		t.Fatal("expected update payload fields")
+	}
+	if issue.updatePayload.Fields.Components == nil {
+		t.Fatal("expected empty components slice so Jira clears components")
+	}
+	if len(issue.updatePayload.Fields.Components) != 0 {
+		t.Fatalf("Components = %#v", issue.updatePayload.Fields.Components)
+	}
+}
+
+func TestUpdateComponentsWrapsUpdateError(t *testing.T) {
+	issue := &fakeIssueService{
+		updateErr: errors.New("update failed"),
+	}
+	client := &Client{
+		issue: issue,
+	}
+
+	err := client.UpdateComponents(context.Background(), "ABC-123", []FieldOption{{ID: "101", Name: "Platform"}})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, issue.updateErr) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestUpdateEditFieldSendsCustomNumberField(t *testing.T) {
+	issue := &fakeIssueService{}
+	client := &Client{
+		issue: issue,
+	}
+
+	err := client.UpdateEditField(context.Background(), "ABC-123", EditFieldValue{
+		FieldID:    "customfield_10016",
+		SchemaType: "number",
+		Text:       "8",
+	})
+	if err != nil {
+		t.Fatalf("UpdateEditField() error = %v", err)
+	}
+
+	if issue.updateKey != "ABC-123" {
+		t.Fatalf("updateKey = %q", issue.updateKey)
+	}
+	fields := mergedCustomFieldPayloadForTest(t, issue.updatePayload, issue.updateCustomFields)
+	if got := fields["customfield_10016"]; got != float64(8) {
+		t.Fatalf("customfield_10016 = %#v", got)
+	}
+	if issue.updateOperations != nil {
+		t.Fatalf("operations = %#v", issue.updateOperations)
+	}
+}
+
+func TestUpdateEditFieldRejectsStandardField(t *testing.T) {
+	client := &Client{issue: &fakeIssueService{}}
+
+	err := client.UpdateEditField(context.Background(), "ABC-123", EditFieldValue{
+		FieldID:    "duedate",
+		SchemaType: "date",
+		Text:       "2026-06-19",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "unsupported field duedate") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestUpdateAssigneeSendsAccountID(t *testing.T) {
 	issue := &fakeIssueService{}
 	client := &Client{
@@ -1536,6 +2072,161 @@ func TestGetCommentADFReturnsRawCommentBody(t *testing.T) {
 	}
 }
 
+func TestGetIssueLinkTypesUsesRESTEndpoint(t *testing.T) {
+	rest := &fakeRESTConnector{
+		issueLinkTypeResponse: model.IssueLinkTypeSearchScheme{
+			IssueLinkTypes: []*model.LinkTypeScheme{
+				{ID: "10000", Name: "Blocks", Inward: "is blocked by", Outward: "blocks"},
+				{ID: "10001", Name: "Relates", Inward: "relates to", Outward: "relates to"},
+			},
+		},
+	}
+	client := &Client{rest: rest}
+
+	types, err := client.GetIssueLinkTypes(context.Background())
+	if err != nil {
+		t.Fatalf("GetIssueLinkTypes() error = %v", err)
+	}
+	if rest.method != http.MethodGet {
+		t.Fatalf("method = %q", rest.method)
+	}
+	if rest.endpoint != "rest/api/3/issueLinkType" {
+		t.Fatalf("endpoint = %q", rest.endpoint)
+	}
+	if len(types) != 2 || types[0].Name != "Blocks" || types[0].Outward != "blocks" {
+		t.Fatalf("types = %#v", types)
+	}
+}
+
+func TestCreateIssueLinkSendsOutwardPayload(t *testing.T) {
+	rest := &fakeRESTConnector{}
+	client := &Client{rest: rest}
+
+	err := client.CreateIssueLink(context.Background(), CreateIssueLinkRequest{
+		SourceKey: "ABC-1",
+		TargetKey: "ABC-2",
+		Type:      IssueLinkType{ID: "10000", Name: "Blocks", Inward: "is blocked by", Outward: "blocks"},
+		Direction: "outward",
+	})
+	if err != nil {
+		t.Fatalf("CreateIssueLink() error = %v", err)
+	}
+	if rest.method != http.MethodPost {
+		t.Fatalf("method = %q", rest.method)
+	}
+	if rest.endpoint != "rest/api/3/issueLink" {
+		t.Fatalf("endpoint = %q", rest.endpoint)
+	}
+	payload, ok := rest.body.(*model.LinkPayloadSchemeV3)
+	if !ok {
+		t.Fatalf("payload = %T", rest.body)
+	}
+	if payload.Type.ID != "10000" || payload.Type.Name != "Blocks" {
+		t.Fatalf("type = %#v", payload.Type)
+	}
+	if payload.InwardIssue.Key != "ABC-1" || payload.OutwardIssue.Key != "ABC-2" {
+		t.Fatalf("issues = inward:%#v outward:%#v", payload.InwardIssue, payload.OutwardIssue)
+	}
+}
+
+func TestCreateIssueLinkSendsInwardPayload(t *testing.T) {
+	rest := &fakeRESTConnector{}
+	client := &Client{rest: rest}
+
+	err := client.CreateIssueLink(context.Background(), CreateIssueLinkRequest{
+		SourceKey: "ABC-1",
+		TargetKey: "ABC-2",
+		Type:      IssueLinkType{Name: "Blocks", Inward: "is blocked by", Outward: "blocks"},
+		Direction: "inward",
+	})
+	if err != nil {
+		t.Fatalf("CreateIssueLink() error = %v", err)
+	}
+	payload, ok := rest.body.(*model.LinkPayloadSchemeV3)
+	if !ok {
+		t.Fatalf("payload = %T", rest.body)
+	}
+	if payload.InwardIssue.Key != "ABC-2" || payload.OutwardIssue.Key != "ABC-1" {
+		t.Fatalf("issues = inward:%#v outward:%#v", payload.InwardIssue, payload.OutwardIssue)
+	}
+}
+
+func TestGetWorklogsUsesRESTEndpoint(t *testing.T) {
+	started := "2026-06-19T09:30:00.000+0000"
+	rest := &fakeRESTConnector{
+		worklogPageResponse: model.IssueWorklogADFPageScheme{
+			Worklogs: []*model.IssueWorklogADFScheme{
+				{
+					ID:               "10001",
+					Author:           &model.UserDetailScheme{DisplayName: "Jane Doe"},
+					TimeSpent:        "1h",
+					TimeSpentSeconds: 3600,
+					Started:          started,
+					Comment:          plainTextADF("Reviewed ABC-2", nil),
+				},
+			},
+		},
+	}
+	client := &Client{rest: rest}
+
+	worklogs, err := client.GetWorklogs(context.Background(), "ABC-1", 20)
+	if err != nil {
+		t.Fatalf("GetWorklogs() error = %v", err)
+	}
+	if rest.method != http.MethodGet {
+		t.Fatalf("method = %q", rest.method)
+	}
+	if rest.endpoint != "rest/api/3/issue/ABC-1/worklog?maxResults=20&startAt=0" {
+		t.Fatalf("endpoint = %q", rest.endpoint)
+	}
+	if len(worklogs) != 1 || worklogs[0].ID != "10001" || worklogs[0].Author != "Jane Doe" || worklogs[0].Comment != "Reviewed ABC-2" {
+		t.Fatalf("worklogs = %#v", worklogs)
+	}
+}
+
+func TestAddWorklogSendsADFPayload(t *testing.T) {
+	started := time.Date(2026, 6, 19, 9, 30, 0, 0, time.UTC)
+	rest := &fakeRESTConnector{
+		worklogResponse: model.IssueWorklogADFScheme{
+			ID:               "10001",
+			Author:           &model.UserDetailScheme{DisplayName: "Jane Doe"},
+			TimeSpent:        "45m",
+			TimeSpentSeconds: 2700,
+			Started:          "2026-06-19T09:30:00.000+0000",
+			Comment:          plainTextADF("Reviewed ABC-2", nil),
+		},
+	}
+	client := &Client{rest: rest}
+
+	worklog, err := client.AddWorklog(context.Background(), "ABC-1", AddWorklogRequest{
+		TimeSpent: "45m",
+		Started:   started,
+		Comment:   "Reviewed ABC-2",
+	})
+	if err != nil {
+		t.Fatalf("AddWorklog() error = %v", err)
+	}
+	if rest.method != http.MethodPost {
+		t.Fatalf("method = %q", rest.method)
+	}
+	if rest.endpoint != "rest/api/3/issue/ABC-1/worklog" {
+		t.Fatalf("endpoint = %q", rest.endpoint)
+	}
+	payload, ok := rest.body.(*model.WorklogADFPayloadScheme)
+	if !ok {
+		t.Fatalf("payload = %T", rest.body)
+	}
+	if payload.TimeSpent != "45m" || payload.Started != "2026-06-19T09:30:00.000+0000" {
+		t.Fatalf("payload time = %#v", payload)
+	}
+	if adf.Render(payload.Comment) != "Reviewed ABC-2" {
+		t.Fatalf("comment = %#v", payload.Comment)
+	}
+	if worklog.ID != "10001" || worklog.TimeSpent != "45m" || worklog.Comment != "Reviewed ABC-2" {
+		t.Fatalf("worklog = %#v", worklog)
+	}
+}
+
 func TestAddCommentBuildsADFPayload(t *testing.T) {
 	comments := &fakeCommentService{
 		addResponse: &model.IssueCommentScheme{
@@ -1598,6 +2289,51 @@ func TestAddCommentBuildsADFPayload(t *testing.T) {
 	}
 	if comment.Body != "Posted" {
 		t.Fatalf("Body = %q", comment.Body)
+	}
+}
+
+func TestUpdateCommentBuildsADFPayload(t *testing.T) {
+	comments := &fakeCommentService{
+		updateResponse: &model.IssueCommentScheme{
+			ID: "10001",
+			Author: &model.UserScheme{
+				DisplayName: "Comment Person",
+			},
+			Body: &model.CommentNodeScheme{
+				Type: "doc",
+				Content: []*model.CommentNodeScheme{
+					{
+						Type: "paragraph",
+						Content: []*model.CommentNodeScheme{
+							{Type: "text", Text: "Updated body"},
+						},
+					},
+				},
+			},
+		},
+	}
+	client := &Client{comment: comments}
+
+	comment, err := client.UpdateComment(context.Background(), "ABC-123", "10001", "Updated **body**", nil)
+	if err != nil {
+		t.Fatalf("UpdateComment() error = %v", err)
+	}
+
+	if comments.updateKey != "ABC-123" || comments.updateID != "10001" {
+		t.Fatalf("update target = %s/%s", comments.updateKey, comments.updateID)
+	}
+	if comments.updatePayload == nil || comments.updatePayload.Body == nil {
+		t.Fatal("expected update payload body")
+	}
+	nodes := comments.updatePayload.Body.Content[0].Content
+	if len(nodes) != 2 || nodes[0].Text != "Updated " || nodes[1].Text != "body" {
+		t.Fatalf("nodes = %#v", nodes)
+	}
+	if len(nodes[1].Marks) != 1 || nodes[1].Marks[0].Type != "strong" {
+		t.Fatalf("bold marks = %#v", nodes[1].Marks)
+	}
+	if comment.ID != "10001" || comment.Body != "Updated body" {
+		t.Fatalf("comment = %#v", comment)
 	}
 }
 
@@ -1743,6 +2479,43 @@ func TestSearchUsers(t *testing.T) {
 	}
 }
 
+func TestSearchAssignableUsersUsesIssueScopedEndpoint(t *testing.T) {
+	rest := &fakeRESTConnector{
+		assignableUsers: []model.UserScheme{
+			{AccountID: "abc-123", DisplayName: "Jane Doe", EmailAddress: "jane@example.test", Active: true},
+			{DisplayName: "No Account"},
+		},
+	}
+	client := &Client{rest: rest}
+
+	users, err := client.SearchAssignableUsers(context.Background(), "ABC-123", "Jane Doe", 5)
+	if err != nil {
+		t.Fatalf("SearchAssignableUsers() error = %v", err)
+	}
+
+	if rest.method != http.MethodGet {
+		t.Fatalf("method = %q", rest.method)
+	}
+	wantEndpoint := "rest/api/3/user/assignable/search?issueKey=ABC-123&maxResults=5&query=Jane+Doe"
+	if rest.endpoint != wantEndpoint {
+		t.Fatalf("endpoint = %q, want %q", rest.endpoint, wantEndpoint)
+	}
+	want := []User{{AccountID: "abc-123", DisplayName: "Jane Doe", Email: "jane@example.test", Active: true}}
+	if len(users) != len(want) || users[0] != want[0] {
+		t.Fatalf("users = %#v, want %#v", users, want)
+	}
+}
+
+func TestSearchAssignableUsersRejectsMissingIssueKey(t *testing.T) {
+	client := &Client{rest: &fakeRESTConnector{}}
+
+	_, err := client.SearchAssignableUsers(context.Background(), " ", "Jane", 5)
+
+	if err == nil || !strings.Contains(err.Error(), "empty issue key") {
+		t.Fatalf("SearchAssignableUsers() error = %v", err)
+	}
+}
+
 type fakeSearchService struct {
 	jql        string
 	fields     []string
@@ -1825,15 +2598,22 @@ type fakeIssueService struct {
 }
 
 type fakeRESTConnector struct {
-	method             string
-	endpoint           string
-	transitionResponse transitionFieldsResponse
-	err                error
+	method                string
+	endpoint              string
+	body                  interface{}
+	transitionResponse    transitionFieldsResponse
+	assignableUsers       []model.UserScheme
+	fieldOptionResponse   fieldOptionSearchResponse
+	issueLinkTypeResponse model.IssueLinkTypeSearchScheme
+	worklogPageResponse   model.IssueWorklogADFPageScheme
+	worklogResponse       model.IssueWorklogADFScheme
+	err                   error
 }
 
-func (f *fakeRESTConnector) NewRequest(_ context.Context, method, endpoint, _ string, _ interface{}) (*http.Request, error) {
+func (f *fakeRESTConnector) NewRequest(_ context.Context, method, endpoint, _ string, body interface{}) (*http.Request, error) {
 	f.method = method
 	f.endpoint = endpoint
+	f.body = body
 	return &http.Request{}, f.err
 }
 
@@ -1841,8 +2621,25 @@ func (f *fakeRESTConnector) Call(_ *http.Request, v interface{}) (*model.Respons
 	if f.err != nil {
 		return nil, f.err
 	}
-	target := v.(*transitionFieldsResponse)
-	*target = f.transitionResponse
+	if v == nil {
+		return &model.ResponseScheme{}, nil
+	}
+	switch target := v.(type) {
+	case *transitionFieldsResponse:
+		*target = f.transitionResponse
+	case *[]model.UserScheme:
+		*target = append([]model.UserScheme(nil), f.assignableUsers...)
+	case *fieldOptionSearchResponse:
+		*target = f.fieldOptionResponse
+	case *model.IssueLinkTypeSearchScheme:
+		*target = f.issueLinkTypeResponse
+	case *model.IssueWorklogADFPageScheme:
+		*target = f.worklogPageResponse
+	case *model.IssueWorklogADFScheme:
+		*target = f.worklogResponse
+	default:
+		return nil, fmt.Errorf("unexpected REST target %T", v)
+	}
 	return &model.ResponseScheme{}, nil
 }
 
@@ -1929,16 +2726,20 @@ func (f *fakeMetadataService) FetchFieldMappings(_ context.Context, projectKey s
 }
 
 type fakeCommentService struct {
-	key         string
-	orderBy     string
-	expands     []string
-	startAt     int
-	maxResults  int
-	response    *model.IssueCommentPageScheme
-	addKey      string
-	payload     *model.CommentPayloadScheme
-	addResponse *model.IssueCommentScheme
-	err         error
+	key            string
+	orderBy        string
+	expands        []string
+	startAt        int
+	maxResults     int
+	response       *model.IssueCommentPageScheme
+	addKey         string
+	payload        *model.CommentPayloadScheme
+	addResponse    *model.IssueCommentScheme
+	updateKey      string
+	updateID       string
+	updatePayload  *model.CommentPayloadScheme
+	updateResponse *model.IssueCommentScheme
+	err            error
 }
 
 type fakeUserSearchService struct {
@@ -1968,6 +2769,14 @@ func (f *fakeCommentService) Add(_ context.Context, key string, payload *model.C
 	f.payload = payload
 	f.expands = expands
 	return f.addResponse, nil, f.err
+}
+
+func (f *fakeCommentService) Update(_ context.Context, key string, commentID string, payload *model.CommentPayloadScheme, expands []string) (*model.IssueCommentScheme, *model.ResponseScheme, error) {
+	f.updateKey = key
+	f.updateID = commentID
+	f.updatePayload = payload
+	f.expands = expands
+	return f.updateResponse, nil, f.err
 }
 
 func equalStrings(left, right []string) bool {

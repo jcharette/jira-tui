@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/jcharette/jira-tui/internal/jira"
 	"github.com/jcharette/jira-tui/internal/worker"
@@ -24,6 +26,12 @@ func (m Model) handleWorkerResult(result worker.Result) (Model, tea.Cmd) {
 			return m.handleClaudeAssistCommentResult(result)
 		}
 		return m.handleAddCommentResult(result)
+	case worker.KindUpdateComment:
+		return m.handleUpdateCommentResult(result)
+	case worker.KindGetWorklogs:
+		return m.handleGetWorklogsResult(result), nil
+	case worker.KindAddWorklog:
+		return m.handleAddWorklogResult(result)
 	case worker.KindSearchUsers:
 		return m.handleUserSearchResult(result), nil
 	case worker.KindExpandIssues:
@@ -43,21 +51,83 @@ func (m Model) handleWorkerResult(result worker.Result) (Model, tea.Cmd) {
 		return m.handleClaudeAssistApplyResult(result), nil
 	case worker.KindUpdatePriority:
 		return m.handleUpdatePriorityResult(result), nil
+	case worker.KindUpdateLabels:
+		return m.handleUpdateLabelsResult(result), nil
+	case worker.KindUpdateComponents:
+		return m.handleUpdateComponentsResult(result), nil
+	case worker.KindUpdateEditField:
+		return m.handleUpdateEditFieldResult(result), nil
 	case worker.KindUpdateAssignee:
 		return m.handleUpdateAssigneeResult(result), nil
 	case worker.KindGetCreateIssueTypes:
 		return m.handleGetCreateIssueTypesResult(result), nil
 	case worker.KindGetCreateFields:
 		return m.handleGetCreateFieldsResult(result), nil
+	case worker.KindSearchFieldOptions:
+		if result.ID == m.activeTransitionFieldOptionsReqID {
+			return m.handleTransitionFieldOptionsResult(result), nil
+		}
+		return m.handleSearchFieldOptionsResult(result), nil
 	case worker.KindGetBoards:
 		return m.handlePlanningBoardsResult(result)
 	case worker.KindGetBoardSprints:
-		return m.handlePlanningSprintsResult(result), nil
+		return m.handlePlanningSprintsResult(result)
+	case worker.KindGetIssueLinkTypes:
+		return m.handleGetIssueLinkTypesResult(result), nil
+	case worker.KindCreateIssueLink:
+		return m.handleCreateIssueLinkResult(result)
 	case worker.KindCreateIssue:
 		return m.handleCreateIssueResult(result), nil
 	default:
 		return m, nil
 	}
+}
+
+func (m Model) handleGetIssueLinkTypesResult(result worker.Result) Model {
+	if result.ID != m.activeIssueLinkTypesReqID {
+		return m
+	}
+	m.issueLinkTypesLoading = false
+	if result.Err != nil {
+		m.issueLinkTypesErr = result.Err
+		m.detailNotice = "Issue link types failed: " + result.Err.Error()
+		return m
+	}
+	if result.GetIssueLinkTypes == nil {
+		m.issueLinkTypesErr = worker.ErrInvalidRequest
+		m.detailNotice = "Issue link types failed: " + worker.ErrInvalidRequest.Error()
+		return m
+	}
+	m.issueLinkTypes = result.GetIssueLinkTypes.Types
+	m.issueLinkTypesErr = nil
+	m.selectedIssueLinkRelation = clamp(m.selectedIssueLinkRelation, 0, max(0, len(m.issueLinkRelations())-1))
+	return m
+}
+
+func (m Model) handleCreateIssueLinkResult(result worker.Result) (Model, tea.Cmd) {
+	if result.ID != m.activeCreateIssueLinkReqID {
+		return m, nil
+	}
+	m.issueLinkSubmitting = false
+	if result.Err != nil {
+		m.detailNotice = "Issue link failed: " + result.Err.Error()
+		return m, nil
+	}
+	if result.CreateIssueLink == nil {
+		m.detailNotice = "Issue link failed: " + worker.ErrInvalidRequest.Error()
+		return m, nil
+	}
+	sourceKey := strings.TrimSpace(result.CreateIssueLink.Request.SourceKey)
+	targetKey := strings.TrimSpace(result.CreateIssueLink.Request.TargetKey)
+	m.closeIssueLinkEditor()
+	m.detailNotice = "Linked " + displayValue(sourceKey, "selected") + " to " + displayValue(targetKey, "target") + "."
+	if sourceKey != "" {
+		delete(m.details, sourceKey)
+		if m.detailCache != nil {
+			m.detailCache.Delete(sourceKey)
+		}
+	}
+	return m.startDetailRequestForSelected()
 }
 
 func (m Model) handlePlanningBoardsResult(result worker.Result) (Model, tea.Cmd) {
@@ -80,27 +150,36 @@ func (m Model) handlePlanningBoardsResult(result worker.Result) (Model, tea.Cmd)
 		m.planningBoardID = 0
 		return m, nil
 	}
-	boardID := m.planningBoards[0].ID
-	m.planningBoardID = boardID
-	m.nextRequestID++
-	m.activePlanningSprintsReqID = m.nextRequestID
-	m.planningSprintsLoading = true
+	m.planningBoardID = m.planningBoards[0].ID
 	m.planningSprintsErr = nil
-	return m, m.submitPlanningSprints(m.activePlanningSprintsReqID, boardID)
+	m.planningSprintQueue = m.boardIDsForPlanningSprints(m.planningBoards)
+	return m.startQueuedPlanningSprintLoads()
 }
 
-func (m Model) handlePlanningSprintsResult(result worker.Result) Model {
-	if result.ID != m.activePlanningSprintsReqID {
-		return m
+func (m Model) handlePlanningSprintsResult(result worker.Result) (Model, tea.Cmd) {
+	if len(m.activePlanningSprintReqIDs) > 0 {
+		if _, ok := m.activePlanningSprintReqIDs[result.ID]; !ok {
+			return m, nil
+		}
+		delete(m.activePlanningSprintReqIDs, result.ID)
+	} else if result.ID != m.activePlanningSprintsReqID {
+		return m, nil
 	}
-	m.planningSprintsLoading = false
 	if result.Err != nil {
 		m.planningSprintsErr = result.Err
-		return m
+		m.planningSprintsLoading = len(m.activePlanningSprintReqIDs) > 0 || len(m.planningSprintQueue) > 0
+		if m.planningSprintsLoading {
+			return m.startQueuedPlanningSprintLoads()
+		}
+		return m, nil
 	}
 	if result.GetBoardSprints == nil {
 		m.planningSprintsErr = worker.ErrInvalidRequest
-		return m
+		m.planningSprintsLoading = len(m.activePlanningSprintReqIDs) > 0 || len(m.planningSprintQueue) > 0
+		if m.planningSprintsLoading {
+			return m.startQueuedPlanningSprintLoads()
+		}
+		return m, nil
 	}
 	m.planningSprintsErr = nil
 	if m.planningSprints == nil {
@@ -113,7 +192,44 @@ func (m Model) handlePlanningSprintsResult(result worker.Result) Model {
 	m.planningBoardID = boardID
 	m.planningSprintPages[boardID] = result.GetBoardSprints.Page
 	m.planningSprints[boardID] = result.GetBoardSprints.Page.Sprints
-	return m
+	return m.startQueuedPlanningSprintLoads()
+}
+
+func (m Model) boardIDsForPlanningSprints(boards []jira.Board) []int {
+	ids := make([]int, 0, len(boards))
+	seen := make(map[int]struct{}, len(boards))
+	for _, board := range boards {
+		if board.ID <= 0 {
+			continue
+		}
+		if _, ok := seen[board.ID]; ok {
+			continue
+		}
+		seen[board.ID] = struct{}{}
+		ids = append(ids, board.ID)
+	}
+	return ids
+}
+
+func (m Model) startQueuedPlanningSprintLoads() (Model, tea.Cmd) {
+	if m.activePlanningSprintReqIDs == nil {
+		m.activePlanningSprintReqIDs = make(map[int]int)
+	}
+	var cmds []tea.Cmd
+	for len(m.planningSprintQueue) > 0 && len(m.activePlanningSprintReqIDs) < planningSprintFetchConcurrency {
+		boardID := m.planningSprintQueue[0]
+		m.planningSprintQueue = m.planningSprintQueue[1:]
+		m.nextRequestID++
+		requestID := m.nextRequestID
+		m.activePlanningSprintsReqID = requestID
+		m.activePlanningSprintReqIDs[requestID] = boardID
+		cmds = append(cmds, m.submitPlanningSprints(requestID, boardID))
+	}
+	m.planningSprintsLoading = len(m.activePlanningSprintReqIDs) > 0 || len(m.planningSprintQueue) > 0
+	if len(cmds) == 0 {
+		return m, nil
+	}
+	return m, tea.Batch(cmds...)
 }
 
 func (m Model) handleAssigneeSearchResult(result worker.Result) Model {
@@ -131,10 +247,10 @@ func (m Model) handleAssigneeSearchResult(result worker.Result) Model {
 		m.detailNotice = "Assignee search failed: " + worker.ErrInvalidRequest.Error()
 		return m
 	}
-	if result.SearchUsers.Query != m.assigneeQuery {
+	if result.SearchUsers.Query != m.assigneeQuery || result.SearchUsers.IssueKey != m.assigneeSearchIssueKey {
 		return m
 	}
-	m.cacheUserSearch(result.SearchUsers.Query, result.SearchUsers.Users)
+	m.cacheAssignableUserSearch(result.SearchUsers.IssueKey, result.SearchUsers.Query, result.SearchUsers.Users)
 	m.assigneeUsers = result.SearchUsers.Users
 	m.selectedAssignee = clamp(m.selectedAssignee, 0, max(0, len(m.assigneeUsers)-1))
 	m.assigneeSearchErr = nil
@@ -153,6 +269,17 @@ func (m Model) cachedUserSearch(query string) ([]jira.User, bool) {
 	return item.Value(), true
 }
 
+func (m Model) cachedAssignableUserSearch(issueKey string, query string) ([]jira.User, bool) {
+	if m.userSearchCache == nil {
+		return nil, false
+	}
+	item := m.userSearchCache.Get(assignableUserSearchCacheKey(issueKey, query))
+	if item == nil {
+		return nil, false
+	}
+	return item.Value(), true
+}
+
 func (m Model) cacheUserSearch(query string, users []jira.User) {
 	if m.userSearchCache == nil || strings.TrimSpace(query) == "" {
 		return
@@ -160,17 +287,37 @@ func (m Model) cacheUserSearch(query string, users []jira.User) {
 	m.userSearchCache.Set(userSearchCacheKey(query), users, ttlcache.DefaultTTL)
 }
 
+func (m Model) cacheAssignableUserSearch(issueKey string, query string, users []jira.User) {
+	if m.userSearchCache == nil || strings.TrimSpace(issueKey) == "" || strings.TrimSpace(query) == "" {
+		return
+	}
+	m.userSearchCache.Set(assignableUserSearchCacheKey(issueKey, query), users, ttlcache.DefaultTTL)
+}
+
 func userSearchCacheKey(query string) string {
 	return strings.ToLower(strings.TrimSpace(query))
 }
 
+func assignableUserSearchCacheKey(issueKey string, query string) string {
+	return "assignable:" + strings.ToUpper(strings.TrimSpace(issueKey)) + ":" + userSearchCacheKey(query)
+}
+
 func (m Model) handleEditMetadataResult(result worker.Result) Model {
-	if result.ID != m.activeSummaryMetadataReqID && result.ID != m.activePriorityMetadataReqID {
+	if result.ID != m.activeSummaryMetadataReqID && result.ID != m.activePriorityMetadataReqID && result.ID != m.activeLabelsMetadataReqID && result.ID != m.activeComponentsMetadataReqID && result.ID != m.activeGenericFieldMetadataReqID {
 		return m
 	}
 	isPriorityRequest := result.ID == m.activePriorityMetadataReqID
+	isLabelsRequest := result.ID == m.activeLabelsMetadataReqID
+	isComponentsRequest := result.ID == m.activeComponentsMetadataReqID
+	isGenericFieldRequest := result.ID == m.activeGenericFieldMetadataReqID
 	if isPriorityRequest {
 		m.priorityMetadataLoading = false
+	} else if isLabelsRequest {
+		m.labelsMetadataLoading = false
+	} else if isComponentsRequest {
+		m.componentsMetadataLoading = false
+	} else if isGenericFieldRequest {
+		m.genericFieldMetadataLoading = false
 	} else {
 		m.summaryMetadataLoading = false
 	}
@@ -178,11 +325,26 @@ func (m Model) handleEditMetadataResult(result worker.Result) Model {
 		requestKey := m.summaryMetadataRequestKey
 		if isPriorityRequest {
 			requestKey = m.priorityMetadataRequestKey
+		} else if isLabelsRequest {
+			requestKey = m.labelsMetadataRequestKey
+		} else if isComponentsRequest {
+			requestKey = m.componentsMetadataRequestKey
+		} else if isGenericFieldRequest {
+			requestKey = m.genericFieldMetadataRequestKey
 		}
 		m.markIssueEditMetadataCacheError(requestKey, result.Err)
 		if isPriorityRequest {
 			m.priorityMetadataErr = result.Err
 			m.detailNotice = "Priority metadata failed: " + result.Err.Error()
+		} else if isLabelsRequest {
+			m.labelsMetadataErr = result.Err
+			m.detailNotice = "Labels metadata failed: " + result.Err.Error()
+		} else if isComponentsRequest {
+			m.componentsMetadataErr = result.Err
+			m.detailNotice = "Components metadata failed: " + result.Err.Error()
+		} else if isGenericFieldRequest {
+			m.genericFieldMetadataErr = result.Err
+			m.detailNotice = "Field metadata failed: " + result.Err.Error()
 		} else {
 			m.summaryMetadataErr = result.Err
 			m.detailNotice = "Summary metadata failed: " + result.Err.Error()
@@ -193,6 +355,15 @@ func (m Model) handleEditMetadataResult(result worker.Result) Model {
 		if isPriorityRequest {
 			m.priorityMetadataErr = worker.ErrInvalidRequest
 			m.detailNotice = "Priority metadata failed: " + worker.ErrInvalidRequest.Error()
+		} else if isLabelsRequest {
+			m.labelsMetadataErr = worker.ErrInvalidRequest
+			m.detailNotice = "Labels metadata failed: " + worker.ErrInvalidRequest.Error()
+		} else if isComponentsRequest {
+			m.componentsMetadataErr = worker.ErrInvalidRequest
+			m.detailNotice = "Components metadata failed: " + worker.ErrInvalidRequest.Error()
+		} else if isGenericFieldRequest {
+			m.genericFieldMetadataErr = worker.ErrInvalidRequest
+			m.detailNotice = "Field metadata failed: " + worker.ErrInvalidRequest.Error()
 		} else {
 			m.summaryMetadataErr = worker.ErrInvalidRequest
 			m.detailNotice = "Summary metadata failed: " + worker.ErrInvalidRequest.Error()
@@ -202,6 +373,12 @@ func (m Model) handleEditMetadataResult(result worker.Result) Model {
 	requestKey := m.summaryMetadataRequestKey
 	if isPriorityRequest {
 		requestKey = m.priorityMetadataRequestKey
+	} else if isLabelsRequest {
+		requestKey = m.labelsMetadataRequestKey
+	} else if isComponentsRequest {
+		requestKey = m.componentsMetadataRequestKey
+	} else if isGenericFieldRequest {
+		requestKey = m.genericFieldMetadataRequestKey
 	}
 	if result.GetEditMetadata.Key != requestKey {
 		return m
@@ -218,12 +395,46 @@ func (m Model) handleEditMetadataResult(result worker.Result) Model {
 		m.priorityMetadataErr = nil
 		return m.beginPriorityEditing(result.GetEditMetadata.Metadata)
 	}
+	if isLabelsRequest {
+		m.labelsMetadataErr = nil
+		return m.beginLabelsEditing(result.GetEditMetadata.Metadata)
+	}
+	if isComponentsRequest {
+		m.componentsMetadataErr = nil
+		return m.beginComponentsEditing(result.GetEditMetadata.Metadata)
+	}
+	if isGenericFieldRequest {
+		m.genericFieldMetadataErr = nil
+		return m.beginGenericFieldEditing(result.GetEditMetadata.Metadata)
+	}
 	m.summaryMetadataErr = nil
 	if !result.GetEditMetadata.Metadata.Summary.Editable {
 		m.detailNotice = "Summary is not editable for " + result.GetEditMetadata.Key + "."
 		return m
 	}
 	m.beginSummaryEditing()
+	return m
+}
+
+func (m Model) handleUpdateEditFieldResult(result worker.Result) Model {
+	if result.ID != m.activeGenericFieldReqID {
+		return m
+	}
+	m.genericFieldSubmitting = false
+	if result.Err != nil {
+		m.detailNotice = "Field update failed: " + result.Err.Error()
+		return m
+	}
+	if result.UpdateEditField == nil {
+		m.detailNotice = "Field update failed: " + worker.ErrInvalidRequest.Error()
+		return m
+	}
+	if result.UpdateEditField.Key != m.genericFieldSubmitKey {
+		return m
+	}
+	fieldName := displayValue(result.UpdateEditField.Field.Name, result.UpdateEditField.Value.FieldID)
+	m.closeGenericFieldEditor()
+	m.detailNotice = fieldName + " updated."
 	return m
 }
 
@@ -274,6 +485,62 @@ func (m Model) handleUpdatePriorityResult(result worker.Result) Model {
 	m.prioritySubmitKey = ""
 	m.prioritySubmitValue = jira.FieldOption{}
 	m.detailNotice = "Priority updated to " + displayValue(priorityName, "Unknown") + "."
+	return m
+}
+
+func (m Model) handleUpdateLabelsResult(result worker.Result) Model {
+	if result.ID != m.activeLabelsReqID {
+		return m
+	}
+	m.labelsSubmitting = false
+	if result.Err != nil {
+		m.detailNotice = "Labels update failed: " + result.Err.Error()
+		return m
+	}
+	if result.UpdateLabels == nil {
+		m.detailNotice = "Labels update failed: " + worker.ErrInvalidRequest.Error()
+		return m
+	}
+	if result.UpdateLabels.Key != m.labelsSubmitKey {
+		return m
+	}
+	m.updateIssueLabels(result.UpdateLabels.Key, result.UpdateLabels.Labels)
+	m.labelsFocus = false
+	m.labelsEditing = false
+	m.labelsDirty = false
+	m.labelsEditor = textarea.Model{}
+	m.labelsEditorReady = false
+	m.labelsSubmitKey = ""
+	m.labelsSubmitValue = nil
+	m.detailNotice = "Labels updated."
+	return m
+}
+
+func (m Model) handleUpdateComponentsResult(result worker.Result) Model {
+	if result.ID != m.activeComponentsReqID {
+		return m
+	}
+	m.componentsSubmitting = false
+	if result.Err != nil {
+		m.detailNotice = "Components update failed: " + result.Err.Error()
+		return m
+	}
+	if result.UpdateComponents == nil {
+		m.detailNotice = "Components update failed: " + worker.ErrInvalidRequest.Error()
+		return m
+	}
+	if result.UpdateComponents.Key != m.componentsSubmitKey {
+		return m
+	}
+	m.updateIssueComponents(result.UpdateComponents.Key, componentNamesFromOptions(result.UpdateComponents.Components))
+	m.componentsFocus = false
+	m.componentsDirty = false
+	m.componentsFilter = ""
+	m.componentsFilterEditor = textinput.Model{}
+	m.componentsFilterEditorReady = false
+	m.componentsSubmitKey = ""
+	m.componentsSubmitValue = nil
+	m.detailNotice = "Components updated."
 	return m
 }
 
@@ -423,6 +690,7 @@ func (m Model) handleSearchResult(result worker.Result) (Model, tea.Cmd) {
 	m.err = nil
 	m.publishTicketEvents(result.SearchIssues.Issues, result.SearchIssues.SyncedAt)
 	m.replaceIssues(result.SearchIssues.Issues)
+	m.hydrateVisibleExpandedChildren()
 	m.lastSynced = result.SearchIssues.SyncedAt
 	m.viewStale = false
 	m.cacheActiveIssueView(m.jql, m.issues, result.SearchIssues.SyncedAt)
@@ -527,6 +795,102 @@ func (m Model) handleAddCommentResult(result worker.Result) (Model, tea.Cmd) {
 	m.commentsLoading = true
 	m.commentsErr = nil
 	return m, m.submitIssueComments(m.activeCommentsReqID, key)
+}
+
+func (m Model) handleUpdateCommentResult(result worker.Result) (Model, tea.Cmd) {
+	if result.ID != m.activeCommentReqID {
+		return m, nil
+	}
+	if m.commentRequestKey != "" {
+		selected, ok := m.selectedIssue()
+		if ok && selected.Key != m.commentRequestKey {
+			return m, nil
+		}
+	}
+	m.commentSubmitting = false
+	if result.Err != nil {
+		m.detailNotice = "Comment update failed: " + result.Err.Error()
+		m.commentConfirm = false
+		return m, nil
+	}
+	if result.UpdateComment == nil {
+		m.detailNotice = "Comment update failed: " + worker.ErrInvalidRequest.Error()
+		m.commentConfirm = false
+		return m, nil
+	}
+
+	key := result.UpdateComment.Key
+	m.mode = modeDetail
+	m.commentDraft = ""
+	m.commentMentions = nil
+	m.commentConfirm = false
+	m.commentEditing = false
+	m.commentEditIssueKey = ""
+	m.commentEditID = ""
+	m.commentEditOriginal = ""
+	m.commentRequestKey = ""
+	m.detailNotice = "Comment updated."
+	m.invalidateIssueComments(key)
+	m.nextRequestID++
+	m.activeCommentsReqID = m.nextRequestID
+	m.commentsRequestKey = key
+	m.commentsLoading = true
+	m.commentsErr = nil
+	return m, m.submitIssueComments(m.activeCommentsReqID, key)
+}
+
+func (m Model) handleGetWorklogsResult(result worker.Result) Model {
+	if result.ID != m.activeWorklogsReqID {
+		return m
+	}
+	if m.worklogsRequestKey != "" {
+		selected, ok := m.selectedIssue()
+		if ok && selected.Key != m.worklogsRequestKey {
+			return m
+		}
+	}
+	m.worklogsLoading = false
+	if result.Err != nil {
+		m.worklogsErr = result.Err
+		return m
+	}
+	if result.GetWorklogs == nil {
+		m.worklogsErr = worker.ErrInvalidRequest
+		return m
+	}
+	if m.worklogs == nil {
+		m.worklogs = make(map[string][]jira.Worklog)
+	}
+	m.worklogs[result.GetWorklogs.Key] = append([]jira.Worklog(nil), result.GetWorklogs.Worklogs...)
+	m.worklogsErr = nil
+	return m
+}
+
+func (m Model) handleAddWorklogResult(result worker.Result) (Model, tea.Cmd) {
+	if result.ID != m.activeAddWorklogReqID {
+		return m, nil
+	}
+	m.worklogSubmitting = false
+	if result.Err != nil {
+		m.detailNotice = "Worklog failed: " + result.Err.Error()
+		return m, nil
+	}
+	if result.AddWorklog == nil {
+		m.detailNotice = "Worklog failed: " + worker.ErrInvalidRequest.Error()
+		return m, nil
+	}
+	key := result.AddWorklog.Key
+	m.closeWorklogEditor()
+	m.detailNotice = "Work logged."
+	if m.worklogs != nil {
+		delete(m.worklogs, key)
+	}
+	m.nextRequestID++
+	m.activeWorklogsReqID = m.nextRequestID
+	m.worklogsRequestKey = key
+	m.worklogsLoading = true
+	m.worklogsErr = nil
+	return m, m.submitIssueWorklogs(m.activeWorklogsReqID, key)
 }
 
 func (m Model) handleUserSearchResult(result worker.Result) Model {

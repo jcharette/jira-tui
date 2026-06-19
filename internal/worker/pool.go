@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,6 +31,7 @@ const (
 	KindGetIssue            Kind = "get_issue"
 	KindGetComments         Kind = "get_comments"
 	KindAddComment          Kind = "add_comment"
+	KindUpdateComment       Kind = "update_comment"
 	KindSearchUsers         Kind = "search_users"
 	KindExpandIssues        Kind = "expand_issues"
 	KindGetTransitions      Kind = "get_transitions"
@@ -37,11 +39,19 @@ const (
 	KindGetEditMetadata     Kind = "get_edit_metadata"
 	KindGetCreateIssueTypes Kind = "get_create_issue_types"
 	KindGetCreateFields     Kind = "get_create_fields"
+	KindSearchFieldOptions  Kind = "search_field_options"
 	KindGetBoards           Kind = "get_boards"
 	KindGetBoardSprints     Kind = "get_board_sprints"
+	KindGetIssueLinkTypes   Kind = "get_issue_link_types"
+	KindCreateIssueLink     Kind = "create_issue_link"
+	KindGetWorklogs         Kind = "get_worklogs"
+	KindAddWorklog          Kind = "add_worklog"
 	KindUpdateSummary       Kind = "update_summary"
 	KindUpdateDescription   Kind = "update_description"
 	KindUpdatePriority      Kind = "update_priority"
+	KindUpdateLabels        Kind = "update_labels"
+	KindUpdateComponents    Kind = "update_components"
+	KindUpdateEditField     Kind = "update_edit_field"
 	KindUpdateAssignee      Kind = "update_assignee"
 	KindCreateIssue         Kind = "create_issue"
 )
@@ -62,18 +72,28 @@ type JiraClient interface {
 	GetIssue(ctx context.Context, key string) (jira.IssueDetail, error)
 	GetComments(ctx context.Context, key string, maxResults int) ([]jira.Comment, error)
 	AddComment(ctx context.Context, key string, body string, mentions []jira.Mention) (jira.Comment, error)
+	UpdateComment(ctx context.Context, key string, commentID string, body string, mentions []jira.Mention) (jira.Comment, error)
 	SearchUsers(ctx context.Context, query string, maxResults int) ([]jira.User, error)
+	SearchAssignableUsers(ctx context.Context, issueKey string, query string, maxResults int) ([]jira.User, error)
 	GetTransitions(ctx context.Context, key string) ([]jira.Transition, error)
 	TransitionIssue(ctx context.Context, key string, request jira.TransitionIssueRequest) error
 	GetEditMetadata(ctx context.Context, key string) (jira.EditMetadata, error)
 	GetCreateIssueTypes(ctx context.Context, projectKey string) ([]jira.CreateIssueType, error)
 	GetCreateFields(ctx context.Context, projectKey string, issueTypeID string) ([]jira.CreateField, error)
+	SearchFieldOptions(ctx context.Context, autocompleteURL string, query string, maxResults int) ([]jira.FieldOption, error)
 	GetBoards(ctx context.Context, projectKey string, startAt, maxResults int) (jira.BoardPage, error)
 	GetBoardSprints(ctx context.Context, boardID int, states []string, startAt, maxResults int) (jira.SprintPage, error)
+	GetIssueLinkTypes(ctx context.Context) ([]jira.IssueLinkType, error)
+	CreateIssueLink(ctx context.Context, request jira.CreateIssueLinkRequest) error
+	GetWorklogs(ctx context.Context, key string, maxResults int) ([]jira.Worklog, error)
+	AddWorklog(ctx context.Context, key string, request jira.AddWorklogRequest) (jira.Worklog, error)
 	CreateIssue(ctx context.Context, request jira.CreateIssueRequest) (jira.Issue, error)
 	UpdateSummary(ctx context.Context, key string, summary string) error
 	UpdateDescription(ctx context.Context, key string, description string) error
 	UpdatePriority(ctx context.Context, key string, priority jira.FieldOption) error
+	UpdateLabels(ctx context.Context, key string, labels []string) error
+	UpdateComponents(ctx context.Context, key string, components []jira.FieldOption) error
+	UpdateEditField(ctx context.Context, key string, value jira.EditFieldValue) error
 	UpdateAssignee(ctx context.Context, key string, assignee jira.User) error
 }
 
@@ -88,6 +108,7 @@ type Request struct {
 	GetIssue            *GetIssueRequest
 	GetComments         *GetCommentsRequest
 	AddComment          *AddCommentRequest
+	UpdateComment       *UpdateCommentRequest
 	SearchUsers         *SearchUsersRequest
 	ExpandIssues        *ExpandIssuesRequest
 	GetTransitions      *GetTransitionsRequest
@@ -95,11 +116,19 @@ type Request struct {
 	GetEditMetadata     *GetEditMetadataRequest
 	GetCreateIssueTypes *GetCreateIssueTypesRequest
 	GetCreateFields     *GetCreateFieldsRequest
+	SearchFieldOptions  *SearchFieldOptionsRequest
 	GetBoards           *GetBoardsRequest
 	GetBoardSprints     *GetBoardSprintsRequest
+	GetIssueLinkTypes   *GetIssueLinkTypesRequest
+	CreateIssueLink     *CreateIssueLinkRequest
+	GetWorklogs         *GetWorklogsRequest
+	AddWorklog          *AddWorklogRequest
 	UpdateSummary       *UpdateSummaryRequest
 	UpdateDescription   *UpdateDescriptionRequest
 	UpdatePriority      *UpdatePriorityRequest
+	UpdateLabels        *UpdateLabelsRequest
+	UpdateComponents    *UpdateComponentsRequest
+	UpdateEditField     *UpdateEditFieldRequest
 	UpdateAssignee      *UpdateAssigneeRequest
 	CreateIssue         *CreateIssueRequest
 }
@@ -125,8 +154,16 @@ type AddCommentRequest struct {
 	Mentions []jira.Mention
 }
 
+type UpdateCommentRequest struct {
+	Key       string
+	CommentID string
+	Body      string
+	Mentions  []jira.Mention
+}
+
 type SearchUsersRequest struct {
 	Query      string
+	IssueKey   string
 	MaxResults int
 }
 
@@ -167,6 +204,13 @@ type GetCreateFieldsRequest struct {
 	IssueTypeID string
 }
 
+type SearchFieldOptionsRequest struct {
+	FieldID         string
+	AutoCompleteURL string
+	Query           string
+	MaxResults      int
+}
+
 type GetBoardsRequest struct {
 	ProjectKey string
 	StartAt    int
@@ -178,6 +222,22 @@ type GetBoardSprintsRequest struct {
 	States     []string
 	StartAt    int
 	MaxResults int
+}
+
+type GetIssueLinkTypesRequest struct{}
+
+type CreateIssueLinkRequest struct {
+	Request jira.CreateIssueLinkRequest
+}
+
+type GetWorklogsRequest struct {
+	Key        string
+	MaxResults int
+}
+
+type AddWorklogRequest struct {
+	Key     string
+	Request jira.AddWorklogRequest
 }
 
 type UpdateSummaryRequest struct {
@@ -195,6 +255,22 @@ type UpdatePriorityRequest struct {
 	Priority jira.FieldOption
 }
 
+type UpdateLabelsRequest struct {
+	Key    string
+	Labels []string
+}
+
+type UpdateComponentsRequest struct {
+	Key        string
+	Components []jira.FieldOption
+}
+
+type UpdateEditFieldRequest struct {
+	Key   string
+	Field jira.EditField
+	Value jira.EditFieldValue
+}
+
 type UpdateAssigneeRequest struct {
 	Key      string
 	Assignee jira.User
@@ -203,6 +279,7 @@ type UpdateAssigneeRequest struct {
 type CreateIssueRequest struct {
 	ProjectKey  string
 	IssueTypeID string
+	ParentKey   string
 	Summary     string
 	Description string
 	Fields      []jira.CreateIssueFieldValue
@@ -217,6 +294,7 @@ type Result struct {
 	GetIssue            *GetIssueResult
 	GetComments         *GetCommentsResult
 	AddComment          *AddCommentResult
+	UpdateComment       *UpdateCommentResult
 	SearchUsers         *SearchUsersResult
 	ExpandIssues        *ExpandIssuesResult
 	GetTransitions      *GetTransitionsResult
@@ -224,11 +302,19 @@ type Result struct {
 	GetEditMetadata     *GetEditMetadataResult
 	GetCreateIssueTypes *GetCreateIssueTypesResult
 	GetCreateFields     *GetCreateFieldsResult
+	SearchFieldOptions  *SearchFieldOptionsResult
 	GetBoards           *GetBoardsResult
 	GetBoardSprints     *GetBoardSprintsResult
+	GetIssueLinkTypes   *GetIssueLinkTypesResult
+	CreateIssueLink     *CreateIssueLinkResult
+	GetWorklogs         *GetWorklogsResult
+	AddWorklog          *AddWorklogResult
 	UpdateSummary       *UpdateSummaryResult
 	UpdateDescription   *UpdateDescriptionResult
 	UpdatePriority      *UpdatePriorityResult
+	UpdateLabels        *UpdateLabelsResult
+	UpdateComponents    *UpdateComponentsResult
+	UpdateEditField     *UpdateEditFieldResult
 	UpdateAssignee      *UpdateAssigneeResult
 	CreateIssue         *CreateIssueResult
 }
@@ -256,8 +342,15 @@ type AddCommentResult struct {
 	SyncedAt time.Time
 }
 
+type UpdateCommentResult struct {
+	Key      string
+	Comment  jira.Comment
+	SyncedAt time.Time
+}
+
 type SearchUsersResult struct {
 	Query    string
+	IssueKey string
 	Users    []jira.User
 	SyncedAt time.Time
 }
@@ -300,6 +393,13 @@ type GetCreateFieldsResult struct {
 	SyncedAt    time.Time
 }
 
+type SearchFieldOptionsResult struct {
+	FieldID  string
+	Query    string
+	Options  []jira.FieldOption
+	SyncedAt time.Time
+}
+
 type GetBoardsResult struct {
 	ProjectKey string
 	Page       jira.BoardPage
@@ -309,6 +409,29 @@ type GetBoardsResult struct {
 type GetBoardSprintsResult struct {
 	BoardID  int
 	Page     jira.SprintPage
+	SyncedAt time.Time
+}
+
+type GetIssueLinkTypesResult struct {
+	Types    []jira.IssueLinkType
+	SyncedAt time.Time
+}
+
+type CreateIssueLinkResult struct {
+	Request  jira.CreateIssueLinkRequest
+	SyncedAt time.Time
+}
+
+type GetWorklogsResult struct {
+	Key      string
+	Worklogs []jira.Worklog
+	SyncedAt time.Time
+}
+
+type AddWorklogResult struct {
+	Key      string
+	Worklog  jira.Worklog
+	Request  jira.AddWorklogRequest
 	SyncedAt time.Time
 }
 
@@ -327,6 +450,25 @@ type UpdateDescriptionResult struct {
 type UpdatePriorityResult struct {
 	Key      string
 	Priority jira.FieldOption
+	SyncedAt time.Time
+}
+
+type UpdateLabelsResult struct {
+	Key      string
+	Labels   []string
+	SyncedAt time.Time
+}
+
+type UpdateComponentsResult struct {
+	Key        string
+	Components []jira.FieldOption
+	SyncedAt   time.Time
+}
+
+type UpdateEditFieldResult struct {
+	Key      string
+	Field    jira.EditField
+	Value    jira.EditFieldValue
 	SyncedAt time.Time
 }
 
@@ -648,6 +790,8 @@ func (p *Pool) handle(request Request) Result {
 		return p.handleGetComments(request)
 	case KindAddComment:
 		return p.handleAddComment(request)
+	case KindUpdateComment:
+		return p.handleUpdateComment(request)
 	case KindSearchUsers:
 		return p.handleSearchUsers(request)
 	case KindExpandIssues:
@@ -662,22 +806,149 @@ func (p *Pool) handle(request Request) Result {
 		return p.handleGetCreateIssueTypes(request)
 	case KindGetCreateFields:
 		return p.handleGetCreateFields(request)
+	case KindSearchFieldOptions:
+		return p.handleSearchFieldOptions(request)
 	case KindGetBoards:
 		return p.handleGetBoards(request)
 	case KindGetBoardSprints:
 		return p.handleGetBoardSprints(request)
+	case KindGetIssueLinkTypes:
+		return p.handleGetIssueLinkTypes(request)
+	case KindCreateIssueLink:
+		return p.handleCreateIssueLink(request)
+	case KindGetWorklogs:
+		return p.handleGetWorklogs(request)
+	case KindAddWorklog:
+		return p.handleAddWorklog(request)
 	case KindUpdateSummary:
 		return p.handleUpdateSummary(request)
 	case KindUpdateDescription:
 		return p.handleUpdateDescription(request)
 	case KindUpdatePriority:
 		return p.handleUpdatePriority(request)
+	case KindUpdateLabels:
+		return p.handleUpdateLabels(request)
+	case KindUpdateComponents:
+		return p.handleUpdateComponents(request)
+	case KindUpdateEditField:
+		return p.handleUpdateEditField(request)
 	case KindUpdateAssignee:
 		return p.handleUpdateAssignee(request)
 	case KindCreateIssue:
 		return p.handleCreateIssue(request)
 	default:
 		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+}
+
+func (p *Pool) handleGetIssueLinkTypes(request Request) Result {
+	if request.GetIssueLinkTypes == nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	types, err := p.client.GetIssueLinkTypes(ctx)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		GetIssueLinkTypes: &GetIssueLinkTypesResult{
+			Types:    types,
+			SyncedAt: time.Now(),
+		},
+	}
+}
+
+func (p *Pool) handleCreateIssueLink(request Request) Result {
+	if request.CreateIssueLink == nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	createRequest := request.CreateIssueLink.Request
+	if err := p.client.CreateIssueLink(ctx, createRequest); err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		CreateIssueLink: &CreateIssueLinkResult{
+			Request:  createRequest,
+			SyncedAt: time.Now(),
+		},
+	}
+}
+
+func (p *Pool) handleGetWorklogs(request Request) Result {
+	if request.GetWorklogs == nil || request.GetWorklogs.Key == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	worklogs, err := p.client.GetWorklogs(ctx, request.GetWorklogs.Key, request.GetWorklogs.MaxResults)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		GetWorklogs: &GetWorklogsResult{
+			Key:      request.GetWorklogs.Key,
+			Worklogs: worklogs,
+			SyncedAt: time.Now(),
+		},
+	}
+}
+
+func (p *Pool) handleAddWorklog(request Request) Result {
+	if request.AddWorklog == nil || request.AddWorklog.Key == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	worklog, err := p.client.AddWorklog(ctx, request.AddWorklog.Key, request.AddWorklog.Request)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		AddWorklog: &AddWorklogResult{
+			Key:      request.AddWorklog.Key,
+			Worklog:  worklog,
+			Request:  request.AddWorklog.Request,
+			SyncedAt: time.Now(),
+		},
 	}
 }
 
@@ -794,6 +1065,35 @@ func (p *Pool) handleGetCreateFields(request Request) Result {
 	}
 }
 
+func (p *Pool) handleSearchFieldOptions(request Request) Result {
+	if request.SearchFieldOptions == nil || request.SearchFieldOptions.FieldID == "" || request.SearchFieldOptions.AutoCompleteURL == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	options, err := p.client.SearchFieldOptions(ctx, request.SearchFieldOptions.AutoCompleteURL, request.SearchFieldOptions.Query, request.SearchFieldOptions.MaxResults)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		SearchFieldOptions: &SearchFieldOptionsResult{
+			FieldID:  request.SearchFieldOptions.FieldID,
+			Query:    request.SearchFieldOptions.Query,
+			Options:  options,
+			SyncedAt: time.Now(),
+		},
+	}
+}
+
 func (p *Pool) handleCreateIssue(request Request) Result {
 	if request.CreateIssue == nil || request.CreateIssue.ProjectKey == "" || request.CreateIssue.IssueTypeID == "" || request.CreateIssue.Summary == "" {
 		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
@@ -809,6 +1109,7 @@ func (p *Pool) handleCreateIssue(request Request) Result {
 	issue, err := p.client.CreateIssue(ctx, jira.CreateIssueRequest{
 		ProjectKey:  request.CreateIssue.ProjectKey,
 		IssueTypeID: request.CreateIssue.IssueTypeID,
+		ParentKey:   request.CreateIssue.ParentKey,
 		Summary:     request.CreateIssue.Summary,
 		Description: request.CreateIssue.Description,
 		Fields:      request.CreateIssue.Fields,
@@ -1035,6 +1336,94 @@ func (p *Pool) handleUpdatePriority(request Request) Result {
 	}
 }
 
+func (p *Pool) handleUpdateLabels(request Request) Result {
+	if request.UpdateLabels == nil || request.UpdateLabels.Key == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	labels := append([]string{}, request.UpdateLabels.Labels...)
+	err := p.client.UpdateLabels(ctx, request.UpdateLabels.Key, labels)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		UpdateLabels: &UpdateLabelsResult{
+			Key:      request.UpdateLabels.Key,
+			Labels:   labels,
+			SyncedAt: time.Now(),
+		},
+	}
+}
+
+func (p *Pool) handleUpdateComponents(request Request) Result {
+	if request.UpdateComponents == nil || request.UpdateComponents.Key == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	components := append([]jira.FieldOption{}, request.UpdateComponents.Components...)
+	err := p.client.UpdateComponents(ctx, request.UpdateComponents.Key, components)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		UpdateComponents: &UpdateComponentsResult{
+			Key:        request.UpdateComponents.Key,
+			Components: components,
+			SyncedAt:   time.Now(),
+		},
+	}
+}
+
+func (p *Pool) handleUpdateEditField(request Request) Result {
+	if request.UpdateEditField == nil || request.UpdateEditField.Key == "" || request.UpdateEditField.Value.FieldID == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	value := request.UpdateEditField.Value
+	err := p.client.UpdateEditField(ctx, request.UpdateEditField.Key, value)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		UpdateEditField: &UpdateEditFieldResult{
+			Key:      request.UpdateEditField.Key,
+			Field:    request.UpdateEditField.Field,
+			Value:    value,
+			SyncedAt: time.Now(),
+		},
+	}
+}
+
 func (p *Pool) handleUpdateAssignee(request Request) Result {
 	if request.UpdateAssignee == nil || request.UpdateAssignee.Key == "" || request.UpdateAssignee.Assignee.AccountID == "" {
 		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
@@ -1075,7 +1464,14 @@ func (p *Pool) handleSearchUsers(request Request) Result {
 		defer cancel()
 	}
 
-	users, err := p.client.SearchUsers(ctx, request.SearchUsers.Query, request.SearchUsers.MaxResults)
+	issueKey := strings.TrimSpace(request.SearchUsers.IssueKey)
+	var users []jira.User
+	var err error
+	if issueKey != "" {
+		users, err = p.client.SearchAssignableUsers(ctx, issueKey, request.SearchUsers.Query, request.SearchUsers.MaxResults)
+	} else {
+		users, err = p.client.SearchUsers(ctx, request.SearchUsers.Query, request.SearchUsers.MaxResults)
+	}
 	if err != nil {
 		return Result{ID: request.ID, Kind: request.Kind, Err: err}
 	}
@@ -1085,6 +1481,7 @@ func (p *Pool) handleSearchUsers(request Request) Result {
 		Kind: request.Kind,
 		SearchUsers: &SearchUsersResult{
 			Query:    request.SearchUsers.Query,
+			IssueKey: issueKey,
 			Users:    users,
 			SyncedAt: time.Now(),
 		},
@@ -1180,6 +1577,34 @@ func (p *Pool) handleAddComment(request Request) Result {
 		Kind: request.Kind,
 		AddComment: &AddCommentResult{
 			Key:      request.AddComment.Key,
+			Comment:  comment,
+			SyncedAt: time.Now(),
+		},
+	}
+}
+
+func (p *Pool) handleUpdateComment(request Request) Result {
+	if request.UpdateComment == nil || request.UpdateComment.Key == "" || request.UpdateComment.CommentID == "" || request.UpdateComment.Body == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	comment, err := p.client.UpdateComment(ctx, request.UpdateComment.Key, request.UpdateComment.CommentID, request.UpdateComment.Body, request.UpdateComment.Mentions)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		UpdateComment: &UpdateCommentResult{
+			Key:      request.UpdateComment.Key,
 			Comment:  comment,
 			SyncedAt: time.Now(),
 		},

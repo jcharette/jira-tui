@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -63,7 +64,11 @@ func (m Model) startPlanningMetadataLoad() (Model, tea.Cmd) {
 	m.nextRequestID++
 	m.activePlanningBoardsReqID = m.nextRequestID
 	m.planningBoardsLoading = true
+	m.planningSprintsLoading = false
 	m.planningBoardsErr = nil
+	m.planningSprintsErr = nil
+	m.activePlanningSprintReqIDs = nil
+	m.planningSprintQueue = nil
 	return m, m.submitPlanningBoards(m.activePlanningBoardsReqID)
 }
 
@@ -115,6 +120,7 @@ func (m *Model) toggleSelectedIssueCollapse() {
 	descendants := m.loadedDescendantCount(displayTree, issue.Key)
 	if descendants == 0 {
 		m.detailNotice = "No loaded child issues for " + issue.Key + "."
+		m.recordIssueCollapseDiagnostic(issue, descendants, "noop")
 		return
 	}
 	if m.collapsedIssueKeys == nil {
@@ -123,12 +129,29 @@ func (m *Model) toggleSelectedIssueCollapse() {
 	if m.collapsedIssueKeys[issue.Key] {
 		delete(m.collapsedIssueKeys, issue.Key)
 		m.detailNotice = "Expanded " + issue.Key + "."
+		m.recordIssueCollapseDiagnostic(issue, descendants, "expanded")
 	} else {
 		m.collapsedIssueKeys[issue.Key] = true
 		m.detailNotice = "Collapsed " + issue.Key + "."
+		m.recordIssueCollapseDiagnostic(issue, descendants, "collapsed")
 	}
 	m.repairCollapsedSelection()
 	m.ensureSelectionVisible(m.currentLayoutRows())
+}
+
+func (m *Model) recordIssueCollapseDiagnostic(issue jira.Issue, descendants int, status string) {
+	detail := fmt.Sprintf(
+		"key=%s layout=%s view=%s include_children=%t selected=%d descendants=%d collapsed=%t type=%s",
+		issue.Key,
+		diagnosticToken(m.issueLayoutModeLabel()),
+		diagnosticToken(m.activeViewName()),
+		m.activeViewIncludeChildren(),
+		m.selected,
+		descendants,
+		m.issueCollapsed(issue.Key),
+		diagnosticToken(displayValue(issue.IssueType, "Issue")),
+	)
+	m.recordDiagnosticEvent(diagnosticKindState, "collapse", status, detail)
 }
 
 func (m Model) switchView(delta int) (Model, tea.Cmd) {
@@ -225,8 +248,7 @@ func (m *Model) repairStatusFilterSelection() {
 		m.offset = 0
 		return
 	}
-	displayTree := buildIssueDisplayTree(m.issues)
-	visible := m.visibleIssueIndexes(displayTree)
+	visible := m.currentVisibleIssueIndexes(m.browserLayout(m.width))
 	if len(visible) == 0 {
 		m.selected = 0
 		m.offset = 0
@@ -266,8 +288,7 @@ func (m *Model) moveSelection(delta int) {
 		m.offset = 0
 		return
 	}
-	displayTree := buildIssueDisplayTree(m.issues)
-	visible := m.visibleIssueIndexes(displayTree)
+	visible := m.currentVisibleIssueIndexes(m.browserLayout(m.width))
 	if len(visible) == 0 {
 		m.selected = 0
 		m.offset = 0
@@ -286,8 +307,7 @@ func (m *Model) pageSelection(delta int) {
 		m.offset = 0
 		return
 	}
-	displayTree := buildIssueDisplayTree(m.issues)
-	visible := m.visibleIssueIndexes(displayTree)
+	visible := m.currentVisibleIssueIndexes(m.browserLayout(m.width))
 	if len(visible) == 0 {
 		m.selected = 0
 		m.offset = 0
@@ -354,7 +374,7 @@ func (m *Model) scrollDetailToBottom() {
 
 func (m *Model) ensureSelectionVisible(rows int) {
 	rows = max(1, rows)
-	lines := m.issueRenderLines(m.browserLayout(m.width))
+	lines := m.currentIssueRenderLines(m.browserLayout(m.width))
 	selectedRow := m.selectedRenderedLineIndex(lines)
 	maxOffset := max(0, len(lines)-rows)
 	if selectedRow < m.offset {
@@ -400,7 +420,7 @@ func (m *Model) repairCollapsedSelection() {
 		return
 	}
 	displayTree := buildIssueDisplayTree(m.issues)
-	visible := m.visibleIssueIndexes(displayTree)
+	visible := m.currentVisibleIssueIndexes(m.browserLayout(m.width))
 	for _, index := range visible {
 		if index == m.selected {
 			return
@@ -565,6 +585,34 @@ func (m *Model) updateIssueDescription(key string, description string) {
 	})
 }
 
+func (m *Model) updateIssueLabels(key string, labels []string) {
+	if key == "" {
+		return
+	}
+	copied := append([]string{}, labels...)
+	if detail, ok := m.details[key]; ok {
+		detail.Labels = copied
+		m.details[key] = detail
+	}
+	m.patchRetainedIssueDetail(key, func(detail *jira.IssueDetail) {
+		detail.Labels = append([]string{}, labels...)
+	})
+}
+
+func (m *Model) updateIssueComponents(key string, components []string) {
+	if key == "" {
+		return
+	}
+	copied := append([]string{}, components...)
+	if detail, ok := m.details[key]; ok {
+		detail.Components = copied
+		m.details[key] = detail
+	}
+	m.patchRetainedIssueDetail(key, func(detail *jira.IssueDetail) {
+		detail.Components = append([]string{}, components...)
+	})
+}
+
 func (m *Model) patchRetainedIssueDetail(key string, mutate func(*jira.IssueDetail)) {
 	key = strings.TrimSpace(key)
 	if key == "" || mutate == nil {
@@ -638,9 +686,15 @@ func orderIssues(issues []jira.Issue, mode sortMode) []jira.Issue {
 	}
 
 	ordered := make([]jira.Issue, 0, len(issues))
-	for _, issue := range topLevel {
+	var appendIssue func(jira.Issue)
+	appendIssue = func(issue jira.Issue) {
 		ordered = append(ordered, issue)
-		ordered = append(ordered, byParent[issue.Key]...)
+		for _, child := range byParent[issue.Key] {
+			appendIssue(child)
+		}
+	}
+	for _, issue := range topLevel {
+		appendIssue(issue)
 	}
 	return ordered
 }

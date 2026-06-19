@@ -372,6 +372,64 @@ func TestAddSavedViewRejectsInvalidView(t *testing.T) {
 	}
 }
 
+func TestSetSavedViewsReplacesTrimmedViewsAndPreservesActiveView(t *testing.T) {
+	cfg := Defaults()
+	cfg.Views = []IssueView{
+		{Name: "Assigned", JQL: "assignee = currentUser()"},
+		{Name: "Project", JQL: "project = ABC"},
+	}
+	cfg.ActiveView = "Project"
+
+	next, err := SetSavedViews(cfg, []IssueView{
+		{Name: "  Active Work  ", JQL: "  project = ABC AND status = \"In Progress\"  "},
+		{Name: "Epics", JQL: "project = ABC AND issuetype = Epic", IncludeChildren: true},
+	})
+	if err != nil {
+		t.Fatalf("SetSavedViews() error = %v", err)
+	}
+
+	if next.ActiveView != "Active Work" {
+		t.Fatalf("ActiveView = %q, want first replacement when previous active is removed", next.ActiveView)
+	}
+	if len(next.Views) != 2 {
+		t.Fatalf("Views count = %d, want 2", len(next.Views))
+	}
+	if next.Views[0].Name != "Active Work" || next.Views[0].JQL != "project = ABC AND status = \"In Progress\"" {
+		t.Fatalf("first view = %#v", next.Views[0])
+	}
+	if !next.Views[1].IncludeChildren {
+		t.Fatalf("include children not preserved: %#v", next.Views[1])
+	}
+	if cfg.Views[0].Name != "Assigned" {
+		t.Fatalf("original config views mutated: %#v", cfg.Views)
+	}
+}
+
+func TestSetSavedViewsRejectsInvalidViews(t *testing.T) {
+	cfg := Defaults()
+
+	for _, tc := range []struct {
+		name  string
+		views []IssueView
+		want  string
+	}{
+		{name: "empty", views: nil, want: "at least one"},
+		{name: "blank name", views: []IssueView{{Name: " ", JQL: "project = ABC"}}, want: "name"},
+		{name: "blank jql", views: []IssueView{{Name: "Mine", JQL: " "}}, want: "JQL"},
+		{name: "duplicate", views: []IssueView{
+			{Name: "Mine", JQL: "project = ABC"},
+			{Name: " mine ", JQL: "assignee = currentUser()"},
+		}, want: "already exists"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := SetSavedViews(cfg, tc.views)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("SetSavedViews() error = %v, want containing %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func hasView(views []IssueView, name string) bool {
 	_, ok := findView(views, name)
 	return ok

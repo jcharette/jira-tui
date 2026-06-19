@@ -52,10 +52,12 @@ const (
 	panelFrameRows                     = 4
 	detailHeaderRows                   = 6
 	planningMetadataPageSize           = 25
+	planningSprintFetchConcurrency     = 2
 	issueTreeRootGutter                = 2
 	issueTreeMaxGutter                 = 12
 	issueTypeColumnWidth               = 2
 	createPickerMaxRows                = 6
+	createFieldOptionMaxResults        = 25
 )
 
 const (
@@ -73,29 +75,36 @@ type Model struct {
 	sort         sortMode
 	statusFilter issueStatusFilter
 
-	queryOpen            bool
-	queryMode            queryMode
-	queryJQLDraft        string
-	queryJQLEditor       textarea.Model
-	queryJQLEditorReady  bool
-	queryAIPrompt        string
-	queryAIEditor        textarea.Model
-	queryAIEditorReady   bool
-	queryAILoading       bool
-	queryAIErr           error
-	queryGeneratedJQL    string
-	queryGeneratedPrompt string
-	queryHistory         []cache.QueryHistoryRecord
-	queryHistorySelected int
-	querySaveViewOpen    bool
-	querySaveViewName    string
-	querySaveViewEditor  textinput.Model
-	querySaveViewReady   bool
-	queryAICancel        context.CancelFunc
-	activeQueryAIReqID   int
+	queryOpen                    bool
+	queryMode                    queryMode
+	queryJQLDraft                string
+	queryJQLEditor               textarea.Model
+	queryJQLEditorReady          bool
+	queryAIPrompt                string
+	queryAIEditor                textarea.Model
+	queryAIEditorReady           bool
+	queryAILoading               bool
+	queryAIErr                   error
+	queryGeneratedJQL            string
+	queryGeneratedPrompt         string
+	queryHistory                 []cache.QueryHistoryRecord
+	queryHistorySelected         int
+	queryTemplateSelected        int
+	queryViewSelected            int
+	querySaveViewOpen            bool
+	querySaveViewName            string
+	querySaveViewEditor          textinput.Model
+	querySaveViewReady           bool
+	querySaveViewJQL             string
+	querySaveViewIncludeChildren bool
+	querySaveViewAction          querySaveViewAction
+	querySaveViewIndex           int
+	queryAICancel                context.CancelFunc
+	activeQueryAIReqID           int
 
 	issues                             []jira.Issue
 	collapsedIssueKeys                 map[string]bool
+	issueLayout                        issueLayoutMode
 	selected                           int
 	offset                             int
 	detailOffset                       int
@@ -104,19 +113,61 @@ type Model struct {
 	detailBackStack                    []int
 	hierarchyFocus                     bool
 	selectedHierarchy                  int
+	commentFocus                       bool
+	selectedComment                    int
 	actionFocus                        bool
 	selectedAction                     int
+	actionPaletteOpen                  bool
+	actionPaletteFilter                string
+	actionPaletteEditor                textinput.Model
+	actionPaletteEditorReady           bool
+	selectedActionPalette              int
 	transitionFocus                    bool
 	selectedTransition                 int
 	transitionFieldEditing             bool
 	selectedTransitionField            int
 	transitionFieldSelections          map[string]int
+	transitionFieldMultiSelections     map[string]map[int]bool
 	transitionFieldDrafts              map[string]string
+	transitionFieldFilters             map[string]string
+	transitionFieldOptionsLoading      map[string]bool
+	transitionFieldOptionsErr          map[string]error
+	transitionFieldOptionsQuery        map[string]string
 	transitionFieldCommentEditor       textarea.Model
 	transitionFieldCommentEditorReady  bool
+	transitionFieldEditorFieldID       string
 	transitionSubmitFields             []jira.TransitionFieldValue
 	priorityFocus                      bool
 	selectedPriority                   int
+	labelsFocus                        bool
+	labelsEditing                      bool
+	labelsDraft                        string
+	labelsDirty                        bool
+	labelsEditor                       textarea.Model
+	labelsEditorReady                  bool
+	componentsFocus                    bool
+	selectedComponent                  int
+	selectedComponents                 map[string]bool
+	componentsFilter                   string
+	componentsFilterEditor             textinput.Model
+	componentsFilterEditorReady        bool
+	componentsDirty                    bool
+	genericFieldFocus                  bool
+	genericFieldMetadataLoading        bool
+	genericFieldMetadataRequestKey     string
+	genericFieldMetadataErr            error
+	genericFieldEditingID              string
+	genericField                       jira.EditField
+	genericFieldDraft                  string
+	genericFieldEditor                 textarea.Model
+	genericFieldEditorReady            bool
+	selectedGenericFieldOption         int
+	selectedGenericFieldOptions        map[string]bool
+	genericFieldDirty                  bool
+	genericFieldSubmitting             bool
+	genericFieldSubmitKey              string
+	genericFieldSubmitField            jira.EditField
+	genericFieldSubmitValue            jira.EditFieldValue
 	assigneeFocus                      bool
 	selectedAssignee                   int
 	assigneeUsers                      []jira.User
@@ -126,9 +177,20 @@ type Model struct {
 	assigneeSearchLoading              bool
 	assigneeSearchErr                  error
 	assigneeSearchReqID                int
+	assigneeSearchIssueKey             string
 	assigneeSubmitting                 bool
 	assigneeSubmitKey                  string
 	assigneeSubmitValue                jira.User
+	issueLinkFocus                     bool
+	issueLinkTypesLoading              bool
+	issueLinkTypesErr                  error
+	issueLinkTypes                     []jira.IssueLinkType
+	issueLinkTargetDraft               string
+	issueLinkTargetEditor              textinput.Model
+	issueLinkTargetEditorReady         bool
+	selectedIssueLinkRelation          int
+	issueLinkSubmitting                bool
+	issueLinkSubmitRequest             jira.CreateIssueLinkRequest
 	userSearchCache                    *ttlcache.Cache[string, []jira.User]
 	summaryFocus                       bool
 	summaryEditing                     bool
@@ -138,6 +200,8 @@ type Model struct {
 	summaryEditorReady                 bool
 	createOpen                         bool
 	createProjectKey                   string
+	createParentKey                    string
+	createParentSummary                string
 	createIssueTypes                   []jira.CreateIssueType
 	createIssueTypesCache              *ttlcache.Cache[string, jiraCacheRecord[[]jira.CreateIssueType]]
 	selectedCreateIssueType            int
@@ -174,12 +238,16 @@ type Model struct {
 	createAIQuestionEditor             textarea.Model
 	createAIQuestionEditorReady        bool
 	createSubmitting                   bool
+	createSubmitParentKey              string
 	createSubmitSummary                string
 	createSubmitDescription            string
 	createDynamicValues                map[string]string
 	createDynamicSelections            map[string]int
 	createDynamicFilters               map[string]string
 	createDynamicFilterEditors         map[string]textinput.Model
+	createFieldOptionsLoading          map[string]bool
+	createFieldOptionsErr              map[string]error
+	createFieldOptionsQuery            map[string]string
 	createSubmitFields                 []jira.CreateIssueFieldValue
 	detailViewport                     viewport.Model
 	detailViewportReady                bool
@@ -268,91 +336,142 @@ type Model struct {
 	planningSprintsErr         error
 	activePlanningBoardsReqID  int
 	activePlanningSprintsReqID int
+	activePlanningSprintReqIDs map[int]int
+	planningSprintQueue        []int
 
-	details                     map[string]jira.IssueDetail
-	detailCache                 *ttlcache.Cache[string, jiraCacheRecord[jira.IssueDetail]]
-	detailLoading               bool
-	detailErr                   error
-	detailRequestKey            string
-	comments                    map[string][]jira.Comment
-	commentsCache               *ttlcache.Cache[string, jiraCacheRecord[[]jira.Comment]]
-	commentsLoading             bool
-	commentsErr                 error
-	commentsRequestKey          string
-	commentDraft                string
-	commentEditor               textarea.Model
-	commentEditorReady          bool
-	commentConfirm              bool
-	commentSubmitting           bool
-	commentRequestKey           string
-	commentMentions             []jira.Mention
-	mentionPickerOpen           bool
-	mentionUsers                []jira.User
-	mentionCursor               int
-	mentionQuery                string
-	mentionQueryEditor          textinput.Model
-	mentionQueryEditorReady     bool
-	mentionSearchLoading        bool
-	mentionSearchErr            error
-	mentionSearchReqID          int
-	detailNotice                string
-	activeDetailRequestID       int
-	activeCommentsReqID         int
-	activeCommentReqID          int
-	activeExpandReqID           int
-	activeTransitionsReqID      int
-	activeTransitionReqID       int
-	activeSummaryMetadataReqID  int
-	activeSummaryReqID          int
-	activePriorityMetadataReqID int
-	activePriorityReqID         int
-	activeAssigneeReqID         int
-	activeCreateIssueTypesReqID int
-	activeCreateFieldsReqID     int
-	activeCreateIssueReqID      int
-	expandLoading               bool
-	expandRequestKey            string
-	expandMode                  worker.ExpandMode
-	expandedChildrenCache       *ttlcache.Cache[string, jiraCacheRecord[[]jira.Issue]]
-	transitions                 map[string][]jira.Transition
-	transitionsCache            *ttlcache.Cache[string, jiraCacheRecord[[]jira.Transition]]
-	transitionLoading           bool
-	transitionSubmitting        bool
-	transitionRequestKey        string
-	transitionSubmitKey         string
-	transitionSubmitToStatus    string
-	transitionErr               error
-	editMetadata                map[string]jira.EditMetadata
-	editMetadataCache           *ttlcache.Cache[string, jiraCacheRecord[jira.EditMetadata]]
-	summaryMetadataLoading      bool
-	summaryMetadataRequestKey   string
-	summaryMetadataErr          error
-	summarySubmitting           bool
-	summarySubmitKey            string
-	summarySubmitValue          string
-	priorityMetadataLoading     bool
-	priorityMetadataRequestKey  string
-	priorityMetadataErr         error
-	prioritySubmitting          bool
-	prioritySubmitKey           string
-	prioritySubmitValue         jira.FieldOption
+	details                           map[string]jira.IssueDetail
+	detailCache                       *ttlcache.Cache[string, jiraCacheRecord[jira.IssueDetail]]
+	detailLoading                     bool
+	detailErr                         error
+	detailRequestKey                  string
+	comments                          map[string][]jira.Comment
+	commentsCache                     *ttlcache.Cache[string, jiraCacheRecord[[]jira.Comment]]
+	commentsLoading                   bool
+	commentsErr                       error
+	commentsRequestKey                string
+	worklogs                          map[string][]jira.Worklog
+	worklogsLoading                   bool
+	worklogsErr                       error
+	worklogsRequestKey                string
+	worklogFocus                      bool
+	worklogFieldFocus                 int
+	worklogTimeDraft                  string
+	worklogCommentDraft               string
+	worklogTimeEditor                 textinput.Model
+	worklogTimeEditorReady            bool
+	worklogCommentEditor              textarea.Model
+	worklogCommentEditorReady         bool
+	worklogSubmitting                 bool
+	worklogSubmitKey                  string
+	worklogSubmitRequest              jira.AddWorklogRequest
+	commentDraft                      string
+	commentEditor                     textarea.Model
+	commentEditorReady                bool
+	commentConfirm                    bool
+	commentSubmitting                 bool
+	commentRequestKey                 string
+	commentEditing                    bool
+	commentEditIssueKey               string
+	commentEditID                     string
+	commentEditOriginal               string
+	commentMentions                   []jira.Mention
+	mentionPickerOpen                 bool
+	mentionUsers                      []jira.User
+	mentionCursor                     int
+	mentionQuery                      string
+	mentionQueryEditor                textinput.Model
+	mentionQueryEditorReady           bool
+	mentionSearchLoading              bool
+	mentionSearchErr                  error
+	mentionSearchReqID                int
+	detailNotice                      string
+	activeDetailRequestID             int
+	activeCommentsReqID               int
+	activeCommentReqID                int
+	activeWorklogsReqID               int
+	activeAddWorklogReqID             int
+	activeExpandReqID                 int
+	activeTransitionsReqID            int
+	activeTransitionReqID             int
+	activeTransitionFieldOptionsReqID int
+	activeSummaryMetadataReqID        int
+	activeSummaryReqID                int
+	activePriorityMetadataReqID       int
+	activePriorityReqID               int
+	activeLabelsMetadataReqID         int
+	activeLabelsReqID                 int
+	activeComponentsMetadataReqID     int
+	activeComponentsReqID             int
+	activeGenericFieldMetadataReqID   int
+	activeGenericFieldReqID           int
+	activeAssigneeReqID               int
+	activeIssueLinkTypesReqID         int
+	activeCreateIssueLinkReqID        int
+	activeCreateIssueTypesReqID       int
+	activeCreateFieldsReqID           int
+	activeCreateFieldOptionsReqID     int
+	activeCreateIssueReqID            int
+	expandLoading                     bool
+	expandRequestKey                  string
+	expandMode                        worker.ExpandMode
+	expandedChildrenCache             *ttlcache.Cache[string, jiraCacheRecord[[]jira.Issue]]
+	transitions                       map[string][]jira.Transition
+	transitionsCache                  *ttlcache.Cache[string, jiraCacheRecord[[]jira.Transition]]
+	transitionLoading                 bool
+	transitionSubmitting              bool
+	transitionRequestKey              string
+	transitionSubmitKey               string
+	transitionSubmitToStatus          string
+	transitionErr                     error
+	editMetadata                      map[string]jira.EditMetadata
+	editMetadataCache                 *ttlcache.Cache[string, jiraCacheRecord[jira.EditMetadata]]
+	summaryMetadataLoading            bool
+	summaryMetadataRequestKey         string
+	summaryMetadataErr                error
+	summarySubmitting                 bool
+	summarySubmitKey                  string
+	summarySubmitValue                string
+	priorityMetadataLoading           bool
+	priorityMetadataRequestKey        string
+	priorityMetadataErr               error
+	prioritySubmitting                bool
+	prioritySubmitKey                 string
+	prioritySubmitValue               jira.FieldOption
+	labelsMetadataLoading             bool
+	labelsMetadataRequestKey          string
+	labelsMetadataErr                 error
+	labelsSubmitting                  bool
+	labelsSubmitKey                   string
+	labelsSubmitValue                 []string
+	componentsMetadataLoading         bool
+	componentsMetadataRequestKey      string
+	componentsMetadataErr             error
+	componentsSubmitting              bool
+	componentsSubmitKey               string
+	componentsSubmitValue             []jira.FieldOption
 
-	refreshInterval time.Duration
-	requestTimeout  time.Duration
-	workerCount     int
-	queueSize       int
-	nextRequestID   int
-	activeRequestID int
-	theme           ui.Theme
-	symbolMode      issueSymbolMode
-	savedViewWriter SavedViewWriter
+	refreshInterval   time.Duration
+	requestTimeout    time.Duration
+	workerCount       int
+	queueSize         int
+	nextRequestID     int
+	activeRequestID   int
+	theme             ui.Theme
+	symbolMode        issueSymbolMode
+	savedViewWriter   SavedViewWriter
+	savedViewsWriter  SavedViewsWriter
+	diagnosticSink    diagnosticSink
+	diagnosticLogPath string
 }
 
 type mode int
 type sortMode int
 type issueStatusFilter int
+type issueLayoutMode int
 type queryMode int
+type querySaveViewAction int
 type SavedViewWriter func(config.IssueView) error
+type SavedViewsWriter func([]config.IssueView, string) error
 
 const (
 	modeTable mode = iota
@@ -375,9 +494,22 @@ const (
 )
 
 const (
+	issueLayoutTable issueLayoutMode = iota
+	issueLayoutWorkbench
+	issueLayoutLanes
+)
+
+const (
 	queryModeJQL queryMode = iota
 	queryModeAI
+	queryModeTemplates
 	queryModeRecent
+	queryModeViews
+)
+
+const (
+	querySaveViewActionAdd querySaveViewAction = iota
+	querySaveViewActionRename
 )
 
 const (
@@ -431,6 +563,13 @@ func WithDisplay(display config.Display) Option {
 	}
 }
 
+func WithDiagnosticLog(sink diagnosticSink, path string) Option {
+	return func(m *Model) {
+		m.diagnosticSink = sink
+		m.diagnosticLogPath = strings.TrimSpace(path)
+	}
+}
+
 func WithViews(views []config.IssueView, active string) Option {
 	return func(m *Model) {
 		if len(views) == 0 {
@@ -451,6 +590,12 @@ func WithViews(views []config.IssueView, active string) Option {
 func WithSavedViewWriter(writer SavedViewWriter) Option {
 	return func(m *Model) {
 		m.savedViewWriter = writer
+	}
+}
+
+func WithSavedViewsWriter(writer SavedViewsWriter) Option {
+	return func(m *Model) {
+		m.savedViewsWriter = writer
 	}
 }
 
@@ -527,6 +672,7 @@ func NewModel(client worker.JiraClient, jql string, options ...Option) Model {
 		queueSize:             defaultQueueSize,
 		nextRequestID:         initialRequestID,
 		activeRequestID:       initialRequestID,
+		issueLayout:           issueLayoutLanes,
 		theme:                 ui.NewTheme(config.DefaultTheme()),
 		symbolMode:            symbolModeAuto,
 		details:               make(map[string]jira.IssueDetail),
@@ -534,6 +680,7 @@ func NewModel(client worker.JiraClient, jql string, options ...Option) Model {
 		detailCache:           newJiraCache[jira.IssueDetail](issueDetailCacheRetentionTTL),
 		comments:              make(map[string][]jira.Comment),
 		commentsCache:         newJiraCache[[]jira.Comment](issueCommentsCacheRetentionTTL),
+		worklogs:              make(map[string][]jira.Worklog),
 		transitions:           make(map[string][]jira.Transition),
 		transitionsCache:      newJiraCache[[]jira.Transition](issueTransitionsCacheRetentionTTL),
 		editMetadata:          make(map[string]jira.EditMetadata),
@@ -751,11 +898,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m.updateCreateIssue(msg)
 		}
+		if m.mode == modeDetail && m.actionPaletteOpen {
+			return m.updateActionPalette(msg)
+		}
 		if m.mode == modeComment {
 			return m.updateCommentComposer(msg)
 		}
 		if m.mode == modeDetail && m.transitionFieldEditing {
 			return m.updateTransitionFieldForm(msg)
+		}
+		if m.mode == modeDetail && m.labelsEditing {
+			return m.updateLabelsEditor(msg)
+		}
+		if m.mode == modeDetail && m.componentsFocus {
+			return m.updateComponentsEditor(msg)
+		}
+		if m.mode == modeDetail && m.genericFieldFocus {
+			return m.updateGenericFieldEditor(msg)
+		}
+		if m.mode == modeDetail && m.issueLinkFocus {
+			return m.updateIssueLinkEditor(msg)
+		}
+		if m.mode == modeDetail && m.worklogFocus {
+			return m.updateWorklogEditor(msg)
 		}
 		if m.mode == modeDetail && m.summaryEditing {
 			return m.updateSummaryEditor(msg)
@@ -789,13 +954,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.detailNotice = ""
 					return m, nil
 				}
+				if m.labelsFocus {
+					m.labelsFocus = false
+					m.labelsEditing = false
+					m.detailNotice = ""
+					return m, nil
+				}
+				if m.componentsFocus {
+					m.componentsFocus = false
+					m.componentsDirty = false
+					m.detailNotice = ""
+					return m, nil
+				}
+				if m.genericFieldFocus {
+					m.closeGenericFieldEditor()
+					return m, nil
+				}
 				if m.assigneeFocus {
 					m.assigneeFocus = false
 					m.detailNotice = ""
 					return m, nil
 				}
+				if m.issueLinkFocus {
+					m.closeIssueLinkEditor()
+					return m, nil
+				}
+				if m.worklogFocus {
+					m.closeWorklogEditor()
+					return m, nil
+				}
 				if m.hierarchyFocus {
 					m.hierarchyFocus = false
+					m.detailNotice = ""
+					return m, nil
+				}
+				if m.commentFocus {
+					m.commentFocus = false
 					m.detailNotice = ""
 					return m, nil
 				}
@@ -811,10 +1005,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.resetDetailScroll()
 				m.linkFocus = false
 				m.hierarchyFocus = false
+				m.commentFocus = false
 				m.actionFocus = false
 				m.transitionFocus = false
 				m.priorityFocus = false
 				m.assigneeFocus = false
+				m.issueLinkFocus = false
+				m.worklogFocus = false
 				m.summaryFocus = false
 				m.detailNotice = ""
 			}
@@ -826,8 +1023,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.startQueryModal()
 				return m, nil
 			}
+		case "v":
+			if m.mode == modeTable {
+				m.startQueryModal()
+				m.openCurrentQuerySaveViewPrompt()
+				return m, nil
+			}
 		case "n":
 			return m.startCreateIssue()
+		case ".":
+			if m.mode == modeDetail {
+				m.openActionPalette()
+				return m, nil
+			}
+		case "e":
+			if m.mode == modeDetail && m.commentFocus {
+				return m.startSelectedCommentEditor()
+			}
 		case "x":
 			if m.mode == modeTable {
 				return m.startExpandSelectedIssue(worker.ExpandModeOpen)
@@ -911,14 +1123,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.mode == modeDetail && m.priorityFocus {
 				return m.submitSelectedPriority()
 			}
+			if m.mode == modeDetail && m.labelsFocus {
+				return m.submitSelectedLabels()
+			}
+			if m.mode == modeDetail && m.componentsFocus {
+				return m.submitSelectedComponents()
+			}
+			if m.mode == modeDetail && m.genericFieldFocus {
+				return m.submitGenericField()
+			}
 			if m.mode == modeDetail && m.assigneeFocus {
 				return m.submitSelectedAssignee()
+			}
+			if m.mode == modeDetail && m.issueLinkFocus {
+				return m.submitSelectedIssueLink()
 			}
 			if m.mode == modeDetail && m.summaryFocus {
 				return m.startSummaryEditor()
 			}
 			if m.mode == modeDetail && m.hierarchyFocus {
 				return m.openSelectedHierarchyIssue()
+			}
+			if m.mode == modeDetail && m.commentFocus {
+				m.startCommentComposer()
+				return m, nil
 			}
 			if m.mode == modeDetail {
 				return m.activateFocusedDetailTarget()
@@ -954,8 +1182,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.moveSelectedAssignee(-1)
 					return m, nil
 				}
+				if m.issueLinkFocus {
+					m.moveSelectedIssueLinkRelation(-1)
+					return m, nil
+				}
+				if m.genericFieldFocus {
+					m.moveSelectedGenericFieldOption(-1)
+					return m, nil
+				}
 				if m.hierarchyFocus {
 					m.moveSelectedHierarchyIssue(-1)
+					return m, nil
+				}
+				if m.commentFocus {
+					m.moveSelectedComment(-1)
 					return m, nil
 				}
 				if m.canUseLinkSelection() {
@@ -1001,8 +1241,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.moveSelectedAssignee(1)
 					return m, nil
 				}
+				if m.issueLinkFocus {
+					m.moveSelectedIssueLinkRelation(1)
+					return m, nil
+				}
+				if m.genericFieldFocus {
+					m.moveSelectedGenericFieldOption(1)
+					return m, nil
+				}
 				if m.hierarchyFocus {
 					m.moveSelectedHierarchyIssue(1)
+					return m, nil
+				}
+				if m.commentFocus {
+					m.moveSelectedComment(1)
 					return m, nil
 				}
 				if m.canUseLinkSelection() {
@@ -1045,6 +1297,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.toggleStatusFilter()
 				return m, nil
 			}
+		case "L":
+			if m.mode == modeTable {
+				m.cycleIssueLayoutMode()
+				if m.issueLayout == issueLayoutWorkbench {
+					return m.startSelectedIssuePrefetch()
+				}
+				return m, nil
+			}
 		case "home", "g":
 			if m.mode == modeDetail {
 				m.setDetailOffset(0)
@@ -1054,8 +1314,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.assigneeFocus = false
 				return m, nil
 			}
-			displayTree := buildIssueDisplayTree(m.issues)
-			visible := m.visibleIssueIndexes(displayTree)
+			visible := m.currentVisibleIssueIndexes(m.browserLayout(m.width))
 			if len(visible) > 0 {
 				m.selected = visible[0]
 			} else {
@@ -1072,8 +1331,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.assigneeFocus = false
 				return m, nil
 			}
-			displayTree := buildIssueDisplayTree(m.issues)
-			visible := m.visibleIssueIndexes(displayTree)
+			visible := m.currentVisibleIssueIndexes(m.browserLayout(m.width))
 			if len(visible) > 0 {
 				m.selected = visible[len(visible)-1]
 			} else {
@@ -1179,6 +1437,13 @@ func (m Model) render() string {
 
 	if m.createOpen {
 		b.WriteString(m.renderCreateIssue(layout))
+		b.WriteString("\n\n")
+		b.WriteString(m.renderModelFooterHelp(layout))
+		return b.String()
+	}
+
+	if m.mode == modeDetail && m.actionPaletteOpen && len(m.issues) > 0 {
+		b.WriteString(m.renderActionPalette(layout))
 		b.WriteString("\n\n")
 		b.WriteString(m.renderModelFooterHelp(layout))
 		return b.String()

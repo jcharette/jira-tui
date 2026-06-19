@@ -117,12 +117,45 @@ func (m *Model) markActiveIssueViewCacheError(jql string, err error) {
 
 func (m *Model) applyActiveIssueView(record issueViewCacheRecord, stale bool) {
 	m.replaceIssues(append([]jira.Issue(nil), record.Issues...))
+	m.hydrateVisibleExpandedChildren()
 	m.loading = false
 	m.refreshing = false
 	m.err = nil
 	m.lastSynced = record.SyncedAt
 	m.viewStale = stale
 	m.ensureSelectionVisible(m.currentLayoutRows())
+}
+
+func (m *Model) hydrateVisibleExpandedChildren() {
+	queue := make([]string, 0, len(m.issues))
+	visited := make(map[string]bool, len(m.issues))
+	for _, issue := range m.issues {
+		if strings.TrimSpace(issue.Key) == "" {
+			continue
+		}
+		queue = append(queue, issue.Key)
+	}
+	for len(queue) > 0 {
+		key := queue[0]
+		queue = queue[1:]
+		if visited[key] {
+			continue
+		}
+		visited[key] = true
+		for _, mode := range []worker.ExpandMode{worker.ExpandModeOpen, worker.ExpandModeAll} {
+			m.hydrateExpandedChildren(key, mode)
+			record, ok := m.cachedExpandedChildren(key, mode)
+			if !ok || len(record.Value) == 0 {
+				continue
+			}
+			m.mergeExpandedIssues(record.Value)
+			for _, child := range record.Value {
+				if strings.TrimSpace(child.Key) != "" && !visited[child.Key] {
+					queue = append(queue, child.Key)
+				}
+			}
+		}
+	}
 }
 
 func (m *Model) hydrateActiveIssueView() {

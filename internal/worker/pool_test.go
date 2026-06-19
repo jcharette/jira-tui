@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -506,6 +507,48 @@ func TestPoolAddCommentSuccess(t *testing.T) {
 	}
 }
 
+func TestPoolUpdateCommentSuccess(t *testing.T) {
+	searcher := &fakeIssueSearcher{
+		updatedComment: jira.Comment{ID: "10001", Body: "Updated"},
+	}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:   11,
+		Kind: KindUpdateComment,
+		UpdateComment: &UpdateCommentRequest{
+			Key:       "ABC-1",
+			CommentID: "10001",
+			Body:      "Updated @Jane Doe.",
+			Mentions:  []jira.Mention{{AccountID: "abc-123", Text: "@Jane Doe"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.ID != 11 {
+		t.Fatalf("ID = %d", result.ID)
+	}
+	if result.Kind != KindUpdateComment {
+		t.Fatalf("Kind = %s", result.Kind)
+	}
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if result.UpdateComment.Comment.ID != "10001" || result.UpdateComment.Comment.Body != "Updated" {
+		t.Fatalf("UpdateComment = %#v", result.UpdateComment)
+	}
+	if searcher.updateCommentKey != "ABC-1" || searcher.updateCommentID != "10001" || searcher.updateCommentBody != "Updated @Jane Doe." {
+		t.Fatalf("update request = %s/%s %q", searcher.updateCommentKey, searcher.updateCommentID, searcher.updateCommentBody)
+	}
+	if len(searcher.updateMentions) != 1 || searcher.updateMentions[0].AccountID != "abc-123" {
+		t.Fatalf("updateMentions = %#v", searcher.updateMentions)
+	}
+}
+
 func TestPoolGetTransitionsSuccess(t *testing.T) {
 	pool := NewPool(&fakeIssueSearcher{
 		transitions: []jira.Transition{{ID: "21", Name: "Start Progress", ToStatus: "In Progress"}},
@@ -744,6 +787,48 @@ func TestPoolGetCreateFieldsSuccess(t *testing.T) {
 	}
 }
 
+func TestPoolSearchFieldOptionsSuccess(t *testing.T) {
+	searcher := &fakeIssueSearcher{
+		fieldOptions: []jira.FieldOption{{ID: "101", Name: "Platform"}},
+	}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:   33,
+		Kind: KindSearchFieldOptions,
+		SearchFieldOptions: &SearchFieldOptionsRequest{
+			FieldID:         "customfield_10010",
+			AutoCompleteURL: "https://example.atlassian.net/rest/api/3/customFieldOption/suggest",
+			Query:           "plat",
+			MaxResults:      25,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.ID != 33 {
+		t.Fatalf("ID = %d", result.ID)
+	}
+	if result.Kind != KindSearchFieldOptions {
+		t.Fatalf("Kind = %s", result.Kind)
+	}
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if result.SearchFieldOptions.FieldID != "customfield_10010" || result.SearchFieldOptions.Query != "plat" {
+		t.Fatalf("SearchFieldOptions = %#v", result.SearchFieldOptions)
+	}
+	if searcher.fieldOptionURL != "https://example.atlassian.net/rest/api/3/customFieldOption/suggest" || searcher.fieldOptionQuery != "plat" || searcher.fieldOptionMaxResults != 25 {
+		t.Fatalf("searcher option request = %q/%q/%d", searcher.fieldOptionURL, searcher.fieldOptionQuery, searcher.fieldOptionMaxResults)
+	}
+	if !reflect.DeepEqual(result.SearchFieldOptions.Options, []jira.FieldOption{{ID: "101", Name: "Platform"}}) {
+		t.Fatalf("Options = %#v", result.SearchFieldOptions.Options)
+	}
+}
+
 func TestPoolCreateIssueSuccess(t *testing.T) {
 	searcher := &fakeIssueSearcher{
 		createdIssue: jira.Issue{Key: "ABC-123", Summary: "New platform task"},
@@ -757,6 +842,7 @@ func TestPoolCreateIssueSuccess(t *testing.T) {
 		CreateIssue: &CreateIssueRequest{
 			ProjectKey:  "ABC",
 			IssueTypeID: "10001",
+			ParentKey:   "ABC-1",
 			Summary:     "New platform task",
 			Description: "Description body",
 			Fields: []jira.CreateIssueFieldValue{
@@ -780,6 +866,9 @@ func TestPoolCreateIssueSuccess(t *testing.T) {
 	}
 	if searcher.createIssueRequest.ProjectKey != "ABC" || searcher.createIssueRequest.IssueTypeID != "10001" {
 		t.Fatalf("create request = %#v", searcher.createIssueRequest)
+	}
+	if searcher.createIssueRequest.ParentKey != "ABC-1" {
+		t.Fatalf("parent key = %q", searcher.createIssueRequest.ParentKey)
 	}
 	if len(searcher.createIssueRequest.Fields) != 1 || searcher.createIssueRequest.Fields[0].FieldID != "priority" {
 		t.Fatalf("create fields = %#v", searcher.createIssueRequest.Fields)
@@ -957,6 +1046,348 @@ func TestPoolUpdatePriorityError(t *testing.T) {
 	}
 }
 
+func TestPoolUpdateLabelsSuccess(t *testing.T) {
+	searcher := &fakeIssueSearcher{}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:   24,
+		Kind: KindUpdateLabels,
+		UpdateLabels: &UpdateLabelsRequest{
+			Key:    "ABC-1",
+			Labels: []string{"platform", "needs-review"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.ID != 24 {
+		t.Fatalf("ID = %d", result.ID)
+	}
+	if result.Kind != KindUpdateLabels {
+		t.Fatalf("Kind = %s", result.Kind)
+	}
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if searcher.updateLabelsKey != "ABC-1" || !reflect.DeepEqual(searcher.updateLabelsValue, []string{"platform", "needs-review"}) {
+		t.Fatalf("update labels = %s/%#v", searcher.updateLabelsKey, searcher.updateLabelsValue)
+	}
+	if result.UpdateLabels.Key != "ABC-1" || !reflect.DeepEqual(result.UpdateLabels.Labels, []string{"platform", "needs-review"}) {
+		t.Fatalf("UpdateLabels = %#v", result.UpdateLabels)
+	}
+}
+
+func TestPoolUpdateLabelsAllowsClearing(t *testing.T) {
+	searcher := &fakeIssueSearcher{}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:           25,
+		Kind:         KindUpdateLabels,
+		UpdateLabels: &UpdateLabelsRequest{Key: "ABC-1"},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if searcher.updateLabelsValue == nil {
+		t.Fatal("expected empty labels slice to clear labels")
+	}
+	if len(searcher.updateLabelsValue) != 0 {
+		t.Fatalf("updateLabelsValue = %#v", searcher.updateLabelsValue)
+	}
+}
+
+func TestPoolUpdateLabelsError(t *testing.T) {
+	updateErr := errors.New("jira rejected labels")
+	pool := NewPool(&fakeIssueSearcher{updateLabelsErr: updateErr}, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:   26,
+		Kind: KindUpdateLabels,
+		UpdateLabels: &UpdateLabelsRequest{
+			Key:    "ABC-1",
+			Labels: []string{"platform"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if !errors.Is(result.Err, updateErr) {
+		t.Fatalf("Err = %v", result.Err)
+	}
+}
+
+func TestPoolUpdateComponentsSuccess(t *testing.T) {
+	searcher := &fakeIssueSearcher{}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	components := []jira.FieldOption{{ID: "101", Name: "Platform"}, {ID: "102", Name: "API"}}
+	err := pool.Submit(Request{
+		ID:   27,
+		Kind: KindUpdateComponents,
+		UpdateComponents: &UpdateComponentsRequest{
+			Key:        "ABC-1",
+			Components: components,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.ID != 27 {
+		t.Fatalf("ID = %d", result.ID)
+	}
+	if result.Kind != KindUpdateComponents {
+		t.Fatalf("Kind = %s", result.Kind)
+	}
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if searcher.updateComponentsKey != "ABC-1" || !reflect.DeepEqual(searcher.updateComponentsValue, components) {
+		t.Fatalf("update components = %s/%#v", searcher.updateComponentsKey, searcher.updateComponentsValue)
+	}
+	if result.UpdateComponents.Key != "ABC-1" || !reflect.DeepEqual(result.UpdateComponents.Components, components) {
+		t.Fatalf("UpdateComponents = %#v", result.UpdateComponents)
+	}
+}
+
+func TestPoolUpdateComponentsAllowsClearing(t *testing.T) {
+	searcher := &fakeIssueSearcher{}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:               28,
+		Kind:             KindUpdateComponents,
+		UpdateComponents: &UpdateComponentsRequest{Key: "ABC-1"},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if searcher.updateComponentsValue == nil {
+		t.Fatal("expected empty components slice to clear components")
+	}
+	if len(searcher.updateComponentsValue) != 0 {
+		t.Fatalf("updateComponentsValue = %#v", searcher.updateComponentsValue)
+	}
+}
+
+func TestPoolUpdateComponentsError(t *testing.T) {
+	updateErr := errors.New("jira rejected components")
+	pool := NewPool(&fakeIssueSearcher{updateComponentsErr: updateErr}, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:   29,
+		Kind: KindUpdateComponents,
+		UpdateComponents: &UpdateComponentsRequest{
+			Key:        "ABC-1",
+			Components: []jira.FieldOption{{ID: "101", Name: "Platform"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if !errors.Is(result.Err, updateErr) {
+		t.Fatalf("Err = %v", result.Err)
+	}
+}
+
+func TestPoolUpdateEditFieldSuccess(t *testing.T) {
+	searcher := &fakeIssueSearcher{}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	value := jira.EditFieldValue{FieldID: "customfield_10016", SchemaType: "number", Text: "8"}
+	field := jira.EditField{ID: "customfield_10016", Name: "Story Points", SchemaType: "number"}
+	err := pool.Submit(Request{
+		ID:   30,
+		Kind: KindUpdateEditField,
+		UpdateEditField: &UpdateEditFieldRequest{
+			Key:   "ABC-1",
+			Field: field,
+			Value: value,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.ID != 30 {
+		t.Fatalf("ID = %d", result.ID)
+	}
+	if result.Kind != KindUpdateEditField {
+		t.Fatalf("Kind = %s", result.Kind)
+	}
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if searcher.updateEditFieldKey != "ABC-1" || searcher.updateEditFieldValue.FieldID != "customfield_10016" || searcher.updateEditFieldValue.Text != "8" {
+		t.Fatalf("update edit field = %s/%#v", searcher.updateEditFieldKey, searcher.updateEditFieldValue)
+	}
+	if result.UpdateEditField.Key != "ABC-1" || result.UpdateEditField.Field.Name != "Story Points" || result.UpdateEditField.Value.Text != "8" {
+		t.Fatalf("UpdateEditField = %#v", result.UpdateEditField)
+	}
+}
+
+func TestPoolGetIssueLinkTypesSuccess(t *testing.T) {
+	searcher := &fakeIssueSearcher{
+		issueLinkTypes: []jira.IssueLinkType{{ID: "10000", Name: "Blocks", Inward: "is blocked by", Outward: "blocks"}},
+	}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:                31,
+		Kind:              KindGetIssueLinkTypes,
+		GetIssueLinkTypes: &GetIssueLinkTypesRequest{},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.ID != 31 || result.Kind != KindGetIssueLinkTypes {
+		t.Fatalf("result = %#v", result)
+	}
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if len(result.GetIssueLinkTypes.Types) != 1 || result.GetIssueLinkTypes.Types[0].Name != "Blocks" {
+		t.Fatalf("GetIssueLinkTypes = %#v", result.GetIssueLinkTypes)
+	}
+}
+
+func TestPoolCreateIssueLinkSuccess(t *testing.T) {
+	searcher := &fakeIssueSearcher{}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	request := jira.CreateIssueLinkRequest{
+		SourceKey: "ABC-1",
+		TargetKey: "ABC-2",
+		Type:      jira.IssueLinkType{ID: "10000", Name: "Blocks", Inward: "is blocked by", Outward: "blocks"},
+		Direction: "outward",
+	}
+	err := pool.Submit(Request{
+		ID:   32,
+		Kind: KindCreateIssueLink,
+		CreateIssueLink: &CreateIssueLinkRequest{
+			Request: request,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.ID != 32 || result.Kind != KindCreateIssueLink {
+		t.Fatalf("result = %#v", result)
+	}
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if searcher.issueLinkRequest.SourceKey != "ABC-1" || searcher.issueLinkRequest.TargetKey != "ABC-2" || searcher.issueLinkRequest.Direction != "outward" {
+		t.Fatalf("issueLinkRequest = %#v", searcher.issueLinkRequest)
+	}
+	if result.CreateIssueLink.Request.TargetKey != "ABC-2" {
+		t.Fatalf("CreateIssueLink = %#v", result.CreateIssueLink)
+	}
+}
+
+func TestPoolGetWorklogsSuccess(t *testing.T) {
+	searcher := &fakeIssueSearcher{
+		worklogs: []jira.Worklog{{ID: "10001", Author: "Jane Doe", TimeSpent: "1h"}},
+	}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:   33,
+		Kind: KindGetWorklogs,
+		GetWorklogs: &GetWorklogsRequest{
+			Key:        "ABC-1",
+			MaxResults: 20,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.ID != 33 || result.Kind != KindGetWorklogs {
+		t.Fatalf("result = %#v", result)
+	}
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if searcher.worklogKey != "ABC-1" || searcher.worklogMaxResults != 20 {
+		t.Fatalf("worklog request = %s/%d", searcher.worklogKey, searcher.worklogMaxResults)
+	}
+	if len(result.GetWorklogs.Worklogs) != 1 || result.GetWorklogs.Worklogs[0].ID != "10001" {
+		t.Fatalf("GetWorklogs = %#v", result.GetWorklogs)
+	}
+}
+
+func TestPoolAddWorklogSuccess(t *testing.T) {
+	started := time.Date(2026, 6, 19, 9, 30, 0, 0, time.UTC)
+	searcher := &fakeIssueSearcher{
+		addedWorklog: jira.Worklog{ID: "10001", Author: "Jane Doe", TimeSpent: "45m", Started: started},
+	}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	request := jira.AddWorklogRequest{TimeSpent: "45m", Started: started, Comment: "Reviewed ABC-2"}
+	err := pool.Submit(Request{
+		ID:   34,
+		Kind: KindAddWorklog,
+		AddWorklog: &AddWorklogRequest{
+			Key:     "ABC-1",
+			Request: request,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.ID != 34 || result.Kind != KindAddWorklog {
+		t.Fatalf("result = %#v", result)
+	}
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if searcher.addWorklogKey != "ABC-1" || searcher.addWorklogRequest.TimeSpent != "45m" {
+		t.Fatalf("add worklog request = %s/%#v", searcher.addWorklogKey, searcher.addWorklogRequest)
+	}
+	if result.AddWorklog.Worklog.ID != "10001" || result.AddWorklog.Request.Comment != "Reviewed ABC-2" {
+		t.Fatalf("AddWorklog = %#v", result.AddWorklog)
+	}
+}
+
 func TestPoolUpdateAssigneeSuccess(t *testing.T) {
 	searcher := &fakeIssueSearcher{}
 	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
@@ -1044,6 +1475,38 @@ func TestPoolSearchUsersSuccess(t *testing.T) {
 		t.Fatalf("Query = %q", result.SearchUsers.Query)
 	}
 	if len(result.SearchUsers.Users) != 1 || result.SearchUsers.Users[0].AccountID != "abc-123" {
+		t.Fatalf("Users = %#v", result.SearchUsers.Users)
+	}
+}
+
+func TestPoolSearchUsersUsesAssignableSearchWhenIssueKeyProvided(t *testing.T) {
+	searcher := &fakeIssueSearcher{
+		assignableUsers: []jira.User{{AccountID: "def-456", DisplayName: "John Doe"}},
+	}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:   12,
+		Kind: KindSearchUsers,
+		SearchUsers: &SearchUsersRequest{
+			Query:      "John",
+			IssueKey:   "ABC-1",
+			MaxResults: 5,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if searcher.assignableIssueKey != "ABC-1" || searcher.assignableQuery != "John" || searcher.assignableMaxResults != 5 {
+		t.Fatalf("assignable search = issue %q query %q max %d", searcher.assignableIssueKey, searcher.assignableQuery, searcher.assignableMaxResults)
+	}
+	if len(result.SearchUsers.Users) != 1 || result.SearchUsers.Users[0].AccountID != "def-456" {
 		t.Fatalf("Users = %#v", result.SearchUsers.Users)
 	}
 }
@@ -1338,7 +1801,16 @@ type fakeIssueSearcher struct {
 	comments               []jira.Comment
 	addedComment           jira.Comment
 	addMentions            []jira.Mention
+	updatedComment         jira.Comment
+	updateCommentKey       string
+	updateCommentID        string
+	updateCommentBody      string
+	updateMentions         []jira.Mention
 	users                  []jira.User
+	assignableUsers        []jira.User
+	assignableIssueKey     string
+	assignableQuery        string
+	assignableMaxResults   int
 	transitions            []jira.Transition
 	transitionKey          string
 	transitionID           string
@@ -1347,6 +1819,21 @@ type fakeIssueSearcher struct {
 	editMetadata           jira.EditMetadata
 	createIssueTypes       []jira.CreateIssueType
 	createFields           []jira.CreateField
+	fieldOptions           []jira.FieldOption
+	fieldOptionURL         string
+	fieldOptionQuery       string
+	fieldOptionMaxResults  int
+	issueLinkTypes         []jira.IssueLinkType
+	issueLinkRequest       jira.CreateIssueLinkRequest
+	issueLinkErr           error
+	worklogs               []jira.Worklog
+	worklogKey             string
+	worklogMaxResults      int
+	worklogErr             error
+	addWorklogKey          string
+	addWorklogRequest      jira.AddWorklogRequest
+	addedWorklog           jira.Worklog
+	addWorklogErr          error
 	createIssueRequest     jira.CreateIssueRequest
 	createdIssue           jira.Issue
 	boardPage              jira.BoardPage
@@ -1367,6 +1854,15 @@ type fakeIssueSearcher struct {
 	updatePriorityKey      string
 	updatePriorityValue    jira.FieldOption
 	updatePriorityErr      error
+	updateLabelsKey        string
+	updateLabelsValue      []string
+	updateLabelsErr        error
+	updateComponentsKey    string
+	updateComponentsValue  []jira.FieldOption
+	updateComponentsErr    error
+	updateEditFieldKey     string
+	updateEditFieldValue   jira.EditFieldValue
+	updateEditFieldErr     error
 	updateAssigneeKey      string
 	updateAssigneeValue    jira.User
 	updateAssigneeErr      error
@@ -1422,6 +1918,20 @@ func (f *fakeIssueSearcher) AddComment(_ context.Context, key string, body strin
 	return jira.Comment{ID: "10002", Body: body, Author: key}, nil
 }
 
+func (f *fakeIssueSearcher) UpdateComment(_ context.Context, key string, commentID string, body string, mentions []jira.Mention) (jira.Comment, error) {
+	if f.err != nil {
+		return jira.Comment{}, f.err
+	}
+	f.updateCommentKey = key
+	f.updateCommentID = commentID
+	f.updateCommentBody = body
+	f.updateMentions = mentions
+	if f.updatedComment.ID != "" {
+		return f.updatedComment, nil
+	}
+	return jira.Comment{ID: commentID, Body: body, Author: key}, nil
+}
+
 func (f *fakeIssueSearcher) SearchUsers(_ context.Context, query string, _ int) ([]jira.User, error) {
 	if f.err != nil {
 		return nil, f.err
@@ -1430,6 +1940,19 @@ func (f *fakeIssueSearcher) SearchUsers(_ context.Context, query string, _ int) 
 		return f.users, nil
 	}
 	return []jira.User{{AccountID: "abc-123", DisplayName: query}}, nil
+}
+
+func (f *fakeIssueSearcher) SearchAssignableUsers(_ context.Context, issueKey string, query string, maxResults int) ([]jira.User, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.assignableIssueKey = issueKey
+	f.assignableQuery = query
+	f.assignableMaxResults = maxResults
+	if f.assignableUsers != nil {
+		return f.assignableUsers, nil
+	}
+	return []jira.User{{AccountID: "assignable-123", DisplayName: query}}, nil
 }
 
 func (f *fakeIssueSearcher) GetTransitions(_ context.Context, key string) ([]jira.Transition, error) {
@@ -1476,6 +1999,61 @@ func (f *fakeIssueSearcher) GetCreateFields(_ context.Context, projectKey string
 	f.transitionKey = projectKey
 	f.transitionID = issueTypeID
 	return f.createFields, nil
+}
+
+func (f *fakeIssueSearcher) SearchFieldOptions(_ context.Context, autocompleteURL string, query string, maxResults int) ([]jira.FieldOption, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.fieldOptionURL = autocompleteURL
+	f.fieldOptionQuery = query
+	f.fieldOptionMaxResults = maxResults
+	return f.fieldOptions, nil
+}
+
+func (f *fakeIssueSearcher) GetIssueLinkTypes(_ context.Context) ([]jira.IssueLinkType, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.issueLinkTypes, nil
+}
+
+func (f *fakeIssueSearcher) CreateIssueLink(_ context.Context, request jira.CreateIssueLinkRequest) error {
+	if f.issueLinkErr != nil {
+		return f.issueLinkErr
+	}
+	if f.err != nil {
+		return f.err
+	}
+	f.issueLinkRequest = request
+	return nil
+}
+
+func (f *fakeIssueSearcher) GetWorklogs(_ context.Context, key string, maxResults int) ([]jira.Worklog, error) {
+	if f.worklogErr != nil {
+		return nil, f.worklogErr
+	}
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.worklogKey = key
+	f.worklogMaxResults = maxResults
+	return f.worklogs, nil
+}
+
+func (f *fakeIssueSearcher) AddWorklog(_ context.Context, key string, request jira.AddWorklogRequest) (jira.Worklog, error) {
+	if f.addWorklogErr != nil {
+		return jira.Worklog{}, f.addWorklogErr
+	}
+	if f.err != nil {
+		return jira.Worklog{}, f.err
+	}
+	f.addWorklogKey = key
+	f.addWorklogRequest = request
+	if f.addedWorklog.ID != "" {
+		return f.addedWorklog, nil
+	}
+	return jira.Worklog{ID: "10001", Author: "Current User", TimeSpent: request.TimeSpent, Comment: request.Comment, Started: request.Started}, nil
 }
 
 func (f *fakeIssueSearcher) CreateIssue(_ context.Context, request jira.CreateIssueRequest) (jira.Issue, error) {
@@ -1543,6 +2121,42 @@ func (f *fakeIssueSearcher) UpdatePriority(_ context.Context, key string, priori
 	}
 	f.updatePriorityKey = key
 	f.updatePriorityValue = priority
+	return nil
+}
+
+func (f *fakeIssueSearcher) UpdateLabels(_ context.Context, key string, labels []string) error {
+	if f.updateLabelsErr != nil {
+		return f.updateLabelsErr
+	}
+	if f.err != nil {
+		return f.err
+	}
+	f.updateLabelsKey = key
+	f.updateLabelsValue = append([]string{}, labels...)
+	return nil
+}
+
+func (f *fakeIssueSearcher) UpdateComponents(_ context.Context, key string, components []jira.FieldOption) error {
+	if f.updateComponentsErr != nil {
+		return f.updateComponentsErr
+	}
+	if f.err != nil {
+		return f.err
+	}
+	f.updateComponentsKey = key
+	f.updateComponentsValue = append([]jira.FieldOption{}, components...)
+	return nil
+}
+
+func (f *fakeIssueSearcher) UpdateEditField(_ context.Context, key string, value jira.EditFieldValue) error {
+	if f.updateEditFieldErr != nil {
+		return f.updateEditFieldErr
+	}
+	if f.err != nil {
+		return f.err
+	}
+	f.updateEditFieldKey = key
+	f.updateEditFieldValue = value
 	return nil
 }
 
@@ -1615,7 +2229,33 @@ func (b *blockingIssueSearcher) AddComment(ctx context.Context, _ string, _ stri
 	}
 }
 
+func (b *blockingIssueSearcher) UpdateComment(ctx context.Context, _ string, _ string, _ string, _ []jira.Mention) (jira.Comment, error) {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return jira.Comment{}, nil
+	case <-ctx.Done():
+		return jira.Comment{}, ctx.Err()
+	}
+}
+
 func (b *blockingIssueSearcher) SearchUsers(ctx context.Context, _ string, _ int) ([]jira.User, error) {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return nil, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (b *blockingIssueSearcher) SearchAssignableUsers(ctx context.Context, _ string, _ string, _ int) ([]jira.User, error) {
 	if b.started != nil {
 		close(b.started)
 		b.started = nil
@@ -1693,6 +2333,71 @@ func (b *blockingIssueSearcher) GetCreateFields(ctx context.Context, _ string, _
 	}
 }
 
+func (b *blockingIssueSearcher) SearchFieldOptions(ctx context.Context, _ string, _ string, _ int) ([]jira.FieldOption, error) {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return nil, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (b *blockingIssueSearcher) GetIssueLinkTypes(ctx context.Context) ([]jira.IssueLinkType, error) {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return nil, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (b *blockingIssueSearcher) CreateIssueLink(ctx context.Context, _ jira.CreateIssueLinkRequest) error {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (b *blockingIssueSearcher) GetWorklogs(ctx context.Context, _ string, _ int) ([]jira.Worklog, error) {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return nil, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (b *blockingIssueSearcher) AddWorklog(ctx context.Context, _ string, _ jira.AddWorklogRequest) (jira.Worklog, error) {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return jira.Worklog{}, nil
+	case <-ctx.Done():
+		return jira.Worklog{}, ctx.Err()
+	}
+}
+
 func (b *blockingIssueSearcher) CreateIssue(ctx context.Context, _ jira.CreateIssueRequest) (jira.Issue, error) {
 	if b.started != nil {
 		close(b.started)
@@ -1759,6 +2464,45 @@ func (b *blockingIssueSearcher) UpdateDescription(ctx context.Context, _ string,
 }
 
 func (b *blockingIssueSearcher) UpdatePriority(ctx context.Context, _ string, _ jira.FieldOption) error {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (b *blockingIssueSearcher) UpdateLabels(ctx context.Context, _ string, _ []string) error {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (b *blockingIssueSearcher) UpdateComponents(ctx context.Context, _ string, _ []jira.FieldOption) error {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (b *blockingIssueSearcher) UpdateEditField(ctx context.Context, _ string, _ jira.EditFieldValue) error {
 	if b.started != nil {
 		close(b.started)
 		b.started = nil

@@ -79,12 +79,20 @@ func (m Model) planningSprintLabel() string {
 		return "sprints loading"
 	case m.planningSprintsErr != nil:
 		return "sprints error"
-	case m.planningBoardID > 0 && len(m.planningSprints[m.planningBoardID]) > 0:
-		count := len(m.planningSprints[m.planningBoardID])
+	case m.planningSprintCount() > 0:
+		count := m.planningSprintCount()
 		return fmt.Sprintf("%d %s", count, pluralize("sprint", count))
 	default:
 		return ""
 	}
+}
+
+func (m Model) planningSprintCount() int {
+	count := 0
+	for _, sprints := range m.planningSprints {
+		count += len(sprints)
+	}
+	return count
 }
 
 func (m Model) backgroundAIActive() bool {
@@ -273,8 +281,19 @@ func plainBubbleHelpStyles() bubbleshelp.Styles {
 func (m Model) detailFooterBindings() []keyBinding {
 	base := footerBindings(keyContextDetail)
 	if target, ok := m.focusedDetailTarget(); ok && target.Kind == detailTargetField {
+		label := "edit"
+		switch target.ID {
+		case "status":
+			label = "transition"
+		case "priority":
+			label = "priority"
+		case "assignee":
+			label = "assignee"
+		case "summary":
+			label = "summary"
+		}
 		fieldBindings := []keyBinding{
-			{Keys: []string{"enter"}, Label: "edit", Group: "Field", Footer: true},
+			{Keys: []string{"enter"}, Label: label, Group: "Field", Footer: true},
 		}
 		filtered := make([]keyBinding, 0, len(base)+len(fieldBindings))
 		for _, binding := range base {
@@ -355,6 +374,9 @@ func (m Model) detailFooterBindings() []keyBinding {
 
 func (m Model) footerContextLabel(context keyContext, width int) string {
 	label := string(context)
+	if context == keyContextTable {
+		label = m.issueLayoutContextLabel()
+	}
 	if label == "" || lipgloss.Width(label)+2 > width {
 		return ""
 	}
@@ -368,7 +390,7 @@ func (m Model) renderHelp(layout browserLayout) string {
 	offset := clamp(m.helpOffset, 0, max(0, len(lines)-rows))
 	end := min(len(lines), offset+rows)
 	var b strings.Builder
-	b.WriteString(m.detailSectionHeader("help", "Keyboard Help", string(context), max(32, layout.contentWidth-4)))
+	b.WriteString(m.detailSectionHeader("help", "Keyboard Help", m.keyContextDisplayLabel(context), max(32, layout.contentWidth-4)))
 	b.WriteString("\n\n")
 	if len(lines) > 0 {
 		b.WriteString(strings.Join(lines[offset:end], "\n"))
@@ -385,6 +407,24 @@ func (m Model) renderHelp(layout browserLayout) string {
 		b.WriteString(truncate(indicator, layout.contentWidth-6))
 	}
 	return m.theme.ActivePane.Width(layout.contentWidth).Render(strings.TrimRight(b.String(), "\n"))
+}
+
+func (m Model) keyContextDisplayLabel(context keyContext) string {
+	if context == keyContextTable {
+		return m.issueLayoutContextLabel()
+	}
+	return string(context)
+}
+
+func (m Model) issueLayoutContextLabel() string {
+	switch m.issueLayout {
+	case issueLayoutWorkbench:
+		return "Issue Workbench"
+	case issueLayoutTable:
+		return "Issue Table"
+	default:
+		return "Issue Lanes"
+	}
 }
 
 func (m Model) helpLines(context keyContext) []string {

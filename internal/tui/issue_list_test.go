@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -35,6 +38,33 @@ func collectEventsForTest(t *testing.T, received <-chan events.Event, count int)
 	return got
 }
 
+var ansiEscapeForTest = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
+
+func assertGoldenSnapshot(t *testing.T, name string, rendered string) {
+	t.Helper()
+	got := normalizeRenderedSnapshotForTest(rendered)
+	path := filepath.Join("testdata", name)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read golden snapshot %s: %v\n\nrendered:\n%s", path, err, got)
+	}
+	want := strings.TrimRight(string(data), "\n")
+	if got != want {
+		t.Fatalf("golden snapshot %s mismatch\n\nwant:\n%s\n\ngot:\n%s", path, want, got)
+	}
+}
+
+func normalizeRenderedSnapshotForTest(rendered string) string {
+	rendered = ansiEscapeForTest.ReplaceAllString(rendered, "")
+	rendered = strings.ReplaceAll(rendered, "\r\n", "\n")
+	rendered = strings.ReplaceAll(rendered, "\r", "\n")
+	lines := strings.Split(rendered, "\n")
+	for index, line := range lines {
+		lines[index] = strings.TrimRight(line, " ")
+	}
+	return strings.TrimRight(strings.Join(lines, "\n"), "\n")
+}
+
 func TestTerminalIssueStatusMatchesCommonTerminalStatuses(t *testing.T) {
 	for _, status := range []string{"Done", "Resolved", "Closed", "Canceled", "Cancelled", "done - deployed"} {
 		if !terminalIssueStatus(status) {
@@ -48,6 +78,544 @@ func TestTerminalIssueStatusKeepsActiveStatusesVisible(t *testing.T) {
 		if terminalIssueStatus(status) {
 			t.Fatalf("status %q should remain active", status)
 		}
+	}
+}
+
+func TestNewModelDefaultsIssueLayoutToLanes(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+
+	if model.issueLayout != issueLayoutLanes {
+		t.Fatalf("issueLayout = %v, want Lanes", model.issueLayout)
+	}
+	if got := model.issueLayoutModeLabel(); got != "Lanes" {
+		t.Fatalf("issueLayoutModeLabel = %q, want Lanes", got)
+	}
+}
+
+func TestLanesExpandedNerdGoldenSnapshot(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "nerd"}))
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 120
+	model.height = 32
+	model.issueLayout = issueLayoutLanes
+	model.selected = 1
+	model.issues = []jira.Issue{
+		{Key: "PROJ-100", Summary: "Deliver platform foundation milestone", Status: "To Do", Priority: "P4", IssueType: "Epic", Assignee: "Alex P."},
+		{Key: "PROJ-101", Summary: "Build service deployment workflow", Status: "To Do", Priority: "P4", IssueType: "Epic", Assignee: "Alex P.", ParentKey: "PROJ-100"},
+		{Key: "PROJ-102", Summary: "Spike: compare deployment automation options", Status: "To Do", Priority: "P4", IssueType: "Task", Assignee: "Rae S.", ParentKey: "PROJ-101"},
+		{Key: "PROJ-103", Summary: "Create environment provisioning module", Status: "To Do", Priority: "P4", IssueType: "Story", Assignee: "Rae S.", ParentKey: "PROJ-101"},
+		{Key: "PROJ-104", Summary: "Define runtime scaling strategy", Status: "To Do", Priority: "P4", IssueType: "Story", Assignee: "Rae S.", ParentKey: "PROJ-101"},
+		{Key: "PROJ-099", Summary: "Add support for private service routing", Status: "In Progress", Priority: "P3", IssueType: "Enhancement", Assignee: "Alex P."},
+	}
+
+	assertGoldenSnapshot(t, "lanes_expanded_nerd.golden", model.renderIssueWorkspace(model.browserLayout(model.width)))
+}
+
+func TestLanesCollapsedSymbolsGoldenSnapshot(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "symbols"}))
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 120
+	model.height = 32
+	model.issueLayout = issueLayoutLanes
+	model.selected = 0
+	model.collapsedIssueKeys = map[string]bool{"PROJ-101": true}
+	model.issues = []jira.Issue{
+		{Key: "PROJ-099", Summary: "Add support for private service routing", Status: "In Progress", Priority: "P3", IssueType: "Enhancement", Assignee: "Alex P."},
+		{Key: "PROJ-100", Summary: "Deliver platform foundation milestone", Status: "To Do", Priority: "P4", IssueType: "Epic", Assignee: "Alex P."},
+		{Key: "PROJ-101", Summary: "Build service deployment workflow", Status: "To Do", Priority: "P4", IssueType: "Epic", Assignee: "Alex P.", ParentKey: "PROJ-100"},
+		{Key: "PROJ-102", Summary: "Spike: compare deployment automation options", Status: "To Do", Priority: "P4", IssueType: "Task", Assignee: "Rae S.", ParentKey: "PROJ-101"},
+		{Key: "PROJ-103", Summary: "Create environment provisioning module", Status: "To Do", Priority: "P4", IssueType: "Story", Assignee: "Rae S.", ParentKey: "PROJ-101"},
+	}
+
+	assertGoldenSnapshot(t, "lanes_collapsed_symbols.golden", model.renderIssueWorkspace(model.browserLayout(model.width)))
+}
+
+func TestIssueLayoutModeCyclesWithoutChangingIssueScope(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithViews([]config.IssueView{
+		{Name: "Mine", JQL: "assignee = currentUser()"},
+		{Name: "Sprint", JQL: "sprint in openSprints()"},
+	}, "Mine"))
+	defer model.workers.Stop()
+	model.loading = false
+	model.statusFilter = issueStatusFilterActive
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "First", Status: "To Do"},
+		{Key: "ABC-2", Summary: "Second", Status: "Done"},
+	}
+	originalIssues := append([]jira.Issue{}, model.issues...)
+	originalJQL := model.jql
+	originalView := model.view
+	originalFilter := model.statusFilter
+
+	for _, want := range []issueLayoutMode{issueLayoutTable, issueLayoutWorkbench, issueLayoutLanes} {
+		updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "L", Code: 'L'}))
+		model = updated.(Model)
+		if want == issueLayoutWorkbench {
+			if cmd == nil || !model.commentsLoading || model.commentsRequestKey != "ABC-1" {
+				t.Fatalf("entering Workbench should load selected comments, cmd=%v loading=%v key=%q", cmd != nil, model.commentsLoading, model.commentsRequestKey)
+			}
+		} else if cmd != nil {
+			t.Fatal("non-Workbench layout cycling should remain local")
+		}
+		if model.issueLayout != want {
+			t.Fatalf("issueLayout = %v, want %v", model.issueLayout, want)
+		}
+		event := lastDiagnosticEventOfKindForTest(t, model, diagnosticKindState)
+		if event.Label != "layout" || event.Status != "change" || !strings.Contains(event.Detail, "layout="+model.issueLayoutModeLabel()) {
+			t.Fatalf("layout diagnostic = %#v", event)
+		}
+		if model.jql != originalJQL || model.view != originalView || model.statusFilter != originalFilter || !reflect.DeepEqual(model.issues, originalIssues) {
+			t.Fatalf("layout cycling changed issue scope: jql=%q view=%d filter=%v issues=%#v", model.jql, model.view, model.statusFilter, model.issues)
+		}
+	}
+}
+
+func TestIssueListControlStripShowsViewFilterLayoutAndSort(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithViews([]config.IssueView{
+		{Name: "Mine", JQL: "project = ABC"},
+	}, "Mine"))
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 120
+	model.height = 30
+	model.statusFilter = issueStatusFilterActive
+	model.issueLayout = issueLayoutLanes
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do"}}
+
+	view := model.renderIssueList(model.browserLayout(model.width))
+
+	for _, want := range []string{"View Mine", "Filter Active", "Layout Lanes", "Sort Jira"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in %q", want, view)
+		}
+	}
+}
+
+func TestWorkbenchLayoutRendersSelectedContextPanelOnWideTerminals(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 150
+	model.height = 34
+	model.issueLayout = issueLayoutWorkbench
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Selected story", Status: "To Do", ParentKey: "ABC-0"}}
+	model.comments = map[string][]jira.Comment{
+		"ABC-1": {{ID: "10001", Author: "Sam Person", Body: "Latest update from Jira"}},
+	}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {Issue: model.issues[0], Description: "Existing implementation notes"},
+	}
+
+	view := model.renderIssueWorkspace(model.browserLayout(model.width))
+
+	for _, want := range []string{"Context", "Latest", "Sam P.: Latest update", "Hierarchy", "parent ABC-0", "Description", "Existing implementation notes"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in %q", want, view)
+		}
+	}
+	for _, unwanted := range []string{"Cached", "detail loaded"} {
+		if strings.Contains(view, unwanted) {
+			t.Fatalf("workbench panel should not expose cache internals %q: %q", unwanted, view)
+		}
+	}
+	if strings.Count(view, "ABC-1") != 1 {
+		t.Fatalf("workbench panel should not repeat selected key, view = %q", view)
+	}
+	if strings.Count(view, "Selected story") != 1 {
+		t.Fatalf("workbench panel should not repeat selected summary, view = %q", view)
+	}
+}
+
+func TestWorkbenchLayoutStartsSelectedCommentLoadWhenEntered(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.issueLayout = issueLayoutTable
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "First story", Status: "To Do"}}
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "L", Code: 'L'}))
+	next := updated.(Model)
+
+	if next.issueLayout != issueLayoutWorkbench {
+		t.Fatalf("issueLayout = %v, want Workbench", next.issueLayout)
+	}
+	if !next.commentsLoading || next.commentsRequestKey != "ABC-1" {
+		t.Fatalf("comments loading=%v key=%q, want ABC-1", next.commentsLoading, next.commentsRequestKey)
+	}
+	if cmd == nil {
+		t.Fatal("expected selected comments command when entering Workbench")
+	}
+}
+
+func TestWorkbenchNavigationStartsSelectedCommentLoad(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.issueLayout = issueLayoutWorkbench
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "First story", Status: "To Do"},
+		{Key: "ABC-2", Summary: "Second task", Status: "In Progress"},
+	}
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
+	next := updated.(Model)
+
+	if next.selected != 1 {
+		t.Fatalf("selected = %d, want 1", next.selected)
+	}
+	if !next.commentsLoading || next.commentsRequestKey != "ABC-2" {
+		t.Fatalf("comments loading=%v key=%q, want ABC-2", next.commentsLoading, next.commentsRequestKey)
+	}
+	if cmd == nil {
+		t.Fatal("expected selected comments command in Workbench")
+	}
+}
+
+func TestWorkbenchLayoutPanelChangesWhenSelectionChangesWithoutCachedDetail(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 150
+	model.height = 34
+	model.issueLayout = issueLayoutWorkbench
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "First story", Status: "To Do", IssueType: "Story"},
+		{Key: "ABC-2", Summary: "Second task", Status: "In Progress", IssueType: "Task"},
+	}
+
+	first := model.renderSelectedIssueContextPanel(38)
+	model.moveSelection(1)
+	second := model.renderSelectedIssueContextPanel(38)
+
+	if first == second {
+		t.Fatalf("workbench context did not change after selection moved:\n%s", first)
+	}
+	for _, want := range []string{"Selected", "1 of 2", "Story"} {
+		if !strings.Contains(first, want) {
+			t.Fatalf("first context missing %q:\n%s", want, first)
+		}
+	}
+	for _, want := range []string{"Selected", "2 of 2", "Task"} {
+		if !strings.Contains(second, want) {
+			t.Fatalf("second context missing %q:\n%s", want, second)
+		}
+	}
+}
+
+func TestWorkbenchLayoutFallsBackToTableWhenNarrow(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 100
+	model.height = 30
+	model.issueLayout = issueLayoutWorkbench
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Selected story", Status: "To Do"}}
+
+	view := model.renderIssueWorkspace(model.browserLayout(model.width))
+
+	if strings.Contains(view, "Context") {
+		t.Fatalf("workbench should fall back to table without context panel on narrow terminals: %q", view)
+	}
+	if !strings.Contains(view, "Layout Workbench") {
+		t.Fatalf("control strip should still show selected layout mode: %q", view)
+	}
+}
+
+func TestLanesLayoutGroupsVisibleIssuesByStatus(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 120
+	model.height = 32
+	model.issueLayout = issueLayoutLanes
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "First todo", Status: "To Do", Priority: "P3", Assignee: "Jon C."},
+		{Key: "ABC-2", Summary: "Second todo", Status: "To Do", Priority: "P2", Assignee: "Sam P."},
+		{Key: "ABC-3", Summary: "Doing work", Status: "In Progress", Priority: "P1", Assignee: "Maya R."},
+	}
+
+	view := model.renderIssueWorkspace(model.browserLayout(model.width))
+
+	for _, want := range []string{"To Do 2", "In Progress 1", "ABC-1", "ABC-2", "ABC-3"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in %q", want, view)
+		}
+	}
+}
+
+func TestLanesLayoutOrdersInProgressBeforeToDo(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 120
+	model.height = 32
+	model.issueLayout = issueLayoutLanes
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Possible next work", Status: "To Do"},
+		{Key: "ABC-2", Summary: "Current work", Status: "In Progress"},
+	}
+
+	view := model.renderIssueWorkspace(model.browserLayout(model.width))
+	inProgressIndex := strings.Index(view, "In Progress 1")
+	toDoIndex := strings.Index(view, "To Do 1")
+	if inProgressIndex < 0 || toDoIndex < 0 {
+		t.Fatalf("missing lane headers in %q", view)
+	}
+	if inProgressIndex > toDoIndex {
+		t.Fatalf("in-progress lane should render before to-do lane:\n%s", view)
+	}
+}
+
+func TestLanesLayoutShowsCursorOnSelectedIssue(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 120
+	model.height = 32
+	model.issueLayout = issueLayoutLanes
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "First story", Status: "To Do"},
+		{Key: "ABC-2", Summary: "Second story", Status: "To Do"},
+	}
+	model.selected = 1
+
+	view := model.renderIssueWorkspace(model.browserLayout(model.width))
+
+	if !strings.Contains(view, "➜") {
+		t.Fatalf("lanes view should show selected-row cursor:\n%s", view)
+	}
+	if !strings.Contains(lineContaining(view, "ABC-2"), "➜") {
+		t.Fatalf("cursor should mark selected issue row:\n%s", view)
+	}
+}
+
+func TestLanesLayoutShowsCollapsedParentAffordance(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "emoji"}))
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 120
+	model.height = 32
+	model.issueLayout = issueLayoutLanes
+	model.collapsedIssueKeys = map[string]bool{"ABC-1": true}
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Platform epic", Status: "To Do", Priority: "P3", IssueType: "Epic"},
+		{Key: "ABC-2", Summary: "Child story", Status: "To Do", Priority: "P4", IssueType: "Story", ParentKey: "ABC-1"},
+		{Key: "ABC-3", Summary: "Grandchild task", Status: "To Do", Priority: "P4", IssueType: "Task", ParentKey: "ABC-2"},
+	}
+
+	view := model.renderIssueWorkspace(model.browserLayout(model.width))
+	parentLine := lineContaining(view, "ABC-1")
+
+	if parentLine == "" {
+		t.Fatalf("missing collapsed parent row:\n%s", view)
+	}
+	for _, want := range []string{"🟣▸", "2 hidden"} {
+		if !strings.Contains(parentLine, want) {
+			t.Fatalf("collapsed parent row should include %q, got %q", want, parentLine)
+		}
+	}
+	if strings.Contains(view, "ABC-2") || strings.Contains(view, "ABC-3") {
+		t.Fatalf("collapsed lanes view should hide descendants:\n%s", view)
+	}
+}
+
+func TestLanesLayoutShowsCollapsedAffordanceWithoutLoadedDescendants(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "symbols"}))
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 120
+	model.height = 32
+	model.issueLayout = issueLayoutLanes
+	model.collapsedIssueKeys = map[string]bool{"ABC-1": true}
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Platform epic", Status: "To Do", Priority: "P3", IssueType: "Epic"},
+	}
+
+	view := model.renderIssueWorkspace(model.browserLayout(model.width))
+	parentLine := lineContaining(view, "ABC-1")
+
+	if parentLine == "" {
+		t.Fatalf("missing collapsed parent row:\n%s", view)
+	}
+	if !strings.Contains(parentLine, "◈▸") {
+		t.Fatalf("collapsed row should show collapsed affordance even without loaded descendants: %q", parentLine)
+	}
+}
+
+func TestLanesLayoutShowsCollapsedGlyphInFlatView(t *testing.T) {
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithDisplay(config.Display{SymbolMode: "symbols"}),
+		WithViews([]config.IssueView{{Name: "Plain", JQL: "project = ABC"}}, "Plain"),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 120
+	model.height = 32
+	model.issueLayout = issueLayoutLanes
+	model.collapsedIssueKeys = map[string]bool{"ABC-1": true}
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Platform epic", Status: "To Do", Priority: "P3", IssueType: "Epic"},
+		{Key: "ABC-2", Summary: "Child story", Status: "To Do", Priority: "P4", IssueType: "Story", ParentKey: "ABC-1"},
+	}
+
+	view := model.renderIssueWorkspace(model.browserLayout(model.width))
+	parentLine := lineContaining(view, "ABC-1")
+
+	if parentLine == "" {
+		t.Fatalf("missing collapsed parent row:\n%s", view)
+	}
+	if !strings.Contains(parentLine, "◈▸") {
+		t.Fatalf("flat view collapsed row should show collapsed glyph and type glyph: %q", parentLine)
+	}
+	if strings.Contains(view, "ABC-2") {
+		t.Fatalf("flat view collapsed row should hide loaded descendants:\n%s", view)
+	}
+}
+
+func TestLanesLayoutShowsIssueTypeGlyphs(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "symbols"}))
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 120
+	model.height = 32
+	model.issueLayout = issueLayoutLanes
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Epic", Status: "To Do", IssueType: "Epic"},
+		{Key: "ABC-2", Summary: "Story", Status: "To Do", IssueType: "Story"},
+		{Key: "ABC-3", Summary: "Task", Status: "To Do", IssueType: "Task"},
+		{Key: "ABC-4", Summary: "Enhancement", Status: "To Do", IssueType: "Enhancement"},
+	}
+
+	view := model.renderIssueWorkspace(model.browserLayout(model.width))
+
+	for _, want := range []string{"◈  ABC-1", "▣  ABC-2", "●  ABC-3", "✦  ABC-4"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("lanes view should show issue type glyph %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestLanesLayoutPreservesExpandedHierarchyUnderParent(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "nerd"}))
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 120
+	model.height = 32
+	model.issueLayout = issueLayoutLanes
+	model.selected = 1
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Parent epic", Status: "To Do", IssueType: "Epic"},
+		{Key: "ABC-2", Summary: "Child story", Status: "To Do", IssueType: "Story", ParentKey: "ABC-1"},
+		{Key: "ABC-3", Summary: "Child task", Status: "To Do", IssueType: "Task", ParentKey: "ABC-1"},
+	}
+
+	view := model.renderIssueWorkspace(model.browserLayout(model.width))
+
+	for _, want := range []string{"▾ ABC-1", "➜  ├─    ABC-2", "╰─    ABC-3"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expanded lanes hierarchy missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestLanesLayoutShowsNerdIssueTypeGlyphs(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "nerd"}))
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 120
+	model.height = 32
+	model.issueLayout = issueLayoutLanes
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Epic", Status: "To Do", IssueType: "Epic"},
+		{Key: "ABC-2", Summary: "Story", Status: "To Do", IssueType: "Story"},
+		{Key: "ABC-3", Summary: "Task", Status: "To Do", IssueType: "Task"},
+		{Key: "ABC-4", Summary: "Enhancement", Status: "To Do", IssueType: "Enhancement"},
+	}
+
+	view := model.renderIssueWorkspace(model.browserLayout(model.width))
+
+	for _, want := range []string{"  ABC-1", "  ABC-2", "  ABC-3", "  ABC-4"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("nerd lanes view should show issue type glyph %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestAutoSymbolModeDetectsNerdCapableITermProfile(t *testing.T) {
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("LANG", "en_US.UTF-8")
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LC_CTYPE", "")
+	t.Setenv("TERM_PROGRAM", "iTerm.app")
+	t.Setenv("ITERM_PROFILE", "system-setup")
+
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "auto"}))
+	defer model.workers.Stop()
+
+	if got := model.effectiveSymbolMode(); got != symbolModeNerd {
+		t.Fatalf("effectiveSymbolMode = %q, want %q", got, symbolModeNerd)
+	}
+}
+
+func TestExplicitSymbolModeOverridesNerdDetection(t *testing.T) {
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("LANG", "en_US.UTF-8")
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LC_CTYPE", "")
+	t.Setenv("TERM_PROGRAM", "iTerm.app")
+	t.Setenv("ITERM_PROFILE", "system-setup")
+
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "symbols"}))
+	defer model.workers.Stop()
+
+	if got := model.effectiveSymbolMode(); got != symbolModeSymbols {
+		t.Fatalf("effectiveSymbolMode = %q, want %q", got, symbolModeSymbols)
+	}
+}
+
+func TestLanesLayoutRespectsActiveStatusFilter(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 120
+	model.height = 32
+	model.issueLayout = issueLayoutLanes
+	model.statusFilter = issueStatusFilterActive
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Open work", Status: "To Do"},
+		{Key: "ABC-2", Summary: "Finished work", Status: "Done"},
+	}
+
+	view := model.renderIssueWorkspace(model.browserLayout(model.width))
+
+	if !strings.Contains(view, "To Do 1") || !strings.Contains(view, "ABC-1") {
+		t.Fatalf("active lane should show active issue: %q", view)
+	}
+	if strings.Contains(view, "Done") || strings.Contains(view, "ABC-2") {
+		t.Fatalf("active lane should hide terminal issue: %q", view)
+	}
+}
+
+func TestLanesLayoutEnterStillOpensSelectedIssue(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.issueLayout = issueLayoutLanes
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Open work", Status: "To Do"}}
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("expected detail request command")
+	}
+	if next.mode != modeDetail || next.detailRequestKey != "ABC-1" {
+		t.Fatalf("mode=%v detailRequestKey=%q", next.mode, next.detailRequestKey)
 	}
 }
 
@@ -604,12 +1172,13 @@ func TestRefreshFailurePreservesStaleCachedIssueView(t *testing.T) {
 func TestOrderIssuesPlacesChildrenAfterParent(t *testing.T) {
 	ordered := orderIssues([]jira.Issue{
 		{Key: "ABC-2", ParentKey: "ABC-1"},
+		{Key: "ABC-4", ParentKey: "ABC-2"},
 		{Key: "ABC-3"},
 		{Key: "ABC-1"},
 	}, sortJira)
 
-	keys := []string{ordered[0].Key, ordered[1].Key, ordered[2].Key}
-	want := []string{"ABC-3", "ABC-1", "ABC-2"}
+	keys := []string{ordered[0].Key, ordered[1].Key, ordered[2].Key, ordered[3].Key}
+	want := []string{"ABC-3", "ABC-1", "ABC-2", "ABC-4"}
 	for i := range want {
 		if keys[i] != want[i] {
 			t.Fatalf("keys = %#v", keys)
@@ -868,6 +1437,7 @@ func TestIssueListStatusFilterNavigationSkipsHiddenRows(t *testing.T) {
 	defer model.workers.Stop()
 	model.height = 30
 	model.width = 120
+	model.issueLayout = issueLayoutTable
 	model.statusFilter = issueStatusFilterActive
 	model.selected = 0
 	model.issues = []jira.Issue{
@@ -889,6 +1459,7 @@ func TestIssueListStatusFilterHomeEndUseVisibleRows(t *testing.T) {
 	defer model.workers.Stop()
 	model.height = 30
 	model.width = 120
+	model.issueLayout = issueLayoutTable
 	model.statusFilter = issueStatusFilterActive
 	model.selected = 2
 	model.issues = []jira.Issue{
@@ -908,6 +1479,66 @@ func TestIssueListStatusFilterHomeEndUseVisibleRows(t *testing.T) {
 	next = updated.(Model)
 	if got := next.issues[next.selected].Key; got != "ABC-3" {
 		t.Fatalf("end selected = %s, want ABC-3", got)
+	}
+}
+
+func TestIssueListLanesNavigationUsesVisualOrder(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = PROJ")
+	defer model.workers.Stop()
+	model.height = 30
+	model.width = 120
+	model.issueLayout = issueLayoutLanes
+	model.issues = []jira.Issue{
+		{Key: "PROJ-1", Summary: "Prepare platform work", Status: "To Do", IssueType: "Epic"},
+		{Key: "PROJ-2", Summary: "Implement platform task", Status: "To Do", IssueType: "Task", ParentKey: "PROJ-1"},
+		{Key: "PROJ-3", Summary: "Finish active work", Status: "In Progress", IssueType: "Task"},
+	}
+
+	model.selected = 0
+	model.moveSelection(-1)
+	if got := model.issues[model.selected].Key; got != "PROJ-3" {
+		t.Fatalf("up from first To Do lane issue selected %s, want previous visual lane issue PROJ-3", got)
+	}
+
+	model.moveSelection(1)
+	if got := model.issues[model.selected].Key; got != "PROJ-1" {
+		t.Fatalf("down from In Progress lane issue selected %s, want first To Do lane issue PROJ-1", got)
+	}
+}
+
+func TestIssueListLanesPagingAndFirstLastUseVisualOrder(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = PROJ")
+	defer model.workers.Stop()
+	model.height = 30
+	model.width = 120
+	model.issueLayout = issueLayoutLanes
+	model.issues = []jira.Issue{
+		{Key: "PROJ-1", Summary: "Prepare platform work", Status: "To Do", IssueType: "Epic"},
+		{Key: "PROJ-2", Summary: "Implement platform task", Status: "To Do", IssueType: "Task", ParentKey: "PROJ-1"},
+		{Key: "PROJ-3", Summary: "Finish active work", Status: "In Progress", IssueType: "Task"},
+	}
+
+	model.selected = 0
+	model.pageSelection(-1)
+	if got := model.issues[model.selected].Key; got != "PROJ-3" {
+		t.Fatalf("page up from first To Do lane issue selected %s, want PROJ-3", got)
+	}
+
+	model.pageSelection(1)
+	if got := model.issues[model.selected].Key; got != "PROJ-2" {
+		t.Fatalf("page down from In Progress lane issue selected %s, want last visual issue PROJ-2", got)
+	}
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "g", Code: 'g'}))
+	next := updated.(Model)
+	if got := next.issues[next.selected].Key; got != "PROJ-3" {
+		t.Fatalf("home selected %s, want first visual issue PROJ-3", got)
+	}
+
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "G", Code: 'G'}))
+	next = updated.(Model)
+	if got := next.issues[next.selected].Key; got != "PROJ-2" {
+		t.Fatalf("end selected %s, want last visual issue PROJ-2", got)
 	}
 }
 
@@ -972,7 +1603,7 @@ func TestIssueListRendersCompactHierarchyWithLipglossTree(t *testing.T) {
 
 	view := model.renderIssueList(model.browserLayout(model.width))
 
-	for _, want := range []string{"T  KEY", "◆  ABC-1", "■  ABC-2", "●  ABC-3", "╰─", "▌  ╰─  ■  ABC-2"} {
+	for _, want := range []string{"T  KEY", "◈▾ ABC-1", "▣  ABC-2", "●  ABC-3", "╰─", "➜  ╰─  ▣  ABC-2"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q in %q", want, view)
 		}
@@ -998,7 +1629,7 @@ func TestIssueListSupportsPlainSymbolMode(t *testing.T) {
 
 	view := model.renderIssueList(model.browserLayout(model.width))
 
-	for _, want := range []string{"E  ABC-1", "S  ABC-2"} {
+	for _, want := range []string{"EP- ABC-1", "ST  ABC-2"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q in %q", want, view)
 		}
@@ -1153,7 +1784,7 @@ func TestIssueListNestedTreeKeepsConnectorsNearRows(t *testing.T) {
 
 	for _, line := range []string{childLine, grandchildLine} {
 		connectorColumn := minPositiveVisibleColumn(line, "╰─", "├─")
-		symbolColumn := visibleColumn(line, "■")
+		symbolColumn := visibleColumn(line, "▣")
 		if symbolColumn < 0 {
 			symbolColumn = visibleColumn(line, "●")
 		}
@@ -1298,6 +1929,15 @@ func TestIssueListToggleCollapseFromSelectedNode(t *testing.T) {
 	if view := next.renderIssueList(next.browserLayout(next.width)); strings.Contains(view, "ABC-2") || !strings.Contains(view, "1 hidden") {
 		t.Fatalf("collapsed view = %q", view)
 	}
+	event := lastDiagnosticEventOfKindForTest(t, next, diagnosticKindState)
+	if event.Label != "collapse" || event.Status != "collapsed" {
+		t.Fatalf("collapse diagnostic = %#v", event)
+	}
+	for _, want := range []string{"key=ABC-1", "layout=Lanes", "descendants=1", "collapsed=true", "type=Epic"} {
+		if !strings.Contains(event.Detail, want) {
+			t.Fatalf("collapse diagnostic detail = %q, missing %q", event.Detail, want)
+		}
+	}
 }
 
 func TestIssueListToggleCollapseLeafShowsNotice(t *testing.T) {
@@ -1319,6 +1959,15 @@ func TestIssueListToggleCollapseLeafShowsNotice(t *testing.T) {
 	}
 	if !strings.Contains(next.detailNotice, "No loaded child issues") {
 		t.Fatalf("leaf notice = %q", next.detailNotice)
+	}
+	event := lastDiagnosticEventOfKindForTest(t, next, diagnosticKindState)
+	if event.Label != "collapse" || event.Status != "noop" {
+		t.Fatalf("leaf collapse diagnostic = %#v", event)
+	}
+	for _, want := range []string{"key=ABC-1", "descendants=0", "collapsed=false", "type=Task"} {
+		if !strings.Contains(event.Detail, want) {
+			t.Fatalf("leaf collapse diagnostic detail = %q, missing %q", event.Detail, want)
+		}
 	}
 }
 
@@ -1477,6 +2126,61 @@ func TestApplyActiveIssueViewRepairsSelectionHiddenByPreservedCollapse(t *testin
 	}
 }
 
+func TestApplyActiveIssueViewMergesNestedCachedExpandedChildren(t *testing.T) {
+	now := time.Date(2026, 6, 18, 10, 0, 0, 0, time.UTC)
+	store := newFakeActiveViewStore()
+	store.expandedChildrenRecords = []cache.ExpandedChildrenRecord{
+		{
+			Namespace: "https://example.atlassian.net",
+			ParentKey: "ABC-1",
+			Mode:      string(worker.ExpandModeOpen),
+			Issues: []jira.Issue{
+				{Key: "ABC-2", Summary: "Child story", Status: "To Do", IssueType: "Story", ParentKey: "ABC-1", SubtaskCount: 1},
+			},
+			SyncedAt:  now.Add(-10 * time.Second),
+			FreshTill: now.Add(time.Minute),
+		},
+		{
+			Namespace: "https://example.atlassian.net",
+			ParentKey: "ABC-2",
+			Mode:      string(worker.ExpandModeOpen),
+			Issues: []jira.Issue{
+				{Key: "ABC-3", Summary: "Nested subtask", Status: "To Do", IssueType: "Sub-task", IsSubtask: true, ParentKey: "ABC-2"},
+			},
+			SyncedAt:  now.Add(-10 * time.Second),
+			FreshTill: now.Add(time.Minute),
+		},
+	}
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithActiveViewStore(store, "https://example.atlassian.net"),
+		WithDisplay(config.Display{SymbolMode: "symbols"}),
+	)
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.height = 30
+	model.width = 120
+
+	model.applyActiveIssueView(issueViewCacheRecord{
+		Issues: []jira.Issue{
+			{Key: "ABC-1", Summary: "Parent epic", Status: "To Do", IssueType: "Epic"},
+		},
+		SyncedAt:  now,
+		FreshTill: now.Add(activeViewCacheTTL),
+	}, false)
+
+	if len(model.issues) != 3 {
+		t.Fatalf("issues = %#v lookups=%#v", model.issues, store.expandedChildrenLookups)
+	}
+	view := model.renderIssueWorkspace(model.browserLayout(model.width))
+	for _, want := range []string{"◈▾ ABC-1", "╰─  ▣▾ ABC-2", "╰─  ◇  ABC-3"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing nested cached expanded child %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestIssueRenderLinesPreserveIssueIndexForMissingParentChildRow(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDisplay(config.Display{SymbolMode: "symbols"}))
 	defer model.workers.Stop()
@@ -1565,6 +2269,9 @@ func TestIssueListDoesNotSuppressSubtaskMetadata(t *testing.T) {
 
 	view := model.renderIssueList(model.browserLayout(model.width))
 	childLine := lineContaining(view, "ABC-2")
+	if !strings.Contains(childLine, "◇  ABC-2") {
+		t.Fatalf("subtask row should show a distinct issue-type glyph: %q", childLine)
+	}
 	for _, want := range []string{"To Do", "P4", "Yogi"} {
 		if !strings.Contains(childLine, want) {
 			t.Fatalf("subtask row should keep %q metadata: %q", want, childLine)
@@ -1773,14 +2480,150 @@ func TestPlanningBoardResultStartsFirstBoardSprintsLoad(t *testing.T) {
 	if next.planningBoardID != 100 {
 		t.Fatalf("planningBoardID = %d", next.planningBoardID)
 	}
+	submitted := submittedPlanningSprintMessages(t, cmd)
+	if len(submitted) != 1 {
+		t.Fatalf("submitted count = %d, want 1", len(submitted))
+	}
+	if submitted[0].kind != worker.KindGetBoardSprints {
+		t.Fatalf("kind = %s", submitted[0].kind)
+	}
+}
+
+func TestPlanningBoardResultStartsBoundedSprintLoads(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithPlanningProject("ABC"))
+	defer model.workers.Stop()
+	model.nextRequestID = 10
+	model.activePlanningBoardsReqID = 7
+	model.planningBoardsLoading = true
+
+	next, cmd := model.handlePlanningBoardsResult(worker.Result{
+		ID:   7,
+		Kind: worker.KindGetBoards,
+		GetBoards: &worker.GetBoardsResult{
+			ProjectKey: "ABC",
+			Page: jira.BoardPage{
+				Boards: []jira.Board{
+					{ID: 100, Name: "ABC Scrum"},
+					{ID: 101, Name: "ABC Kanban"},
+					{ID: 102, Name: "ABC Team"},
+				},
+				IsLast: true,
+			},
+		},
+	})
+	if cmd == nil {
+		t.Fatal("expected bounded sprint loading command")
+	}
 	msg := cmd()
-	submitted, ok := msg.(workSubmittedMsg)
+	batch, ok := msg.(tea.BatchMsg)
 	if !ok {
-		t.Fatalf("msg = %#v", msg)
+		t.Fatalf("expected sprint loading batch, got %#v", msg)
 	}
-	if submitted.kind != worker.KindGetBoardSprints {
-		t.Fatalf("kind = %s", submitted.kind)
+	if len(batch) != planningSprintFetchConcurrency {
+		t.Fatalf("batch count = %d, want %d", len(batch), planningSprintFetchConcurrency)
 	}
+	var submitted []workSubmittedMsg
+	for _, sub := range batch {
+		msg, ok := sub().(workSubmittedMsg)
+		if !ok {
+			t.Fatalf("sub command message = %#v", msg)
+		}
+		submitted = append(submitted, msg)
+	}
+	if submitted[0].kind != worker.KindGetBoardSprints || submitted[0].key != "100" {
+		t.Fatalf("first sprint submit = %#v", submitted[0])
+	}
+	if submitted[1].kind != worker.KindGetBoardSprints || submitted[1].key != "101" {
+		t.Fatalf("second sprint submit = %#v", submitted[1])
+	}
+	if len(next.planningSprintQueue) != 1 || next.planningSprintQueue[0] != 102 {
+		t.Fatalf("planningSprintQueue = %#v", next.planningSprintQueue)
+	}
+	if len(next.activePlanningSprintReqIDs) != planningSprintFetchConcurrency {
+		t.Fatalf("active sprint reqs = %#v", next.activePlanningSprintReqIDs)
+	}
+	if !next.planningSprintsLoading {
+		t.Fatal("expected sprint loading while requests are active")
+	}
+}
+
+func TestPlanningSprintResultDrainsQueuedBoardWithinLimit(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithPlanningProject("ABC"))
+	defer model.workers.Stop()
+	model.nextRequestID = 12
+	model.planningSprintsLoading = true
+	model.planningBoardID = 100
+	model.planningBoards = []jira.Board{
+		{ID: 100, Name: "ABC Scrum"},
+		{ID: 101, Name: "ABC Kanban"},
+		{ID: 102, Name: "ABC Team"},
+	}
+	model.activePlanningSprintReqIDs = map[int]int{11: 100, 12: 101}
+	model.planningSprintQueue = []int{102}
+
+	next, cmd := model.handlePlanningSprintsResult(worker.Result{
+		ID:   11,
+		Kind: worker.KindGetBoardSprints,
+		GetBoardSprints: &worker.GetBoardSprintsResult{
+			BoardID: 100,
+			Page: jira.SprintPage{
+				BoardID: 100,
+				Sprints: []jira.Sprint{
+					{ID: 300, BoardID: 100, Name: "Sprint 42", State: "active"},
+				},
+				IsLast: true,
+			},
+		},
+	})
+	if cmd == nil {
+		t.Fatal("expected queued board sprint command")
+	}
+	msg, ok := cmd().(workSubmittedMsg)
+	if !ok {
+		t.Fatalf("queued command message = %#v", msg)
+	}
+	if msg.kind != worker.KindGetBoardSprints || msg.key != "102" {
+		t.Fatalf("queued sprint submit = %#v", msg)
+	}
+	if len(next.activePlanningSprintReqIDs) != planningSprintFetchConcurrency {
+		t.Fatalf("active sprint reqs = %#v", next.activePlanningSprintReqIDs)
+	}
+	if _, ok := next.activePlanningSprintReqIDs[11]; ok {
+		t.Fatalf("completed request still active: %#v", next.activePlanningSprintReqIDs)
+	}
+	if next.activePlanningSprintReqIDs[13] != 102 {
+		t.Fatalf("new active request map = %#v", next.activePlanningSprintReqIDs)
+	}
+	if len(next.planningSprintQueue) != 0 {
+		t.Fatalf("planningSprintQueue = %#v", next.planningSprintQueue)
+	}
+	if got := next.planningSprints[100]; len(got) != 1 || got[0].ID != 300 {
+		t.Fatalf("stored sprints = %#v", got)
+	}
+	if !next.planningSprintsLoading {
+		t.Fatal("expected sprint loading while another request remains active")
+	}
+}
+
+func submittedPlanningSprintMessages(t *testing.T, cmd tea.Cmd) []workSubmittedMsg {
+	t.Helper()
+	msg := cmd()
+	if submitted, ok := msg.(workSubmittedMsg); ok {
+		return []workSubmittedMsg{submitted}
+	}
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("command message = %#v", msg)
+	}
+	submitted := make([]workSubmittedMsg, 0, len(batch))
+	for _, sub := range batch {
+		submittedMsg, ok := sub().(workSubmittedMsg)
+		if !ok {
+			t.Fatalf("sub command message = %#v", submittedMsg)
+		}
+		submitted = append(submitted, submittedMsg)
+	}
+	return submitted
 }
 
 func TestHeaderShowsLoadedSprintMetadata(t *testing.T) {
@@ -1798,6 +2641,29 @@ func TestHeaderShowsLoadedSprintMetadata(t *testing.T) {
 	header := model.renderHeader(model.browserLayout(model.width))
 
 	if !strings.Contains(header, "1 sprint") {
+		t.Fatalf("header = %q", header)
+	}
+}
+
+func TestHeaderShowsLoadedSprintMetadataAcrossBoards(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 140
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1"}}
+	model.planningBoardID = 100
+	model.planningSprints = map[int][]jira.Sprint{
+		100: {{ID: 300, BoardID: 100, Name: "Sprint 42", State: "active"}},
+		101: {
+			{ID: 301, BoardID: 101, Name: "Sprint 43", State: "active"},
+			{ID: 302, BoardID: 101, Name: "Sprint 44", State: "future"},
+		},
+	}
+
+	header := model.renderHeader(model.browserLayout(model.width))
+
+	if !strings.Contains(header, "3 sprints") {
 		t.Fatalf("header = %q", header)
 	}
 }
@@ -1924,13 +2790,35 @@ func TestFooterHelpGroupsCommandsAndFitsWidth(t *testing.T) {
 
 	footer := model.renderFooterHelp(keyContextTable, layout)
 
-	for _, want := range []string{"Issue Table", "? help", "j/k move", "enter open", "|"} {
+	for _, want := range []string{"Issue Lanes", "? help", "j/k move", "enter open", "|"} {
 		if !strings.Contains(footer, want) {
 			t.Fatalf("missing %q in %q", want, footer)
 		}
 	}
 	if lipgloss.Width(footer) > layout.contentWidth {
 		t.Fatalf("footer width = %d, want <= %d: %q", lipgloss.Width(footer), layout.contentWidth, footer)
+	}
+}
+
+func TestFooterHelpNamesCurrentIssueLayout(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.width = 100
+	layout := model.browserLayout(model.width)
+
+	for _, tc := range []struct {
+		mode issueLayoutMode
+		want string
+	}{
+		{issueLayoutLanes, "Issue Lanes"},
+		{issueLayoutWorkbench, "Issue Workbench"},
+		{issueLayoutTable, "Issue Table"},
+	} {
+		model.issueLayout = tc.mode
+		footer := model.renderFooterHelp(keyContextTable, layout)
+		if !strings.Contains(footer, tc.want) {
+			t.Fatalf("layout %v footer missing %q: %q", tc.mode, tc.want, footer)
+		}
 	}
 }
 
@@ -1952,7 +2840,7 @@ func TestHelpIncludesActiveContextBindings(t *testing.T) {
 	}
 
 	view := next.render()
-	for _, want := range []string{"Keyboard Help", "Issue Table", "Collapse or expand the selected issue subtree.", "Load open child issues for the selected parent."} {
+	for _, want := range []string{"Keyboard Help", "Issue Lanes", "Collapse or expand the selected issue subtree.", "Load open child issues for the selected parent."} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q in %q", want, view)
 		}
@@ -2152,8 +3040,11 @@ func TestKeyBindingsDoNotDuplicateKeysWithinContext(t *testing.T) {
 		keyContextLinks,
 		keyContextHierarchy,
 		keyContextActions,
+		keyContextActionPalette,
 		keyContextStatus,
 		keyContextPriority,
+		keyContextLabels,
+		keyContextComponents,
 		keyContextAssignee,
 		keyContextSummary,
 		keyContextComment,
@@ -2223,7 +3114,7 @@ func TestStatePanelsKeepCommandsInFooter(t *testing.T) {
 
 	view := model.render()
 
-	for _, want := range []string{"No Issues", "No issues matched this query.", "Issue Table", "r refresh"} {
+	for _, want := range []string{"No Issues", "No issues matched this query.", "Issue Lanes", "r refresh"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q in %q", want, view)
 		}
@@ -2245,7 +3136,7 @@ func TestErrorStatePanelKeepsCommandsInFooter(t *testing.T) {
 
 	view := model.render()
 
-	for _, want := range []string{"Error", "network unavailable", "Issue Table", "r refresh"} {
+	for _, want := range []string{"Error", "network unavailable", "Issue Lanes", "r refresh"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q in %q", want, view)
 		}
@@ -2451,26 +3342,28 @@ func TestSubmitIssueSearchReturnsFailedResultFromPool(t *testing.T) {
 }
 
 type fakeActiveViewStore struct {
-	record              cache.ActiveViewRecord
-	put                 cache.ActiveViewRecord
-	queryHistory        []cache.QueryHistoryRecord
-	putQueryHistory     cache.QueryHistoryRecord
-	detail              cache.IssueDetailRecord
-	putDetail           cache.IssueDetailRecord
-	comments            cache.IssueCommentsRecord
-	putComments         cache.IssueCommentsRecord
-	deletedComments     string
-	transitions         cache.IssueTransitionsRecord
-	putTransitions      cache.IssueTransitionsRecord
-	deletedTransitions  string
-	editMetadata        cache.IssueEditMetadataRecord
-	putEditMetadata     cache.IssueEditMetadataRecord
-	createIssueTypes    cache.CreateIssueTypesRecord
-	putCreateIssueTypes cache.CreateIssueTypesRecord
-	createFields        cache.CreateFieldsRecord
-	putCreateFields     cache.CreateFieldsRecord
-	expandedChildren    cache.ExpandedChildrenRecord
-	putExpandedChildren cache.ExpandedChildrenRecord
+	record                  cache.ActiveViewRecord
+	put                     cache.ActiveViewRecord
+	queryHistory            []cache.QueryHistoryRecord
+	putQueryHistory         cache.QueryHistoryRecord
+	detail                  cache.IssueDetailRecord
+	putDetail               cache.IssueDetailRecord
+	comments                cache.IssueCommentsRecord
+	putComments             cache.IssueCommentsRecord
+	deletedComments         string
+	transitions             cache.IssueTransitionsRecord
+	putTransitions          cache.IssueTransitionsRecord
+	deletedTransitions      string
+	editMetadata            cache.IssueEditMetadataRecord
+	putEditMetadata         cache.IssueEditMetadataRecord
+	createIssueTypes        cache.CreateIssueTypesRecord
+	putCreateIssueTypes     cache.CreateIssueTypesRecord
+	createFields            cache.CreateFieldsRecord
+	putCreateFields         cache.CreateFieldsRecord
+	expandedChildren        cache.ExpandedChildrenRecord
+	expandedChildrenRecords []cache.ExpandedChildrenRecord
+	expandedChildrenLookups []string
+	putExpandedChildren     cache.ExpandedChildrenRecord
 }
 
 func newFakeActiveViewStore() *fakeActiveViewStore {
@@ -2587,6 +3480,12 @@ func (f *fakeActiveViewStore) PutCreateFields(_ context.Context, record cache.Cr
 }
 
 func (f *fakeActiveViewStore) GetExpandedChildren(_ context.Context, namespace string, parentKey string, mode string) (cache.ExpandedChildrenRecord, bool, error) {
+	f.expandedChildrenLookups = append(f.expandedChildrenLookups, parentKey+":"+mode)
+	for _, record := range f.expandedChildrenRecords {
+		if record.Namespace == namespace && record.ParentKey == parentKey && record.Mode == mode {
+			return record, true, nil
+		}
+	}
 	if f.expandedChildren.Namespace == namespace && f.expandedChildren.ParentKey == parentKey && f.expandedChildren.Mode == mode {
 		return f.expandedChildren, true, nil
 	}

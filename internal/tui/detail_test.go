@@ -12,6 +12,138 @@ import (
 	"github.com/jcharette/jira-tui/internal/worker"
 )
 
+func indexOfDetailTargetForTest(model Model, id string) int {
+	for index, target := range model.detailTargets() {
+		if target.ID == id {
+			return index
+		}
+	}
+	return 0
+}
+
+func TestDetailSectionsUseOverviewFirstWithoutStatusTab(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do"}}
+
+	sections := model.detailSections()
+	got := make([]string, 0, len(sections))
+	for _, section := range sections {
+		got = append(got, section.ID)
+	}
+	wantPrefix := []string{"overview", "comments", "worklog", "hierarchy"}
+	if len(got) < len(wantPrefix) {
+		t.Fatalf("sections = %#v", got)
+	}
+	for index, want := range wantPrefix {
+		if got[index] != want {
+			t.Fatalf("sections = %#v, want prefix %#v", got, wantPrefix)
+		}
+	}
+	for _, id := range got {
+		if id == "status" || id == "description" || id == "actions" {
+			t.Fatalf("section %q should not be a primary tab: %#v", id, got)
+		}
+	}
+}
+
+func TestTicketDetailDefaultsToOverviewTarget(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do"}}
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+
+	target, ok := next.focusedDetailTarget()
+	if !ok || target.ID != "overview" {
+		t.Fatalf("focused target = %#v ok=%v, want overview", target, ok)
+	}
+}
+
+func TestEnterOnStatusFieldStartsTransitionPicker(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do"}}
+	model.detailFocus = indexOfDetailTargetForTest(model, "status")
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("expected transition metadata command")
+	}
+	if !next.transitionLoading || next.transitionRequestKey != "ABC-1" {
+		t.Fatalf("transition state loading=%v key=%q", next.transitionLoading, next.transitionRequestKey)
+	}
+}
+
+func TestRenderFullDetailShowsOverviewControlStrip(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.width = 120
+	model.height = 32
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do", Priority: "P3 - Low", Assignee: "Jon C.", IssueType: "Epic"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {Issue: model.issues[0], Description: "Long description body that should be previewed.", Reporter: "Jon C."},
+	}
+
+	view := model.render()
+
+	for _, want := range []string{"Overview", "Status", "To Do", "Priority", "P3 - Low", "Assignee", "Jon C.", "Description preview"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in %q", want, view)
+		}
+	}
+	if strings.Contains(view, "Description   Hierarchy") || strings.Contains(view, "> Status") {
+		t.Fatalf("old tab layout still visible in %q", view)
+	}
+}
+
+func TestOverviewSummarizesCommentsAndHierarchy(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.width = 120
+	model.height = 32
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Parent", Status: "To Do"},
+		{Key: "ABC-2", Summary: "Child", Status: "To Do", ParentKey: "ABC-1"},
+	}
+	model.comments = map[string][]jira.Comment{
+		"ABC-1": {{ID: "10001", Author: "Sam Person", Body: "Latest update"}},
+	}
+
+	view := model.render()
+
+	for _, want := range []string{"Latest", "Sam P.", "Latest update", "Hierarchy", "1 loaded child"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in %q", want, view)
+		}
+	}
+}
+
+func TestDetailFooterShowsStatusControlAction(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do"}}
+	model.detailFocus = indexOfDetailTargetForTest(model, "status")
+
+	footer := model.renderModelFooterHelp(model.browserLayout(model.width))
+
+	if !strings.Contains(footer, "enter transition") {
+		t.Fatalf("status footer missing transition action: %q", footer)
+	}
+}
+
 func TestDetailFooterKeepsSecondaryCopyActionsInHelp(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()
@@ -32,7 +164,7 @@ func TestDetailFooterKeepsSecondaryCopyActionsInHelp(t *testing.T) {
 	}
 }
 
-func TestDetailTabFocusesEditableFieldsBeforeSections(t *testing.T) {
+func TestDetailTabStartsAtOverviewThenEditableControls(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()
 	model.loading = false
@@ -44,30 +176,30 @@ func TestDetailTabFocusesEditableFieldsBeforeSections(t *testing.T) {
 		"ABC-1": {Issue: model.issues[0]},
 	}
 
-	if target, ok := model.focusedDetailTarget(); !ok || target.ID != "summary" {
+	if target, ok := model.focusedDetailTarget(); !ok || target.ID != "overview" {
 		t.Fatalf("initial target = %#v ok=%v", target, ok)
 	}
 	view := model.render()
-	if !strings.Contains(view, "Story") || !strings.Contains(view, "enter edit") {
-		t.Fatalf("initial field focus should expose summary edit affordance: %q", view)
+	if !strings.Contains(view, "Story") || !strings.Contains(view, "> Overview") {
+		t.Fatalf("initial detail focus should expose overview: %q", view)
 	}
 
 	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "tab", Code: tea.KeyTab}))
 	next := updated.(Model)
-	if target, ok := next.focusedDetailTarget(); !ok || target.ID != "assignee" {
+	if target, ok := next.focusedDetailTarget(); !ok || target.ID != "summary" {
 		t.Fatalf("after first tab target = %#v ok=%v", target, ok)
 	}
 
 	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "tab", Code: tea.KeyTab}))
 	next = updated.(Model)
-	if target, ok := next.focusedDetailTarget(); !ok || target.ID != "priority" {
+	if target, ok := next.focusedDetailTarget(); !ok || target.ID != "status" {
 		t.Fatalf("after second tab target = %#v ok=%v", target, ok)
 	}
 
 	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "tab", Code: tea.KeyTab}))
 	next = updated.(Model)
-	if section, ok := next.focusedDetailSection(); !ok || section.ID != "description" {
-		t.Fatalf("after third tab section = %#v ok=%v", section, ok)
+	if target, ok := next.focusedDetailTarget(); !ok || target.ID != "priority" {
+		t.Fatalf("after third tab target = %#v ok=%v", target, ok)
 	}
 }
 
@@ -85,6 +217,7 @@ func TestDetailEnterOnFocusedSummaryOpensEditor(t *testing.T) {
 	model.editMetadata = map[string]jira.EditMetadata{
 		"ABC-1": {Summary: jira.EditField{ID: "summary", Name: "Summary", Editable: true}},
 	}
+	model.detailFocus = indexOfDetailTargetForTest(model, "summary")
 
 	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
 	next := updated.(Model)
@@ -124,7 +257,7 @@ func TestDetailEnterOnFocusedPriorityOpensPicker(t *testing.T) {
 			},
 		},
 	}
-	model.moveDetailFocus(2)
+	model.detailFocus = indexOfDetailTargetForTest(model, "priority")
 
 	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
 	next := updated.(Model)
@@ -193,7 +326,7 @@ func TestDetailFooterShowsLinkCommandsWhenLinksSelected(t *testing.T) {
 	}
 }
 
-func TestDetailFooterShowsActionCommandsWhenActionsSelected(t *testing.T) {
+func TestDetailFooterShowsActionPaletteCommandWithoutActionsTab(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()
 	model.loading = false
@@ -201,14 +334,16 @@ func TestDetailFooterShowsActionCommandsWhenActionsSelected(t *testing.T) {
 	model.width = 140
 	model.height = 40
 	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", URL: "https://example.test/browse/ABC-1"}}
-	focusDetailSectionForTest(t, &model, "Actions")
 
 	view := model.render()
 
-	for _, want := range []string{"Ticket Detail", "j/k action", "enter focus"} {
+	for _, want := range []string{"Ticket Detail", ". actions"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q in %q", want, view)
 		}
+	}
+	if strings.Contains(view, "> Actions") {
+		t.Fatalf("Actions should not be a primary tab: %q", view)
 	}
 }
 
@@ -276,7 +411,7 @@ func TestSelectedLinksSectionCommandsWorkBeforeActivation(t *testing.T) {
 	}
 }
 
-func TestSelectedActionsSectionCommandsWorkBeforeActivation(t *testing.T) {
+func TestActionsPaletteOpensWithoutActionsSection(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()
 	model.loading = false
@@ -284,28 +419,18 @@ func TestSelectedActionsSectionCommandsWorkBeforeActivation(t *testing.T) {
 	model.width = 120
 	model.height = 40
 	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", URL: "https://example.test/browse/ABC-1"}}
-	focusDetailSectionForTest(t, &model, "Actions")
 
-	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "down", Code: tea.KeyDown}))
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: ".", Code: '.'}))
 	next := updated.(Model)
-	if next.selectedAction != 1 {
-		t.Fatalf("selectedAction = %d", next.selectedAction)
+	if !next.actionPaletteOpen {
+		t.Fatal("expected action palette to open")
 	}
-	if next.detailOffset != 0 {
-		t.Fatalf("detailOffset = %d", next.detailOffset)
-	}
-
-	updated, cmd := next.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
-	next = updated.(Model)
-	if cmd != nil {
-		t.Fatal("expected enter to focus actions before running")
-	}
-	if !next.actionFocus {
-		t.Fatal("expected action focus")
+	if strings.Contains(next.render(), "> Actions") {
+		t.Fatalf("Actions should not be a primary tab: %q", next.render())
 	}
 }
 
-func TestDetailAKeyJumpsToClaudeWhenAIAvailable(t *testing.T) {
+func TestDetailAKeyOpensOverviewInlineAIWhenAvailable(t *testing.T) {
 	model := NewModel(
 		&fakeIssueSearcher{},
 		"project = ABC",
@@ -318,11 +443,14 @@ func TestDetailAKeyJumpsToClaudeWhenAIAvailable(t *testing.T) {
 	model.width = 120
 	model.height = 35
 	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Sanitize this", Status: "To Do"}}
+	model.details = map[string]jira.IssueDetail{"ABC-1": {Issue: model.issues[0], Description: "Current description"}}
 
 	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "a", Code: 'a'}))
 	next := updated.(Model)
 
-	assertFocusedDetailSection(t, next, "Claude")
+	if !next.inlineAIOpen {
+		t.Fatal("expected overview inline AI picker to open")
+	}
 	if next.mode == modeComment {
 		t.Fatal("a should jump to AI when Claude is available, not open comment compose")
 	}
@@ -355,7 +483,7 @@ func TestDetailAKeyDoesNothingWhenAIUnavailable(t *testing.T) {
 	}
 }
 
-func TestDescriptionFocusShowsInlineAIWhenClaudeTicketAssistAvailable(t *testing.T) {
+func TestOverviewFocusShowsInlineAIWhenClaudeTicketAssistAvailable(t *testing.T) {
 	model := NewModel(
 		&fakeIssueSearcher{},
 		"project = ABC",
@@ -369,17 +497,15 @@ func TestDescriptionFocusShowsInlineAIWhenClaudeTicketAssistAvailable(t *testing
 	model.height = 35
 	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Improve this", Status: "To Do"}}
 	model.details = map[string]jira.IssueDetail{"ABC-1": {Issue: model.issues[0], Description: "Old description"}}
-	model.jumpDetailSection("Description")
 
 	view := model.render()
-	if !strings.Contains(view, "a AI") {
+	if !strings.Contains(view, "a ai") {
 		t.Fatalf("expected inline AI footer hint in %q", view)
 	}
 }
 
-func TestDescriptionAKeyOpensInlineAIPicker(t *testing.T) {
+func TestOverviewAKeyOpensInlineAIPicker(t *testing.T) {
 	model := newInlineDescriptionAIModel(t)
-	model.jumpDetailSection("Description")
 
 	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "a"}))
 	next := updated.(Model)
@@ -491,8 +617,8 @@ func TestDetailEscReturnsToTablePreservingSelection(t *testing.T) {
 		t.Fatalf("selected issue changed: selected=%d issues=%#v", next.selected, next.issues)
 	}
 	view := next.render()
-	if !strings.Contains(view, "Issue Table") || !strings.Contains(view, "ABC-2") {
-		t.Fatalf("table view should render selected issue after esc: %q", view)
+	if !strings.Contains(view, "Issue Lanes") || !strings.Contains(view, "ABC-2") {
+		t.Fatalf("issue list should render selected issue after esc: %q", view)
 	}
 }
 
@@ -600,13 +726,12 @@ func TestDetailSectionNavigationJumpsBetweenSections(t *testing.T) {
 			Description: "Run https://example.test/build.\n\n" + strings.Repeat("detail line\n", 20),
 		},
 	}
-	focusDetailSectionForTest(t, &model, "Description")
+	focusDetailSectionForTest(t, &model, "Overview")
 
 	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "tab", Code: tea.KeyTab}))
 	next := updated.(Model)
-	assertFocusedDetailSection(t, next, "Hierarchy")
-	if next.detailOffset != 0 {
-		t.Fatalf("expected tab to select the next section at its saved scroll, offset=%d", next.detailOffset)
+	if next.focusedDetailTargetID() != "summary" {
+		t.Fatalf("expected tab to select summary control, target=%q", next.focusedDetailTargetID())
 	}
 
 	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "h", Code: 'h'}))
@@ -618,8 +743,8 @@ func TestDetailSectionNavigationJumpsBetweenSections(t *testing.T) {
 
 	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "[", Code: '['}))
 	next = updated.(Model)
-	if next.focusedDetailTargetID() != "description" || next.detailOffset != 0 {
-		t.Fatalf("expected [ to select previous focus target at its saved scroll, target=%q offset=%d", next.focusedDetailTargetID(), next.detailOffset)
+	if next.focusedDetailTargetID() != "worklog" || next.detailOffset != 0 {
+		t.Fatalf("expected [ to select previous section target at its saved scroll, target=%q offset=%d", next.focusedDetailTargetID(), next.detailOffset)
 	}
 }
 
@@ -637,7 +762,7 @@ func TestDetailSectionNavigationRendersContextFooter(t *testing.T) {
 			Description: "See https://example.test/build.",
 		},
 	}
-	focusDetailSectionForTest(t, &model, "Description")
+	focusDetailSectionForTest(t, &model, "Overview")
 
 	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "l", Code: 'l'}))
 	next := updated.(Model)
@@ -674,26 +799,25 @@ func TestDetailSectionNavigationRestoresSectionScrollOffsets(t *testing.T) {
 			Description: strings.Repeat("other detail line\n", 30),
 		},
 	}
-	focusDetailSectionForTest(t, &model, "Description")
+	focusDetailSectionForTest(t, &model, "Overview")
 
 	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "pgdown", Code: tea.KeyPgDown}))
 	next := updated.(Model)
-	descriptionOffset := next.detailOffset
-	if descriptionOffset == 0 {
-		t.Fatal("expected description scroll offset to advance")
+	overviewOffset := next.detailOffset
+	if overviewOffset == 0 {
+		t.Fatal("expected overview scroll offset to advance")
 	}
 
-	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "tab", Code: tea.KeyTab}))
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "h", Code: 'h'}))
 	next = updated.(Model)
 	assertFocusedDetailSection(t, next, "Hierarchy")
 	if next.detailOffset != 0 {
 		t.Fatalf("expected hierarchy section at top, offset=%d", next.detailOffset)
 	}
 
-	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "[", Code: '['}))
-	next = updated.(Model)
-	if next.focusedDetailTargetID() != "description" || next.detailOffset != descriptionOffset {
-		t.Fatalf("expected description offset %d to restore, target=%q offset=%d", descriptionOffset, next.focusedDetailTargetID(), next.detailOffset)
+	next.jumpDetailSection("Overview")
+	if next.focusedDetailTargetID() != "overview" || next.detailOffset != overviewOffset {
+		t.Fatalf("expected overview offset %d to restore, target=%q offset=%d", overviewOffset, next.focusedDetailTargetID(), next.detailOffset)
 	}
 
 	next.mode = modeTable
@@ -1134,33 +1258,35 @@ func TestDetailTabsMoveFocusAndActivateSection(t *testing.T) {
 	}
 
 	view := model.render()
-	for _, want := range []string{"Description", "Hierarchy", "Comments", "Actions"} {
+	for _, want := range []string{"Overview", "Comments", "Worklog", "Hierarchy"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing detail tab %q in %q", want, view)
 		}
 	}
-	if strings.Contains(view, " Summary ") {
-		t.Fatalf("summary should not be a detail section tab anymore: %q", view)
+	for _, notWant := range []string{"> Description", "> Actions", "> Status"} {
+		if strings.Contains(view, notWant) {
+			t.Fatalf("legacy tab %q should not be focused in %q", notWant, view)
+		}
 	}
 	if !strings.Contains(view, "Fix production thing") {
-		t.Fatalf("expected focused summary field in %q", view)
+		t.Fatalf("expected ticket summary in %q", view)
 	}
 
 	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "tab", Code: tea.KeyTab}))
 	next := updated.(Model)
-	if next.focusedDetailTargetID() != "assignee" {
+	if next.focusedDetailTargetID() != "summary" {
 		t.Fatalf("focused target = %q", next.focusedDetailTargetID())
 	}
 	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "tab", Code: tea.KeyTab}))
 	next = updated.(Model)
-	if next.focusedDetailTargetID() != "priority" {
+	if next.focusedDetailTargetID() != "status" {
 		t.Fatalf("focused target = %q", next.focusedDetailTargetID())
 	}
-	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "tab", Code: tea.KeyTab}))
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "m", Code: 'm'}))
 	next = updated.(Model)
-	assertFocusedDetailSection(t, next, "Description")
-	if view := next.render(); !strings.Contains(view, "Description") {
-		t.Fatalf("expected focused description section in %q", view)
+	assertFocusedDetailSection(t, next, "Comments")
+	if view := next.render(); !strings.Contains(view, "Comments") {
+		t.Fatalf("expected focused comments section in %q", view)
 	}
 	if next.jql != model.jql {
 		t.Fatalf("detail tab should not switch saved view, jql = %q", next.jql)
@@ -1223,17 +1349,8 @@ func TestTicketDetailFocusedEnterActionsStayConsistent(t *testing.T) {
 			target: "comments",
 			assert: func(t *testing.T, next Model, cmd tea.Cmd) {
 				t.Helper()
-				if cmd != nil || next.mode != modeComment {
-					t.Fatalf("comments enter did not open composer: cmd=%v mode=%v", cmd != nil, next.mode)
-				}
-			},
-		},
-		{
-			target: "actions",
-			assert: func(t *testing.T, next Model, cmd tea.Cmd) {
-				t.Helper()
-				if cmd != nil || !next.actionFocus {
-					t.Fatalf("actions enter did not focus menu: cmd=%v actionFocus=%v", cmd != nil, next.actionFocus)
+				if cmd != nil || !next.commentFocus {
+					t.Fatalf("comments enter did not focus comments: cmd=%v commentFocus=%v", cmd != nil, next.commentFocus)
 				}
 			},
 		},
@@ -1264,13 +1381,12 @@ func TestTicketDetailFocusedSectionFootersAdvertiseActions(t *testing.T) {
 		target string
 		want   []string
 	}{
-		{target: "summary", want: []string{"Ticket Detail", "enter edit"}},
-		{target: "assignee", want: []string{"Ticket Detail", "enter edit"}},
-		{target: "priority", want: []string{"Ticket Detail", "enter edit"}},
+		{target: "summary", want: []string{"Ticket Detail", "enter summary"}},
+		{target: "assignee", want: []string{"Ticket Detail", "enter assignee"}},
+		{target: "priority", want: []string{"Ticket Detail", "enter priority"}},
 		{target: "links", want: []string{"Ticket Detail", "j/k link", "enter focus", "y copy"}},
 		{target: "hierarchy", want: []string{"Ticket Detail", "j/k child", "enter focus"}},
 		{target: "comments", want: []string{"Ticket Detail", "enter add"}},
-		{target: "actions", want: []string{"Ticket Detail", "j/k action", "enter focus"}},
 		{target: "status", want: []string{"Ticket Detail", "enter transition"}},
 	}
 
@@ -1312,12 +1428,12 @@ func TestFullDetailContentRendersFocusedSectionWithPreviews(t *testing.T) {
 
 	content := model.fullDetailContent(90)
 
-	for _, want := range []string{"Description", "First description line."} {
+	for _, want := range []string{"Overview", "Description preview", "First description line."} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("missing focused detail workspace text %q in %q", want, content)
 		}
 	}
-	for _, notWant := range []string{"Collapsed:", "Hierarchy 1", "Comments 1", "Actions"} {
+	for _, notWant := range []string{"Collapsed:", "Hierarchy 1", "Comments 1", "> Actions"} {
 		if strings.Contains(content, notWant) {
 			t.Fatalf("inactive sections should stay in the tab bar, found %q in %q", notWant, content)
 		}
@@ -1378,16 +1494,21 @@ func TestDetailTabsUsePlainActiveMarker(t *testing.T) {
 			Description: "First line.",
 		},
 	}
-	focusDetailSectionForTest(t, &model, "Description")
+	focusDetailSectionForTest(t, &model, "Overview")
 
 	tabs := model.renderDetailTabs(100)
 
-	if !strings.Contains(tabs, "> Description") {
+	if !strings.Contains(tabs, "> Overview") {
 		t.Fatalf("active tab should use a plain selected marker: %q", tabs)
 	}
-	for _, want := range []string{"Hierarchy", "Comments", "Actions"} {
+	for _, want := range []string{"Comments", "Hierarchy"} {
 		if !strings.Contains(tabs, want) {
 			t.Fatalf("missing inactive tab %q in %q", want, tabs)
+		}
+	}
+	for _, notWant := range []string{"Description", "Actions", "Status"} {
+		if strings.Contains(tabs, notWant) {
+			t.Fatalf("legacy tab %q should not render in %q", notWant, tabs)
 		}
 	}
 }
@@ -1411,7 +1532,7 @@ func TestDetailTabsDoNotTruncateWithEllipses(t *testing.T) {
 	if strings.Contains(tabs, "...") {
 		t.Fatalf("detail tabs should not truncate with ellipses: %q", tabs)
 	}
-	for _, want := range []string{"Desc", "Tree", "Com", "Act"} {
+	for _, want := range []string{"Over", "Com", "Work", "Tree"} {
 		if !strings.Contains(tabs, want) {
 			t.Fatalf("missing compact detail tab %q in %q", want, tabs)
 		}
@@ -1537,7 +1658,7 @@ func TestDetailHierarchyFocusSelectsAndOpensChild(t *testing.T) {
 	}
 }
 
-func TestDetailActionsFocusRunsSafeActionsAndBlocksMetadataActions(t *testing.T) {
+func TestDetailActionsPaletteListsSafeActionsAndGenericEditFields(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()
 	model.mode = modeDetail
@@ -1547,18 +1668,35 @@ func TestDetailActionsFocusRunsSafeActionsAndBlocksMetadataActions(t *testing.T)
 	model.details = map[string]jira.IssueDetail{
 		"ABC-1": {Issue: model.issues[0], Description: "Parent description."},
 	}
-	focusDetailSectionForTest(t, &model, "Actions")
+	model.editMetadata = map[string]jira.EditMetadata{
+		"ABC-1": {
+			Fields: []jira.EditField{
+				{ID: "summary", Name: "Summary", Editable: true},
+				{ID: "customfield_10016", Name: "Story Points", Editable: true, SchemaType: "number"},
+				{ID: "customfield_10017", Name: "Team", Editable: false},
+			},
+		},
+	}
 
-	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: ".", Code: '.'}))
 	next := updated.(Model)
-	if !next.actionFocus {
-		t.Fatal("expected action focus")
+	if !next.actionPaletteOpen {
+		t.Fatal("expected action palette")
 	}
 	view := next.render()
-	for _, want := range []string{"ACTION", "STATE", "Add Comment", "ready", "Edit Summary", "Change Priority"} {
+	for _, want := range []string{"Ticket Actions", "Add Comment", "Edit Summary", "Change Priority"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q in %q", want, view)
 		}
+	}
+	if !strings.Contains(view, "Edit Story Points") {
+		t.Fatalf("metadata-backed generic field should render:\n%s", view)
+	}
+	if strings.Contains(view, "Edit Team") {
+		t.Fatalf("non-editable metadata field should not render:\n%s", view)
+	}
+	if strings.Count(view, "Edit Summary") != 1 {
+		t.Fatalf("supported metadata field should not duplicate Edit Summary:\n%s", view)
 	}
 	if strings.Contains(view, "Edit Fields") {
 		t.Fatalf("generic Edit Fields action should not render: %q", view)
@@ -1573,13 +1711,29 @@ func TestDetailActionsFocusRunsSafeActionsAndBlocksMetadataActions(t *testing.T)
 	if actionLabels["priority"].Label != "Change Priority" || !actionLabels["priority"].Enabled {
 		t.Fatalf("priority action = %#v", actionLabels["priority"])
 	}
+	if actionLabels["labels"].Label != "Edit Labels" || !actionLabels["labels"].Enabled {
+		t.Fatalf("labels action = %#v", actionLabels["labels"])
+	}
+	if actionLabels["components"].Label != "Edit Components" || !actionLabels["components"].Enabled {
+		t.Fatalf("components action = %#v", actionLabels["components"])
+	}
 	if _, ok := actionLabels["edit-fields"]; ok {
 		t.Fatalf("generic edit-fields action should be removed: %#v", actionLabels["edit-fields"])
 	}
-	if actionLabels["subtask"].Label != "Create Subtask" || actionLabels["subtask"].Enabled {
+	storyPoints := actionLabels["field:customfield_10016"]
+	if storyPoints.Label != "Edit Story Points" || !storyPoints.Enabled {
+		t.Fatalf("story points action = %#v", storyPoints)
+	}
+	if !strings.Contains(storyPoints.Description, "number") {
+		t.Fatalf("story points description should include schema context: %#v", storyPoints)
+	}
+	if !strings.Contains(storyPoints.Description, "generic editor") {
+		t.Fatalf("story points description should include generic editor context: %#v", storyPoints)
+	}
+	if actionLabels["subtask"].Label != "Create Subtask" || !actionLabels["subtask"].Enabled {
 		t.Fatalf("subtask action = %#v", actionLabels["subtask"])
 	}
-	if activeKeyContext(next) != keyContextActions {
+	if activeKeyContext(next) != keyContextActionPalette {
 		t.Fatalf("activeKeyContext = %q", activeKeyContext(next))
 	}
 
@@ -1596,11 +1750,218 @@ func TestDetailActionsFocusRunsSafeActionsAndBlocksMetadataActions(t *testing.T)
 	model.selectedAction = detailActionIndexForTest(t, model.detailActions(), "subtask")
 	updated, cmd = model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
 	next = updated.(Model)
-	if cmd != nil {
-		t.Fatal("disabled subtask action should not produce command")
+	if !next.createOpen {
+		t.Fatal("subtask action should open create modal")
 	}
-	if !strings.Contains(next.detailNotice, "needs Jira metadata") {
+	if next.createParentKey != "ABC-1" {
+		t.Fatalf("createParentKey = %q", next.createParentKey)
+	}
+	if cmd == nil {
+		t.Fatal("subtask action should request create metadata")
+	}
+}
+
+func TestActionPaletteOpensAndFiltersDetailActions(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.width = 110
+	model.height = 34
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do", Priority: "Medium"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {Issue: model.issues[0]},
+	}
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: ".", Code: '.'}))
+	next := updated.(Model)
+	if cmd != nil {
+		t.Fatal("opening the action palette should not submit work")
+	}
+	if !next.actionPaletteOpen {
+		t.Fatal("expected action palette to open")
+	}
+	if activeKeyContext(next) != keyContextActionPalette {
+		t.Fatalf("activeKeyContext = %q", activeKeyContext(next))
+	}
+
+	view := next.render()
+	for _, want := range []string{"Ticket Actions", "ABC-1", "Filter", "Edit Summary", "Change Priority", "Transition Status"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("palette missing %q in:\n%s", want, view)
+		}
+	}
+
+	for _, key := range []tea.KeyMsg{
+		tea.KeyPressMsg(tea.Key{Text: "p", Code: 'p'}),
+		tea.KeyPressMsg(tea.Key{Text: "r", Code: 'r'}),
+		tea.KeyPressMsg(tea.Key{Text: "i", Code: 'i'}),
+	} {
+		updated, _ = next.Update(key)
+		next = updated.(Model)
+	}
+	if next.actionPaletteFilter != "pri" {
+		t.Fatalf("actionPaletteFilter = %q", next.actionPaletteFilter)
+	}
+	view = next.render()
+	if !strings.Contains(view, "Change Priority") {
+		t.Fatalf("filtered palette missing priority action:\n%s", view)
+	}
+	if strings.Contains(view, "Edit Summary") {
+		t.Fatalf("filtered palette should hide non-matching summary action:\n%s", view)
+	}
+}
+
+func TestActionPaletteRunsFilteredActionThroughExistingWorkflow(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do", Priority: "Medium"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {Issue: model.issues[0]},
+	}
+	model.openActionPalette()
+	for _, key := range []tea.KeyMsg{
+		tea.KeyPressMsg(tea.Key{Text: "p", Code: 'p'}),
+		tea.KeyPressMsg(tea.Key{Text: "r", Code: 'r'}),
+		tea.KeyPressMsg(tea.Key{Text: "i", Code: 'i'}),
+	} {
+		updated, _ := model.Update(key)
+		model = updated.(Model)
+	}
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("expected priority metadata command from action palette")
+	}
+	if next.actionPaletteOpen {
+		t.Fatal("action palette should close after running an action")
+	}
+	if !next.priorityFocus {
+		t.Fatal("expected priority focus")
+	}
+	if !next.priorityMetadataLoading {
+		t.Fatal("priorityMetadataLoading should be true")
+	}
+	if next.priorityMetadataRequestKey != "ABC-1" {
+		t.Fatalf("priorityMetadataRequestKey = %q", next.priorityMetadataRequestKey)
+	}
+}
+
+func TestActionPaletteFindsUnsupportedEditFieldWithoutSubmitting(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do", Priority: "Medium"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {Issue: model.issues[0]},
+	}
+	model.editMetadata = map[string]jira.EditMetadata{
+		"ABC-1": {
+			Fields: []jira.EditField{{
+				ID:              "customfield_10016",
+				Name:            "Story Points",
+				Editable:        true,
+				SchemaType:      "array",
+				SchemaItems:     "option",
+				AutoCompleteURL: "https://example.atlassian.net/rest/api/3/customFieldOption/suggest",
+			}},
+		},
+	}
+	model.openActionPalette()
+	for _, key := range []tea.KeyMsg{
+		tea.KeyPressMsg(tea.Key{Text: "s", Code: 's'}),
+		tea.KeyPressMsg(tea.Key{Text: "t", Code: 't'}),
+		tea.KeyPressMsg(tea.Key{Text: "o", Code: 'o'}),
+		tea.KeyPressMsg(tea.Key{Text: "r", Code: 'r'}),
+		tea.KeyPressMsg(tea.Key{Text: "y", Code: 'y'}),
+	} {
+		updated, _ := model.Update(key)
+		model = updated.(Model)
+	}
+
+	view := model.render()
+	if !strings.Contains(view, "Edit Story Points") {
+		t.Fatalf("filtered palette missing unsupported field:\n%s", view)
+	}
+	if !strings.Contains(view, "autocomplete") {
+		t.Fatalf("filtered palette should describe option source:\n%s", view)
+	}
+	if strings.Contains(view, "Edit Summary") {
+		t.Fatalf("filtered palette should hide non-matching summary action:\n%s", view)
+	}
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+	if cmd != nil {
+		t.Fatal("unsupported field should not submit work")
+	}
+	if next.actionPaletteOpen {
+		t.Fatal("action palette should close after selecting unsupported field")
+	}
+	if !strings.Contains(next.detailNotice, "Story Points") || !strings.Contains(next.detailNotice, "field-specific workflow") {
 		t.Fatalf("detailNotice = %q", next.detailNotice)
+	}
+}
+
+func TestDetailActionsMenuStartsGenericEditFieldEditor(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do", Priority: "Medium"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {Issue: model.issues[0]},
+	}
+	model.editMetadata = map[string]jira.EditMetadata{
+		"ABC-1": {
+			Fields: []jira.EditField{{
+				ID:         "customfield_10016",
+				Name:       "Story Points",
+				Editable:   true,
+				SchemaType: "number",
+				Operations: []string{"set"},
+			}},
+		},
+	}
+	model.actionFocus = true
+	model.selectedAction = detailActionIndexForTest(t, model.detailActions(), "field:customfield_10016")
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+	if cmd != nil {
+		t.Fatal("cached generic field metadata should not submit work")
+	}
+	if !next.genericFieldFocus {
+		t.Fatal("expected generic field focus")
+	}
+	if activeKeyContext(next) != keyContextGenericField {
+		t.Fatalf("activeKeyContext = %q", activeKeyContext(next))
+	}
+	view := next.render()
+	if !strings.Contains(view, "Edit Story Points") || !strings.Contains(view, "enter save") {
+		t.Fatalf("generic field editor did not render:\n%s", view)
+	}
+
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "8", Code: '8'}))
+	next = updated.(Model)
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next = updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("expected generic field update command")
+	}
+	if !next.genericFieldSubmitting {
+		t.Fatal("genericFieldSubmitting should be true")
+	}
+	if next.genericFieldSubmitKey != "ABC-1" || next.genericFieldSubmitValue.FieldID != "customfield_10016" || next.genericFieldSubmitValue.Text != "8" {
+		t.Fatalf("generic submit = %s/%#v", next.genericFieldSubmitKey, next.genericFieldSubmitValue)
 	}
 }
 
@@ -1664,6 +2025,66 @@ func TestDetailActionsMenuStartsPriorityEditor(t *testing.T) {
 	}
 }
 
+func TestDetailActionsMenuStartsLabelsEditor(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {Issue: model.issues[0], Labels: []string{"platform", "backend"}},
+	}
+	model.actionFocus = true
+	model.selectedAction = detailActionIndexForTest(t, model.detailActions(), "labels")
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("expected labels metadata command from Actions menu")
+	}
+	if !next.labelsFocus {
+		t.Fatal("expected labels focus")
+	}
+	if !next.labelsMetadataLoading {
+		t.Fatal("labelsMetadataLoading should be true")
+	}
+	if next.labelsMetadataRequestKey != "ABC-1" {
+		t.Fatalf("labelsMetadataRequestKey = %q", next.labelsMetadataRequestKey)
+	}
+}
+
+func TestDetailActionsMenuStartsComponentsEditor(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {Issue: model.issues[0], Components: []string{"API"}},
+	}
+	model.actionFocus = true
+	model.selectedAction = detailActionIndexForTest(t, model.detailActions(), "components")
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("expected components metadata command from Actions menu")
+	}
+	if !next.componentsFocus {
+		t.Fatal("expected components focus")
+	}
+	if !next.componentsMetadataLoading {
+		t.Fatal("componentsMetadataLoading should be true")
+	}
+	if next.componentsMetadataRequestKey != "ABC-1" {
+		t.Fatalf("componentsMetadataRequestKey = %q", next.componentsMetadataRequestKey)
+	}
+}
+
 func TestDetailActionsMenuStartsStatusTransition(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()
@@ -1718,6 +2139,114 @@ func TestDetailActionsMenuStartsAssigneePicker(t *testing.T) {
 	}
 	if !strings.Contains(next.render(), "Change Assignee") {
 		t.Fatalf("missing assignee modal in %q", next.render())
+	}
+}
+
+func TestDetailActionsMenuStartsIssueLinkEditor(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {Issue: model.issues[0]},
+	}
+	model.issueLinkTypes = []jira.IssueLinkType{{ID: "10000", Name: "Blocks", Inward: "is blocked by", Outward: "blocks"}}
+	model.actionFocus = true
+	model.selectedAction = detailActionIndexForTest(t, model.detailActions(), "link-issue")
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("issue link editor should use cached link types without submitting work")
+	}
+	if !next.issueLinkFocus {
+		t.Fatal("issueLinkFocus should be true")
+	}
+	if activeKeyContext(next) != keyContextIssueLink {
+		t.Fatalf("activeKeyContext = %q", activeKeyContext(next))
+	}
+	if !strings.Contains(next.render(), "Link Issue") || !strings.Contains(next.render(), "ABC-1 blocks target") {
+		t.Fatalf("missing issue link modal in %q", next.render())
+	}
+
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "J", Code: 'J'}))
+	next = updated.(Model)
+	if next.issueLinkTargetDraft != "J" {
+		t.Fatalf("issueLinkTargetDraft = %q", next.issueLinkTargetDraft)
+	}
+	if next.selectedIssueLinkRelation != 0 {
+		t.Fatalf("typing should not move relation selection: %d", next.selectedIssueLinkRelation)
+	}
+
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "down", Code: tea.KeyDown}))
+	next = updated.(Model)
+	if next.selectedIssueLinkRelation != 1 {
+		t.Fatalf("selectedIssueLinkRelation = %d", next.selectedIssueLinkRelation)
+	}
+
+	next.issueLinkTargetDraft = "ABC-2"
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next = updated.(Model)
+	if cmd == nil {
+		t.Fatal("issue link submit should enqueue worker request")
+	}
+	if !next.issueLinkSubmitting {
+		t.Fatal("issueLinkSubmitting should be true")
+	}
+	if next.issueLinkSubmitRequest.SourceKey != "ABC-1" || next.issueLinkSubmitRequest.TargetKey != "ABC-2" || next.issueLinkSubmitRequest.Direction != "inward" {
+		t.Fatalf("issueLinkSubmitRequest = %#v", next.issueLinkSubmitRequest)
+	}
+}
+
+func TestDetailActionsMenuStartsWorklogEditor(t *testing.T) {
+	now := time.Date(2026, 6, 19, 9, 30, 0, 0, time.UTC)
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.now = func() time.Time { return now }
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {Issue: model.issues[0]},
+	}
+	model.actionFocus = true
+	model.selectedAction = detailActionIndexForTest(t, model.detailActions(), "log-work")
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("worklog editor should open locally")
+	}
+	if !next.worklogFocus {
+		t.Fatal("worklogFocus should be true")
+	}
+	if activeKeyContext(next) != keyContextWorklog {
+		t.Fatalf("activeKeyContext = %q", activeKeyContext(next))
+	}
+	if !strings.Contains(next.render(), "Log Work") || !strings.Contains(next.render(), "Duration") {
+		t.Fatalf("missing worklog modal in %q", next.render())
+	}
+
+	next.worklogTimeDraft = "45m"
+	next.worklogCommentDraft = "Reviewed ABC-2"
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next = updated.(Model)
+	if cmd == nil {
+		t.Fatal("worklog submit should enqueue worker request")
+	}
+	if !next.worklogSubmitting {
+		t.Fatal("worklogSubmitting should be true")
+	}
+	if next.worklogSubmitKey != "ABC-1" || next.worklogSubmitRequest.TimeSpent != "45m" || next.worklogSubmitRequest.Comment != "Reviewed ABC-2" {
+		t.Fatalf("worklog submit = %s/%#v", next.worklogSubmitKey, next.worklogSubmitRequest)
+	}
+	if !next.worklogSubmitRequest.Started.Equal(now) {
+		t.Fatalf("Started = %v", next.worklogSubmitRequest.Started)
 	}
 }
 
@@ -1898,7 +2427,7 @@ func TestStatusSectionEnterLoadsAvailableTransitions(t *testing.T) {
 	model.details = map[string]jira.IssueDetail{
 		"ABC-1": {Issue: model.issues[0]},
 	}
-	model.jumpDetailSection("Status")
+	model.detailFocus = indexOfDetailTargetForTest(model, "status")
 
 	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
 	next := updated.(Model)
@@ -1936,7 +2465,7 @@ func TestStatusSectionUsesFreshPersistentTransitions(t *testing.T) {
 	model.height = 30
 	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do"}}
 	model.details = map[string]jira.IssueDetail{"ABC-1": {Issue: model.issues[0]}}
-	model.jumpDetailSection("Status")
+	model.detailFocus = indexOfDetailTargetForTest(model, "status")
 
 	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
 	next := updated.(Model)
@@ -1971,7 +2500,7 @@ func TestStatusTransitionPickerRendersTransitionsAndSelection(t *testing.T) {
 	}
 	model.transitionFocus = true
 	model.selectedTransition = 1
-	model.jumpDetailSection("Status")
+	model.detailFocus = indexOfDetailTargetForTest(model, "status")
 
 	view := model.render()
 
@@ -2001,7 +2530,7 @@ func TestStatusTransitionPickerRendersAsOverlayDialog(t *testing.T) {
 	}
 	model.transitionFocus = true
 	model.selectedTransition = 1
-	model.jumpDetailSection("Status")
+	model.detailFocus = indexOfDetailTargetForTest(model, "status")
 
 	view := model.render()
 
@@ -2028,7 +2557,7 @@ func TestStatusTransitionSubmitTransitionsSelectedIssue(t *testing.T) {
 	}
 	model.transitionFocus = true
 	model.selectedTransition = 1
-	model.jumpDetailSection("Status")
+	model.detailFocus = indexOfDetailTargetForTest(model, "status")
 
 	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
 	next := updated.(Model)
@@ -2062,13 +2591,13 @@ func TestStatusTransitionBlocksUnsupportedRequiredFields(t *testing.T) {
 				Name:     "Done",
 				ToStatus: "Done",
 				Fields: []jira.TransitionField{
-					{ID: "customfield_10010", Name: "Root Cause", Required: true, SchemaType: "string"},
+					{ID: "customfield_10010", Name: "Asset", Required: true, SchemaType: "object"},
 				},
 			},
 		},
 	}
 	model.transitionFocus = true
-	model.jumpDetailSection("Status")
+	model.detailFocus = indexOfDetailTargetForTest(model, "status")
 
 	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
 	next := updated.(Model)
@@ -2079,8 +2608,231 @@ func TestStatusTransitionBlocksUnsupportedRequiredFields(t *testing.T) {
 	if next.transitionSubmitting {
 		t.Fatal("transitionSubmitting should be false")
 	}
-	if !strings.Contains(next.detailNotice, "Root Cause") {
+	if !strings.Contains(next.detailNotice, "Asset") {
 		t.Fatalf("detailNotice = %q", next.detailNotice)
+	}
+}
+
+func TestStatusTransitionFieldFormSubmitsCustomOptionField(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do"}}
+	model.transitions = map[string][]jira.Transition{
+		"ABC-1": {
+			{
+				ID:       "31",
+				Name:     "Done",
+				ToStatus: "Done",
+				Fields: []jira.TransitionField{
+					{
+						ID:         "customfield_10010",
+						Name:       "Deployment Environment",
+						Required:   true,
+						SchemaType: "option",
+						AllowedValues: []jira.FieldOption{
+							{ID: "20001", Name: "Staging"},
+							{ID: "20002", Name: "Production"},
+						},
+					},
+				},
+			},
+		},
+	}
+	model.transitionFocus = true
+	model.detailFocus = indexOfDetailTargetForTest(model, "status")
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+	if cmd != nil {
+		t.Fatal("required option field should open the field form before submitting")
+	}
+	if !next.transitionFieldEditing {
+		t.Fatal("transition field form should open")
+	}
+	if view := next.render(); !strings.Contains(view, "Deployment Environment") || !strings.Contains(view, "not selected") {
+		t.Fatalf("missing custom option field in form:\n%s", view)
+	}
+
+	next.transitionFieldSelections["customfield_10010"] = 1
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next = updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("expected transition submit command")
+	}
+	if len(next.transitionSubmitFields) != 1 {
+		t.Fatalf("transitionSubmitFields = %#v", next.transitionSubmitFields)
+	}
+	field := next.transitionSubmitFields[0]
+	if field.FieldID != "customfield_10010" || field.SchemaType != "option" || field.Option.Name != "Production" {
+		t.Fatalf("transition field = %#v", field)
+	}
+}
+
+func TestStatusTransitionFieldFormSubmitsTextDateUserAndMultiSelectFields(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 110
+	model.height = 36
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do"}}
+	model.transitions = map[string][]jira.Transition{
+		"ABC-1": {
+			{
+				ID:       "31",
+				Name:     "Done",
+				ToStatus: "Done",
+				Fields: []jira.TransitionField{
+					{ID: "customfield_10020", Name: "Root Cause", Required: true, SchemaType: "string"},
+					{ID: "customfield_10021", Name: "Target Date", Required: true, SchemaType: "date"},
+					{
+						ID:         "customfield_10022",
+						Name:       "Reviewer",
+						Required:   true,
+						SchemaType: "user",
+						AllowedValues: []jira.FieldOption{
+							{ID: "abc-123", Name: "Jane Doe"},
+						},
+					},
+					{
+						ID:          "customfield_10023",
+						Name:        "Impacted Areas",
+						Required:    true,
+						SchemaType:  "array",
+						SchemaItems: "option",
+						AllowedValues: []jira.FieldOption{
+							{ID: "1", Name: "Backend"},
+							{ID: "2", Name: "Frontend"},
+						},
+					},
+				},
+			},
+		},
+	}
+	model.transitionFocus = true
+	model.detailFocus = indexOfDetailTargetForTest(model, "status")
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+	if cmd != nil {
+		t.Fatal("required fields should open the field form before submitting")
+	}
+	if !next.transitionFieldEditing {
+		t.Fatal("transition field form should open")
+	}
+	view := next.render()
+	for _, want := range []string{"Root Cause", "Target Date", "Reviewer", "Impacted Areas"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in transition form:\n%s", want, view)
+		}
+	}
+
+	next.transitionFieldDrafts["customfield_10020"] = "Root cause text"
+	next.transitionFieldDrafts["customfield_10021"] = "2026-06-20"
+	next.transitionFieldSelections["customfield_10022"] = 0
+	next.transitionFieldMultiSelections["customfield_10023"] = map[int]bool{0: true, 1: true}
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next = updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("expected transition submit command")
+	}
+	if len(next.transitionSubmitFields) != 4 {
+		t.Fatalf("transitionSubmitFields = %#v", next.transitionSubmitFields)
+	}
+	gotByField := make(map[string]jira.TransitionFieldValue, len(next.transitionSubmitFields))
+	for _, field := range next.transitionSubmitFields {
+		gotByField[field.FieldID] = field
+	}
+	if gotByField["customfield_10020"].Text != "Root cause text" {
+		t.Fatalf("text field = %#v", gotByField["customfield_10020"])
+	}
+	if gotByField["customfield_10021"].Text != "2026-06-20" {
+		t.Fatalf("date field = %#v", gotByField["customfield_10021"])
+	}
+	if gotByField["customfield_10022"].Option.ID != "abc-123" {
+		t.Fatalf("user field = %#v", gotByField["customfield_10022"])
+	}
+	if len(gotByField["customfield_10023"].Options) != 2 {
+		t.Fatalf("multi-select field = %#v", gotByField["customfield_10023"])
+	}
+}
+
+func TestStatusTransitionFieldAutocompleteLoadsOptions(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 110
+	model.height = 36
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do"}}
+	model.transitions = map[string][]jira.Transition{
+		"ABC-1": {
+			{
+				ID:       "31",
+				Name:     "Done",
+				ToStatus: "Done",
+				Fields: []jira.TransitionField{
+					{
+						ID:              "customfield_10022",
+						Name:            "Reviewer",
+						Required:        true,
+						SchemaType:      "user",
+						AutoCompleteURL: "https://example.atlassian.net/rest/api/3/user/picker?fieldName=customfield_10022",
+					},
+				},
+			},
+		},
+	}
+	model.transitionFocus = true
+	model.detailFocus = indexOfDetailTargetForTest(model, "status")
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+	updated, cmd := next.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
+	next = updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("expected transition autocomplete option request command")
+	}
+	if !next.transitionFieldOptionsLoading["customfield_10022"] {
+		t.Fatalf("transitionFieldOptionsLoading = %#v", next.transitionFieldOptionsLoading)
+	}
+	if next.transitionFieldOptionsQuery["customfield_10022"] != "j" {
+		t.Fatalf("transitionFieldOptionsQuery = %#v", next.transitionFieldOptionsQuery)
+	}
+	if !strings.Contains(next.render(), "Loading Jira options") {
+		t.Fatalf("expected loading state:\n%s", next.render())
+	}
+
+	updated, _ = next.Update(workerResultMsg{result: worker.Result{
+		ID:   next.activeTransitionFieldOptionsReqID,
+		Kind: worker.KindSearchFieldOptions,
+		SearchFieldOptions: &worker.SearchFieldOptionsResult{
+			FieldID: "customfield_10022",
+			Query:   "j",
+			Options: []jira.FieldOption{{ID: "abc-123", Name: "Jane Doe"}, {ID: "def-456", Name: "John Doe"}},
+		},
+	}})
+	next = updated.(Model)
+	if next.transitionFieldOptionsLoading["customfield_10022"] {
+		t.Fatalf("transitionFieldOptionsLoading = %#v", next.transitionFieldOptionsLoading)
+	}
+	transition := next.transitions["ABC-1"][0]
+	if len(transition.Fields[0].AllowedValues) != 2 {
+		t.Fatalf("AllowedValues = %#v", transition.Fields[0].AllowedValues)
+	}
+	if next.transitionFieldSelections["customfield_10022"] != 0 {
+		t.Fatalf("selection = %d", next.transitionFieldSelections["customfield_10022"])
+	}
+	view := next.render()
+	if !strings.Contains(view, "Jane Doe") || !strings.Contains(view, "John Doe") {
+		t.Fatalf("expected autocomplete options in transition picker:\n%s", view)
 	}
 }
 
@@ -2115,7 +2867,7 @@ func TestStatusTransitionFieldFormSubmitsResolutionAndComment(t *testing.T) {
 		},
 	}
 	model.transitionFocus = true
-	model.jumpDetailSection("Status")
+	model.detailFocus = indexOfDetailTargetForTest(model, "status")
 
 	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
 	next := updated.(Model)
@@ -2272,7 +3024,7 @@ func TestDetailEnterOnFocusedAssigneeOpensTypeaheadPicker(t *testing.T) {
 	model.details = map[string]jira.IssueDetail{
 		"ABC-1": {Issue: model.issues[0]},
 	}
-	model.moveDetailFocus(1)
+	model.detailFocus = indexOfDetailTargetForTest(model, "assignee")
 
 	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
 	next := updated.(Model)
@@ -2306,7 +3058,8 @@ func TestDetailEnterOnFocusedAssigneeOpensTypeaheadPicker(t *testing.T) {
 		ID:   next.assigneeSearchReqID,
 		Kind: worker.KindSearchUsers,
 		SearchUsers: &worker.SearchUsersResult{
-			Query: "j",
+			Query:    "j",
+			IssueKey: "ABC-1",
 			Users: []jira.User{
 				{AccountID: "abc-123", DisplayName: "Jane Doe"},
 				{AccountID: "def-456", DisplayName: "Jon Charette"},
@@ -2641,7 +3394,7 @@ func TestAssigneePickerUsesCachedUserSearch(t *testing.T) {
 	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do", Assignee: "Jane Doe"}}
 	model.assigneeFocus = true
 	model.assigneeQuery = "Jo"
-	model.cacheUserSearch("jon", []jira.User{{AccountID: "abc-123", DisplayName: "Jon Charette"}})
+	model.cacheAssignableUserSearch("ABC-1", "jon", []jira.User{{AccountID: "abc-123", DisplayName: "Jon Charette"}})
 
 	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "n", Code: 'n'}))
 	next := updated.(Model)
@@ -2657,6 +3410,68 @@ func TestAssigneePickerUsesCachedUserSearch(t *testing.T) {
 	}
 	if !strings.Contains(next.render(), "Jon Charette") {
 		t.Fatalf("missing cached user in %q", next.render())
+	}
+}
+
+func TestAssigneePickerDoesNotUseGlobalUserSearchCache(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do", Assignee: "Jane Doe"}}
+	model.assigneeFocus = true
+	model.assigneeQuery = "Jo"
+	model.cacheUserSearch("jon", []jira.User{{AccountID: "abc-123", DisplayName: "Jon Charette"}})
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "n", Code: 'n'}))
+	next := updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("global user cache should not satisfy issue-scoped assignee search")
+	}
+	if !next.assigneeSearchLoading {
+		t.Fatal("assigneeSearchLoading should be true")
+	}
+}
+
+func TestAssigneePickerUsesIssueScopedAssignableSearch(t *testing.T) {
+	searcher := &fakeIssueSearcher{
+		assignableUsers: []jira.User{{AccountID: "def-456", DisplayName: "John Doe"}},
+	}
+	model := NewModel(searcher, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do", Assignee: "Jane Doe"}}
+	model.assigneeFocus = true
+	model.assigneeQuery = "Jo"
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "h", Code: 'h'}))
+	next := updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("expected assignable user search command")
+	}
+	if msg := cmd(); msg == nil {
+		t.Fatal("expected work submitted message")
+	}
+	resultMsg := next.waitForWorkerResult()()
+	result, ok := resultMsg.(workerResultMsg)
+	if !ok {
+		t.Fatalf("worker result = %#v", resultMsg)
+	}
+	updated, _ = next.Update(result)
+	next = updated.(Model)
+
+	if searcher.assignableIssueKey != "ABC-1" || searcher.assignableQuery != "Joh" {
+		t.Fatalf("assignable search = issue %q query %q", searcher.assignableIssueKey, searcher.assignableQuery)
+	}
+	if len(next.assigneeUsers) != 1 || next.assigneeUsers[0].AccountID != "def-456" {
+		t.Fatalf("assigneeUsers = %#v", next.assigneeUsers)
 	}
 }
 
@@ -3017,6 +3832,205 @@ func TestSummaryUpdateSuccessUpdatesIssueAndDetailSummary(t *testing.T) {
 		t.Fatalf("detail issue summary = %q", next.details["ABC-1"].Issue.Summary)
 	}
 	if !strings.Contains(next.detailNotice, "Summary updated") {
+		t.Fatalf("detailNotice = %q", next.detailNotice)
+	}
+}
+
+func TestLabelsEditorSubmitsWorkerBackedUpdate(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {Issue: model.issues[0], Labels: []string{"backend"}},
+	}
+	model.labelsFocus = true
+	model.labelsEditing = true
+	model.labelsDirty = true
+	model.labelsDraft = "platform, backend, needs-review"
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("expected labels submit command")
+	}
+	if !next.labelsSubmitting {
+		t.Fatal("labelsSubmitting should be true")
+	}
+	if next.labelsSubmitKey != "ABC-1" {
+		t.Fatalf("labelsSubmitKey = %q", next.labelsSubmitKey)
+	}
+	want := []string{"platform", "backend", "needs-review"}
+	if !labelsEqual(next.labelsSubmitValue, want) {
+		t.Fatalf("labelsSubmitValue = %#v", next.labelsSubmitValue)
+	}
+	if !strings.Contains(next.detailNotice, "Updating labels") {
+		t.Fatalf("detailNotice = %q", next.detailNotice)
+	}
+}
+
+func TestLabelsEditorUnchangedDoesNotSubmit(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {Issue: model.issues[0], Labels: []string{"backend", "platform"}},
+	}
+	model.labelsFocus = true
+	model.labelsEditing = true
+	model.labelsDirty = true
+	model.labelsDraft = "platform, backend"
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("unchanged labels should not submit")
+	}
+	if !next.labelsEditing {
+		t.Fatal("unchanged labels should keep editor open")
+	}
+	if !strings.Contains(next.detailNotice, "Labels unchanged") {
+		t.Fatalf("detailNotice = %q", next.detailNotice)
+	}
+}
+
+func TestLabelsUpdateSuccessUpdatesIssueDetailLabels(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {Issue: model.issues[0], Labels: []string{"backend"}},
+	}
+	model.activeLabelsReqID = 71
+	model.labelsSubmitting = true
+	model.labelsEditing = true
+	model.labelsSubmitKey = "ABC-1"
+
+	updated, _ := model.Update(workerResultMsg{result: worker.Result{
+		ID:   71,
+		Kind: worker.KindUpdateLabels,
+		UpdateLabels: &worker.UpdateLabelsResult{
+			Key:      "ABC-1",
+			Labels:   []string{"platform", "backend"},
+			SyncedAt: time.Now(),
+		},
+	}})
+	next := updated.(Model)
+
+	if next.labelsSubmitting {
+		t.Fatal("labelsSubmitting should be false")
+	}
+	if next.labelsEditing {
+		t.Fatal("labelsEditing should be false")
+	}
+	if !labelsEqual(next.details["ABC-1"].Labels, []string{"platform", "backend"}) {
+		t.Fatalf("detail labels = %#v", next.details["ABC-1"].Labels)
+	}
+	if !strings.Contains(next.detailNotice, "Labels updated") {
+		t.Fatalf("detailNotice = %q", next.detailNotice)
+	}
+}
+
+func TestComponentsPickerTogglesAndSubmitsWorkerBackedUpdate(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {Issue: model.issues[0], Components: []string{"API"}},
+	}
+	model.editMetadata = map[string]jira.EditMetadata{
+		"ABC-1": {
+			Components: jira.EditField{
+				ID:       "components",
+				Name:     "Components",
+				Editable: true,
+				AllowedValues: []jira.FieldOption{
+					{ID: "101", Name: "Platform"},
+					{ID: "102", Name: "API"},
+				},
+			},
+		},
+	}
+	model = model.beginComponentsEditing(model.editMetadata["ABC-1"])
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: " ", Code: tea.KeySpace}))
+	next := updated.(Model)
+	if !next.componentsDirty {
+		t.Fatal("componentsDirty should be true after toggling")
+	}
+	if !next.selectedComponents["101"] {
+		t.Fatalf("selectedComponents = %#v", next.selectedComponents)
+	}
+	view := next.render()
+	if !strings.Contains(view, "Platform") || !strings.Contains(view, "Selected: Platform, API") {
+		t.Fatalf("components picker view missing selection:\n%s", view)
+	}
+
+	updated, cmd := next.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected components submit command")
+	}
+	if !next.componentsSubmitting {
+		t.Fatal("componentsSubmitting should be true")
+	}
+	if next.componentsSubmitKey != "ABC-1" {
+		t.Fatalf("componentsSubmitKey = %q", next.componentsSubmitKey)
+	}
+	if len(next.componentsSubmitValue) != 2 {
+		t.Fatalf("componentsSubmitValue = %#v", next.componentsSubmitValue)
+	}
+}
+
+func TestComponentsUpdateSuccessUpdatesIssueDetailComponents(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {Issue: model.issues[0], Components: []string{"API"}},
+	}
+	model.activeComponentsReqID = 81
+	model.componentsSubmitting = true
+	model.componentsFocus = true
+	model.componentsSubmitKey = "ABC-1"
+
+	updated, _ := model.Update(workerResultMsg{result: worker.Result{
+		ID:   81,
+		Kind: worker.KindUpdateComponents,
+		UpdateComponents: &worker.UpdateComponentsResult{
+			Key: "ABC-1",
+			Components: []jira.FieldOption{
+				{ID: "101", Name: "Platform"},
+				{ID: "102", Name: "API"},
+			},
+			SyncedAt: time.Now(),
+		},
+	}})
+	next := updated.(Model)
+
+	if next.componentsSubmitting {
+		t.Fatal("componentsSubmitting should be false")
+	}
+	if next.componentsFocus {
+		t.Fatal("componentsFocus should be false")
+	}
+	if !labelsEqual(next.details["ABC-1"].Components, []string{"Platform", "API"}) {
+		t.Fatalf("detail components = %#v", next.details["ABC-1"].Components)
+	}
+	if !strings.Contains(next.detailNotice, "Components updated") {
 		t.Fatalf("detailNotice = %q", next.detailNotice)
 	}
 }

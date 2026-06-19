@@ -10,6 +10,7 @@ import (
 	lipglosstable "github.com/charmbracelet/lipgloss/table"
 	"github.com/jcharette/jira-tui/internal/jira"
 	"github.com/jcharette/jira-tui/internal/linkdetect"
+	"github.com/jcharette/jira-tui/internal/worker"
 )
 
 type detailLink struct {
@@ -22,10 +23,12 @@ type detailLink struct {
 }
 
 type detailAction struct {
-	ID          string
-	Label       string
-	Description string
-	Enabled     bool
+	ID             string
+	Label          string
+	Description    string
+	Enabled        bool
+	DisabledState  string
+	DisabledReason string
 }
 
 type detailSection struct {
@@ -65,7 +68,7 @@ func (m Model) renderFullDetail(layout browserLayout) string {
 	headerWidth := max(32, layout.contentWidth-4)
 	header := m.renderDetailTitleLine(headerWidth) + "\n" +
 		m.renderDetailSummaryLine(headerWidth) + "\n" +
-		m.renderDetailHeaderMeta(headerWidth) + "\n" +
+		m.renderDetailControlStrip(headerWidth) + "\n" +
 		m.renderDetailTabs(headerWidth)
 	if overlay := m.renderDetailOverlay(layout); overlay != "" {
 		body = placeDetailOverlay(body, overlay, m.fullDetailRows())
@@ -116,8 +119,32 @@ func (m Model) renderDetailOverlay(layout browserLayout) string {
 	if m.priorityFocus || m.prioritySubmitting {
 		return m.renderPriorityDialog(width)
 	}
+	if m.labelsMetadataLoading {
+		return m.renderLabelsLoadingDialog(width)
+	}
+	if m.labelsFocus || m.labelsSubmitting {
+		return m.renderLabelsDialog(width)
+	}
+	if m.componentsMetadataLoading {
+		return m.renderComponentsLoadingDialog(width)
+	}
+	if m.componentsFocus || m.componentsSubmitting {
+		return m.renderComponentsDialog(width)
+	}
+	if m.genericFieldMetadataLoading {
+		return m.renderGenericFieldLoadingDialog(width)
+	}
+	if m.genericFieldFocus || m.genericFieldSubmitting {
+		return m.renderGenericFieldDialog(width)
+	}
 	if m.assigneeFocus || m.assigneeSubmitting {
 		return m.renderAssigneeDialog(width)
+	}
+	if m.issueLinkFocus || m.issueLinkSubmitting {
+		return m.renderIssueLinkDialog(width)
+	}
+	if m.worklogFocus || m.worklogSubmitting {
+		return m.renderWorklogDialog(width)
 	}
 	if m.transitionFocus || m.transitionSubmitting {
 		return m.renderStatusTransitionDialog(width)
@@ -152,6 +179,26 @@ func (m Model) renderPriorityLoadingDialog(width int) string {
 	bodyWidth := min(max(24, width-12), 60)
 	body := m.detailStatusBlock("Loading priority metadata...", bodyWidth, false)
 	return m.renderDetailDialog(width, "Change Priority", selected.Key, body, "esc cancel")
+}
+
+func (m Model) renderLabelsLoadingDialog(width int) string {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return ""
+	}
+	bodyWidth := min(max(24, width-12), 60)
+	body := m.detailStatusBlock("Loading labels metadata...", bodyWidth, false)
+	return m.renderDetailDialog(width, "Edit Labels", selected.Key, body, "esc cancel")
+}
+
+func (m Model) renderComponentsLoadingDialog(width int) string {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return ""
+	}
+	bodyWidth := min(max(24, width-12), 60)
+	body := m.detailStatusBlock("Loading components metadata...", bodyWidth, false)
+	return m.renderDetailDialog(width, "Edit Components", selected.Key, body, "esc cancel")
 }
 
 func (m Model) renderDetailDialog(width int, title, subtitle, body, footer string) string {
@@ -230,6 +277,72 @@ func (m Model) renderPriorityDialog(width int) string {
 		lines = append(lines, "", m.renderDetailNotice(m.detailNotice, bodyWidth))
 	}
 	return m.renderDetailDialog(width, "Change Priority", selected.Key, strings.Join(lines, "\n"), "j/k select  enter apply  esc cancel")
+}
+
+func (m Model) renderLabelsDialog(width int) string {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return ""
+	}
+	bodyWidth := min(max(24, width-12), 60)
+	lines := []string{
+		m.theme.Muted.Render("Current: ") + m.theme.Text.Render(displayValue(strings.Join(m.currentIssueLabels(selected.Key), ", "), "No labels")),
+		m.theme.Muted.Render("Labels"),
+		m.configuredLabelsEditor(bodyWidth, 3).View(),
+	}
+	if m.labelsSubmitting && m.labelsSubmitKey == selected.Key {
+		lines = append(lines, "", m.detailStatusBlock("Updating labels...", bodyWidth, false))
+	}
+	if m.detailNotice != "" {
+		lines = append(lines, "", m.renderDetailNotice(m.detailNotice, bodyWidth))
+	}
+	return m.renderDetailDialog(width, "Edit Labels", selected.Key, strings.Join(lines, "\n"), "comma-separated  enter save  esc cancel")
+}
+
+func (m Model) renderComponentsDialog(width int) string {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return ""
+	}
+	bodyWidth := min(max(24, width-12), 64)
+	m.configureComponentsFilterEditor(bodyWidth)
+	selectedOptions := m.selectedComponentOptions(selected.Key)
+	lines := []string{
+		m.theme.Muted.Render("Current: ") + m.theme.Text.Render(displayValue(strings.Join(m.currentIssueComponents(selected.Key), ", "), "No components")),
+		m.theme.Muted.Render("Selected: ") + m.theme.Text.Render(displayValue(strings.Join(componentNamesFromOptions(selectedOptions), ", "), "No components")),
+		m.theme.Muted.Render("Filter"),
+		m.componentsFilterEditor.View(),
+	}
+	if m.componentsSubmitting && m.componentsSubmitKey == selected.Key {
+		lines = append(lines, "", m.detailStatusBlock("Updating components...", bodyWidth, false))
+	} else {
+		options := m.componentOptions(selected.Key)
+		matches := m.filteredComponentIndexes()
+		if len(options) == 0 {
+			lines = append(lines, "", m.detailEmptyState("No Jira component values are available.", bodyWidth))
+		} else if len(matches) == 0 {
+			lines = append(lines, "", m.detailEmptyState("No Jira components matched.", bodyWidth))
+		} else {
+			cursor := clamp(m.selectedComponent, 0, len(matches)-1)
+			choices := make([]choiceListOption, 0, len(matches))
+			for _, optionIndex := range matches {
+				option := options[optionIndex]
+				label := displayValue(option.Name, option.ID)
+				if m.selectedComponents[componentSelectionKey(option)] {
+					label = "[x] " + label
+				} else {
+					label = "[ ] " + label
+				}
+				choices = append(choices, choiceListOption{Label: label})
+			}
+			lines = append(lines, "")
+			lines = append(lines, m.renderChoiceList(choices, cursor, bodyWidth, createPickerMaxRows)...)
+		}
+	}
+	if m.detailNotice != "" {
+		lines = append(lines, "", m.renderDetailNotice(m.detailNotice, bodyWidth))
+	}
+	return m.renderDetailDialog(width, "Edit Components", selected.Key, strings.Join(lines, "\n"), "type filter  space toggle  enter save  esc cancel")
 }
 
 func (m Model) renderAssigneeDialog(width int) string {
@@ -336,23 +449,65 @@ func (m Model) renderTransitionFieldForm(width int) string {
 		if field.Required {
 			required = " required"
 		}
-		switch field.ID {
-		case "resolution":
+		switch {
+		case transitionFieldUsesMultiSelect(field):
+			value := m.transitionMultiSelectedLabel(field)
+			if value == "" {
+				value = "none selected"
+			}
+			lines = append(lines, labelStyle.Render(marker+" "+field.Name+required)+m.theme.Muted.Render("  ")+m.theme.Text.Render(value))
+			if index == clamp(m.selectedTransitionField, 0, len(fields)-1) && len(field.AllowedValues) > 0 {
+				lines = append(lines, m.transitionFieldChoiceListLines(field, width)...)
+			}
+		case transitionFieldUsesPicker(field):
 			value := "not selected"
 			if selected, ok := m.transitionSelectedOption(field); ok {
 				value = displayValue(selected.Name, selected.ID)
 			}
 			lines = append(lines, labelStyle.Render(marker+" "+field.Name+required)+m.theme.Muted.Render("  ")+m.theme.Text.Render(value))
-		case "comment":
+			if index == clamp(m.selectedTransitionField, 0, len(fields)-1) && len(field.AllowedValues) > 0 {
+				lines = append(lines, m.transitionFieldChoiceListLines(field, width)...)
+			}
+			if strings.TrimSpace(field.AutoCompleteURL) != "" {
+				filter := strings.TrimSpace(m.transitionFieldFilters[field.ID])
+				if filter != "" {
+					lines = append(lines, m.theme.Muted.Render("  search "+filter))
+				}
+				if m.transitionFieldOptionsLoading[field.ID] {
+					lines = append(lines, m.detailStatusBlock("Loading Jira options...", width, false))
+				} else if err := m.transitionFieldOptionsErr[field.ID]; err != nil {
+					lines = append(lines, m.detailStatusBlock("Options failed: "+err.Error(), width, true))
+				} else if len(field.AllowedValues) == 0 {
+					lines = append(lines, m.detailEmptyState("Type to search Jira options.", width))
+				}
+			}
+		case transitionFieldUsesText(field):
 			value := strings.TrimSpace(m.transitionFieldDrafts[field.ID])
 			if value == "" {
-				value = "no comment"
+				value = "empty"
+				if field.ID == "comment" {
+					value = "no comment"
+				}
 			}
 			lines = append(lines, labelStyle.Render(marker+" "+field.Name+required))
 			lines = append(lines, m.theme.Input.Width(width).Height(3).Render(truncate(value, width)))
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+func (m Model) transitionFieldChoiceListLines(field jira.TransitionField, width int) []string {
+	options := make([]choiceListOption, 0, len(field.AllowedValues))
+	for index, option := range field.AllowedValues {
+		label := displayValue(option.Name, option.ID)
+		if transitionFieldUsesMultiSelect(field) && m.transitionFieldMultiSelections[field.ID][index] {
+			label = "[x] " + label
+		} else if transitionFieldUsesMultiSelect(field) {
+			label = "[ ] " + label
+		}
+		options = append(options, choiceListOption{Label: label})
+	}
+	return m.renderChoiceList(options, m.transitionFieldSelections[field.ID], width, createPickerMaxRows)
 }
 
 func supportedTransitionFields(fields []jira.TransitionField) []jira.TransitionField {
@@ -366,8 +521,42 @@ func supportedTransitionFields(fields []jira.TransitionField) []jira.TransitionF
 }
 
 func isSupportedTransitionField(field jira.TransitionField) bool {
-	switch field.ID {
-	case "resolution", "comment":
+	if field.ID == "resolution" || field.ID == "comment" {
+		return true
+	}
+	if strings.HasPrefix(strings.TrimSpace(field.ID), "customfield_") && (transitionFieldUsesPicker(field) || transitionFieldUsesMultiSelect(field) || transitionFieldUsesText(field)) {
+		return true
+	}
+	return false
+}
+
+func transitionFieldUsesPicker(field jira.TransitionField) bool {
+	if field.ID == "resolution" {
+		return true
+	}
+	schemaType := strings.ToLower(strings.TrimSpace(field.SchemaType))
+	if transitionFieldUsesMultiSelect(field) {
+		return false
+	}
+	return (len(field.AllowedValues) > 0 || strings.TrimSpace(field.AutoCompleteURL) != "") && (schemaType == "option" || schemaType == "priority" || schemaType == "user" || schemaType == "")
+}
+
+func transitionFieldUsesMultiSelect(field jira.TransitionField) bool {
+	schemaType := strings.ToLower(strings.TrimSpace(field.SchemaType))
+	if schemaType != "array" {
+		return false
+	}
+	schemaItems := strings.ToLower(strings.TrimSpace(field.SchemaItems))
+	return len(field.AllowedValues) > 0 && (schemaItems == "option" || schemaItems == "priority" || schemaItems == "user" || schemaItems == "")
+}
+
+func transitionFieldUsesText(field jira.TransitionField) bool {
+	if field.ID == "comment" {
+		return true
+	}
+	schemaType := strings.ToLower(strings.TrimSpace(field.SchemaType))
+	switch schemaType {
+	case "string", "text", "textarea", "date", "datetime", "number":
 		return true
 	default:
 		return false
@@ -424,6 +613,8 @@ func (m Model) detailRenderContext() (detailRenderContext, bool) {
 
 func (m Model) renderDetailSection(section detailSection, ctx detailRenderContext, width int) string {
 	switch section.ID {
+	case "overview":
+		return m.renderOverviewSection(ctx, width)
 	case "description":
 		if ctx.hasDetail {
 			return m.renderDescription(ctx.description, width)
@@ -441,6 +632,8 @@ func (m Model) renderDetailSection(section detailSection, ctx detailRenderContex
 		return m.renderHierarchySection(ctx.display, width)
 	case "comments":
 		return m.renderComments(ctx.display.Key, width)
+	case "worklog":
+		return m.renderWorklogs(ctx.display.Key, width)
 	case "actions":
 		return m.renderActionsSection(width)
 	case "status":
@@ -523,6 +716,35 @@ func (m Model) renderDetailHeaderMeta(width int) string {
 	return ""
 }
 
+func (m Model) renderDetailControlStrip(width int) string {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return ""
+	}
+	detail, hasDetail := m.details[selected.Key]
+	display := m.displayIssueForDetail(selected, detail, hasDetail)
+	parts := []string{
+		m.detailMetaPartWithStyle("Status", displayValue(display.Status, "Unknown")+" v", m.focusedDetailTargetID() == "status"),
+		m.detailMetaPartWithStyle("Priority", displayValue(display.Priority, "Unknown")+" v", m.focusedDetailTargetID() == "priority"),
+		m.detailMetaPartWithStyle("Assignee", shortName(displayValue(display.Assignee, "Unassigned"))+" v", m.focusedDetailTargetID() == "assignee"),
+	}
+	if hasDetail {
+		parts = append(parts, m.detailMetaPart("Updated", formatTime(detail.Updated)))
+	}
+	if hasDetail && strings.TrimSpace(detail.Reporter) != "" && detail.Reporter != "Unknown" {
+		parts = append(parts, m.detailMetaPart("Reporter", shortName(detail.Reporter)))
+	}
+	separator := m.theme.Muted.Render("   ")
+	for len(parts) > 0 {
+		line := strings.Join(parts, separator)
+		if lipgloss.Width(line) <= width {
+			return line
+		}
+		parts = parts[:len(parts)-1]
+	}
+	return ""
+}
+
 func (m Model) detailMetaPart(label string, value string) string {
 	return m.theme.Muted.Render(label+" ") + m.theme.Text.Render(value)
 }
@@ -549,13 +771,76 @@ func (m Model) displayIssueForDetail(selected jira.Issue, detail jira.IssueDetai
 	return display
 }
 
+func (m Model) renderOverviewSection(ctx detailRenderContext, width int) string {
+	lines := []string{m.detailSectionHeader("overview", "Overview", "", width)}
+	lines = append(lines, "", m.renderOverviewLatest(ctx.display.Key, width))
+	lines = append(lines, "", m.renderOverviewDescription(ctx, width))
+	lines = append(lines, "", m.renderOverviewHierarchy(ctx.display, width))
+	lines = append(lines, "", m.detailEmptyState("Press . for Ticket Actions.", width))
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) renderOverviewLatest(key string, width int) string {
+	header := m.theme.Muted.Render("Latest")
+	if comments, loaded := m.comments[key]; loaded {
+		if len(comments) == 0 {
+			return header + "\n" + m.detailEmptyState("No comments yet.", width)
+		}
+		comment := comments[len(comments)-1]
+		body := singleLine(comment.Body)
+		if body == "" {
+			body = "Comment has no text."
+		}
+		return header + "\n" + m.theme.Text.Render(shortName(comment.Author)+": "+truncate(body, max(24, width-4)))
+	}
+	if m.commentsLoading && m.commentsRequestKey == key {
+		return header + "\n" + m.detailStatusBlock("Loading comments...", width, false)
+	}
+	if m.commentsErr != nil && m.commentsRequestKey == key {
+		return header + "\n" + m.detailStatusBlock("Comments failed: "+m.commentsErr.Error(), width, true)
+	}
+	return header + "\n" + m.detailEmptyState("Comments not loaded.", width)
+}
+
+func (m Model) renderOverviewDescription(ctx detailRenderContext, width int) string {
+	header := m.theme.Muted.Render("Description preview")
+	if !ctx.hasDetail && m.detailLoading && m.detailRequestKey == ctx.selected.Key {
+		return header + "\n" + m.detailStatusBlock("Loading issue detail...", width, false)
+	}
+	if !ctx.hasDetail && m.detailErr != nil && m.detailRequestKey == ctx.selected.Key {
+		return header + "\n" + m.detailStatusBlock("Detail failed: "+m.detailErr.Error(), width, true)
+	}
+	description := ctx.description
+	description = strings.TrimSpace(description)
+	if description == "" {
+		return header + "\n" + m.detailEmptyState("No description.", width)
+	}
+	lines := strings.Split(wrapRichText(description, max(24, width)), "\n")
+	if len(lines) > 3 {
+		lines = append(lines[:3], m.theme.Muted.Render("..."))
+	}
+	return header + "\n" + m.renderRichDescriptionBody(strings.Join(lines, "\n"), width)
+}
+
+func (m Model) renderOverviewHierarchy(issue jira.Issue, width int) string {
+	header := m.theme.Muted.Render("Hierarchy")
+	children := m.currentHierarchyChildrenFor(issue.Key)
+	switch len(children) {
+	case 0:
+		return header + "\n" + m.renderHierarchyEmptyState(issue, width)
+	case 1:
+		return header + "\n" + m.theme.Text.Render("1 loaded child")
+	default:
+		return header + "\n" + m.theme.Text.Render(fmt.Sprintf("%d loaded children", len(children)))
+	}
+}
+
 func (m Model) detailSections() []detailSection {
 	sections := []detailSection{
-		{ID: "description", Label: "Description", Short: "Desc"},
-		{ID: "hierarchy", Label: "Hierarchy", Short: "Tree"},
+		{ID: "overview", Label: "Overview", Short: "Over"},
 		{ID: "comments", Label: "Comments", Short: "Com"},
-		{ID: "actions", Label: "Actions", Short: "Act"},
-		{ID: "status", Label: "Status", Short: "Stat"},
+		{ID: "worklog", Label: "Worklog", Short: "Work"},
+		{ID: "hierarchy", Label: "Hierarchy", Short: "Tree"},
 	}
 	if m.claudeAvailable() {
 		sections = append(sections, detailSection{ID: "claude", Label: "Claude", Short: "AI"})
@@ -572,19 +857,26 @@ func (m Model) detailSections() []detailSection {
 			description = detail.Description
 			issueLinks = detail.IssueLinks
 		}
-		if childCount := len(m.hierarchyRows(display.Key)); childCount > 0 {
-			sections[1].Badge = fmt.Sprintf("%d", childCount)
-		}
 		if comments, loaded := m.comments[display.Key]; loaded {
-			sections[2].Badge = fmt.Sprintf("%d", len(comments))
+			sections[1].Badge = fmt.Sprintf("%d", len(comments))
 		} else if m.commentsLoading && m.commentsRequestKey == display.Key {
-			sections[2].Badge = "..."
+			sections[1].Badge = "..."
 		} else if m.commentsErr != nil && m.commentsRequestKey == display.Key {
+			sections[1].Badge = "!"
+		}
+		if worklogs, loaded := m.worklogs[display.Key]; loaded {
+			sections[2].Badge = fmt.Sprintf("%d", len(worklogs))
+		} else if m.worklogsLoading && m.worklogsRequestKey == display.Key {
+			sections[2].Badge = "..."
+		} else if m.worklogsErr != nil && m.worklogsRequestKey == display.Key {
 			sections[2].Badge = "!"
+		}
+		if childCount := len(m.hierarchyRows(display.Key)); childCount > 0 {
+			sections[3].Badge = fmt.Sprintf("%d", childCount)
 		}
 		if linkCount := len(detailLinks(jira.IssueDetail{Description: description, IssueLinks: issueLinks})); linkCount > 0 {
 			links := detailSection{ID: "links", Label: "Links", Short: "Links", Badge: fmt.Sprintf("%d", linkCount)}
-			sections = append(sections[:2], append([]detailSection{links}, sections[2:]...)...)
+			sections = append(sections[:4], append([]detailSection{links}, sections[4:]...)...)
 		}
 	}
 	return sections
@@ -592,12 +884,28 @@ func (m Model) detailSections() []detailSection {
 
 func (m Model) detailTargets() []detailTarget {
 	sections := m.detailSections()
-	targets := []detailTarget{
-		{ID: "summary", Label: "Summary", Kind: detailTargetField},
-		{ID: "assignee", Label: "Assignee", Kind: detailTargetField},
-		{ID: "priority", Label: "Priority", Kind: detailTargetField},
-	}
+	targets := make([]detailTarget, 0, len(sections)+3)
 	for _, section := range sections {
+		if section.ID == "overview" {
+			targets = append(targets, detailTarget{
+				ID:      section.ID,
+				Label:   section.Label,
+				Kind:    detailTargetSection,
+				Section: section,
+			})
+			break
+		}
+	}
+	targets = append(targets,
+		detailTarget{ID: "summary", Label: "Summary", Kind: detailTargetField},
+		detailTarget{ID: "status", Label: "Status", Kind: detailTargetField},
+		detailTarget{ID: "priority", Label: "Priority", Kind: detailTargetField},
+		detailTarget{ID: "assignee", Label: "Assignee", Kind: detailTargetField},
+	)
+	for _, section := range sections {
+		if section.ID == "overview" {
+			continue
+		}
 		targets = append(targets, detailTarget{
 			ID:      section.ID,
 			Label:   section.Label,
@@ -789,6 +1097,8 @@ func (m Model) activateFocusedDetailTarget() (Model, tea.Cmd) {
 		switch target.ID {
 		case "summary":
 			return m.startSummaryEditor()
+		case "status":
+			return m.startStatusTransitionPicker()
 		case "assignee":
 			return m.startAssigneePicker()
 		case "priority":
@@ -809,7 +1119,7 @@ func (m Model) activateFocusedDetailTarget() (Model, tea.Cmd) {
 	case "links":
 		m.focusDetailLinks()
 	case "comments":
-		m.startCommentComposer()
+		return m.activateCommentsSection()
 	default:
 		m.linkFocus = false
 		m.hierarchyFocus = false
@@ -820,6 +1130,56 @@ func (m Model) activateFocusedDetailTarget() (Model, tea.Cmd) {
 		m.jumpDetailSection(section.Label)
 	}
 	return m, nil
+}
+
+func (m Model) activateCommentsSection() (Model, tea.Cmd) {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		m.detailNotice = "No issue selected."
+		return m, nil
+	}
+	comments := m.comments[selected.Key]
+	if len(comments) == 0 {
+		m.startCommentComposer()
+		return m, nil
+	}
+	m.linkFocus = false
+	m.hierarchyFocus = false
+	m.actionFocus = false
+	m.transitionFocus = false
+	m.priorityFocus = false
+	m.assigneeFocus = false
+	m.commentFocus = true
+	m.selectedComment = clamp(m.selectedComment, 0, len(comments)-1)
+	m.jumpDetailSection("Comments")
+	m.detailNotice = ""
+	return m, nil
+}
+
+func (m *Model) moveSelectedComment(delta int) {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		m.selectedComment = 0
+		return
+	}
+	comments := m.comments[selected.Key]
+	if len(comments) == 0 {
+		m.selectedComment = 0
+		return
+	}
+	m.selectedComment = clamp(m.selectedComment+delta, 0, len(comments)-1)
+}
+
+func (m Model) selectedCommentForEdit() (jira.Comment, bool) {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return jira.Comment{}, false
+	}
+	comments := m.comments[selected.Key]
+	if len(comments) == 0 {
+		return jira.Comment{}, false
+	}
+	return comments[clamp(m.selectedComment, 0, len(comments)-1)], true
 }
 
 func (m *Model) activateDetailFocus() {
@@ -846,7 +1206,13 @@ func (m Model) renderDescriptionState(message string, width int, isError bool) s
 }
 
 func (m Model) renderComments(key string, width int) string {
-	lines := []string{m.detailSectionHeader("comments", "Comments", "", width)}
+	help := ""
+	if m.commentFocus {
+		help = "j/k select  e edit  enter add  esc leave"
+	} else if comments, ok := m.comments[key]; ok && len(comments) > 0 {
+		help = "enter focus"
+	}
+	lines := []string{m.detailSectionHeader("comments", "Comments", help, width)}
 	if comments, ok := m.comments[key]; ok {
 		if len(comments) == 0 {
 			lines = append(lines, "")
@@ -861,7 +1227,7 @@ func (m Model) renderComments(key string, width int) string {
 			if strings.TrimSpace(body) == "" {
 				body = "No comment body."
 			}
-			lines = append(lines, m.renderCommentBlock(index+1, len(comments), comment.Author, formatTime(comment.Created), body, width))
+			lines = append(lines, m.renderCommentBlock(index+1, len(comments), comment.Author, formatTime(comment.Created), body, width, m.commentFocus && index == clamp(m.selectedComment, 0, len(comments)-1)))
 		}
 		if len(comments) >= maxComments {
 			lines = append(lines, "")
@@ -884,14 +1250,22 @@ func (m Model) renderComments(key string, width int) string {
 	return strings.Join(lines, "\n")
 }
 
-func (m Model) renderCommentBlock(index int, total int, author string, created string, body string, width int) string {
+func (m Model) renderCommentBlock(index int, total int, author string, created string, body string, width int, selected bool) string {
 	contentWidth := max(20, width-4)
+	marker := "  "
+	if selected {
+		marker = "> "
+	}
 	header := m.theme.Key.Render(displayValue(author, "Unknown")) +
 		m.theme.Muted.Render("  "+created+"  "+fmt.Sprintf("Comment %d/%d", index, max(1, total)))
 	bodyWidth := max(12, contentWidth-2)
 	renderedBody := m.renderRichDescriptionBody(wrapRichText(body, bodyWidth), bodyWidth)
 	renderedBody = indentLines(renderedBody, "  ")
-	return m.theme.CommentBlock.Width(contentWidth + 2).Render(header + "\n\n" + renderedBody)
+	style := m.theme.CommentBlock
+	if selected {
+		style = m.theme.ActivePane
+	}
+	return style.Width(contentWidth + 2).Render(marker + header + "\n\n" + renderedBody)
 }
 
 func (m Model) detailEmptyState(message string, width int) string {
@@ -1110,16 +1484,104 @@ func (m Model) renderStatusSection(issue jira.Issue, width int) string {
 }
 
 func (m Model) detailActions() []detailAction {
-	return []detailAction{
+	actions := []detailAction{
 		{ID: "comment", Label: "Add Comment", Description: "Write a Jira comment.", Enabled: true},
 		{ID: "browser", Label: "Open In Browser", Description: "Open this ticket in Jira.", Enabled: true},
 		{ID: "copy-key", Label: "Copy Key", Description: "Copy the ticket key.", Enabled: true},
 		{ID: "copy-url", Label: "Copy URL", Description: "Copy the Jira URL.", Enabled: true},
 		{ID: "summary", Label: "Edit Summary", Description: "Load Jira edit metadata and update summary.", Enabled: true},
 		{ID: "priority", Label: "Change Priority", Description: "Load Jira priority options and update priority.", Enabled: true},
+		{ID: "labels", Label: "Edit Labels", Description: "Edit comma-separated Jira labels.", Enabled: true},
+		{ID: "components", Label: "Edit Components", Description: "Select Jira components from edit metadata.", Enabled: true},
 		{ID: "transition", Label: "Transition Status", Description: "Load available Jira transitions and change status.", Enabled: true},
 		{ID: "assign", Label: "Assign", Description: "Search assignable Jira users and change assignee.", Enabled: true},
-		{ID: "subtask", Label: "Create Subtask", Description: "Will use Jira create metadata for required fields.", Enabled: false},
+		{ID: "link-issue", Label: "Link Issue", Description: "Create a Jira issue link to another ticket.", Enabled: true},
+		{ID: "log-work", Label: "Log Work", Description: "Add a Jira worklog entry.", Enabled: true},
+		{ID: "subtask", Label: "Create Subtask", Description: "Use Jira create metadata for required fields.", Enabled: true},
+	}
+	actions = append(actions, m.genericEditFieldActions()...)
+	return actions
+}
+
+func (m Model) unsupportedEditFieldActions() []detailAction {
+	selected, ok := m.selectedIssue()
+	if !ok || strings.TrimSpace(selected.Key) == "" {
+		return nil
+	}
+	metadata, ok := m.editMetadata[selected.Key]
+	if !ok {
+		return nil
+	}
+	supported := supportedEditFieldIDs()
+	actions := make([]detailAction, 0, len(metadata.Fields))
+	for _, field := range metadata.Fields {
+		if !field.Editable {
+			continue
+		}
+		fieldID := strings.TrimSpace(field.ID)
+		if fieldID == "" || supported[fieldID] {
+			continue
+		}
+		name := strings.TrimSpace(displayValue(field.Name, fieldID))
+		actions = append(actions, detailAction{
+			ID:             "field:" + fieldID,
+			Label:          "Edit " + name,
+			Description:    unsupportedEditFieldDescription(field),
+			Enabled:        false,
+			DisabledState:  "Unsupported",
+			DisabledReason: name + " is editable in Jira but not supported yet.",
+		})
+	}
+	return actions
+}
+
+func unsupportedEditFieldDescription(field jira.EditField) string {
+	parts := []string{editFieldOptionSourceLabel(field)}
+	if schema := editFieldSchemaLabel(field); schema != "" {
+		parts = append(parts, "schema: "+schema)
+	}
+	if len(field.Operations) > 0 {
+		parts = append(parts, "ops: "+strings.Join(field.Operations, "/"))
+	}
+	parts = append(parts, "workflow not implemented")
+	return strings.Join(parts, "; ")
+}
+
+func editFieldOptionSourceLabel(field jira.EditField) string {
+	if len(field.AllowedValues) > 0 {
+		return fmt.Sprintf("options: %d values", len(field.AllowedValues))
+	}
+	if strings.TrimSpace(field.AutoCompleteURL) != "" {
+		return "options: autocomplete"
+	}
+	return "options: none"
+}
+
+func editFieldSchemaLabel(field jira.EditField) string {
+	schemaType := strings.TrimSpace(field.SchemaType)
+	items := strings.TrimSpace(field.SchemaItems)
+	system := strings.TrimSpace(field.SchemaSystem)
+	custom := strings.TrimSpace(field.SchemaCustom)
+	switch {
+	case schemaType != "" && items != "":
+		return schemaType + "<" + items + ">"
+	case schemaType != "":
+		return schemaType
+	case system != "":
+		return system
+	case custom != "":
+		return custom
+	default:
+		return ""
+	}
+}
+
+func supportedEditFieldIDs() map[string]bool {
+	return map[string]bool{
+		"summary":    true,
+		"priority":   true,
+		"labels":     true,
+		"components": true,
 	}
 }
 
@@ -1148,7 +1610,7 @@ func (m Model) runSelectedDetailAction() (Model, tea.Cmd) {
 	}
 	action := actions[clamp(m.selectedAction, 0, len(actions)-1)]
 	if !action.Enabled {
-		m.detailNotice = action.Label + " needs Jira metadata before it can be edited safely."
+		m.detailNotice = displayValue(action.DisabledReason, action.Label+" needs Jira metadata before it can be edited safely.")
 		return m, nil
 	}
 	switch action.ID {
@@ -1165,13 +1627,35 @@ func (m Model) runSelectedDetailAction() (Model, tea.Cmd) {
 		return m.startSummaryEditor()
 	case "priority":
 		return m.startPriorityEditor()
+	case "labels":
+		return m.startLabelsEditor()
+	case "components":
+		return m.startComponentsEditor()
 	case "transition":
 		return m.startStatusTransitionPicker()
 	case "assign":
 		return m.startAssigneePicker()
+	case "link-issue":
+		return m.startIssueLinkEditor()
+	case "log-work":
+		return m.startWorklogEditor()
+	case "subtask":
+		return m.startCreateSubtask()
 	default:
+		if fieldID, ok := strings.CutPrefix(action.ID, "field:"); ok {
+			return m.startGenericFieldEditor(fieldID)
+		}
 		return m, nil
 	}
+}
+
+func (m Model) startCreateSubtask() (Model, tea.Cmd) {
+	selected, ok := m.selectedIssue()
+	if !ok || strings.TrimSpace(selected.Key) == "" {
+		m.detailNotice = "Select an issue before creating a subtask."
+		return m, nil
+	}
+	return m.startCreateIssueWithParent(selected.Key, selected.Summary)
 }
 
 func (m *Model) focusStatusTransitions() {
@@ -1300,15 +1784,96 @@ func (m *Model) beginTransitionFieldEditing(transition jira.Transition) {
 	m.transitionFocus = true
 	m.selectedTransitionField = 0
 	m.transitionFieldSelections = make(map[string]int)
+	m.transitionFieldMultiSelections = make(map[string]map[int]bool)
 	m.transitionFieldDrafts = make(map[string]string)
+	m.transitionFieldFilters = make(map[string]string)
+	m.transitionFieldOptionsLoading = make(map[string]bool)
+	m.transitionFieldOptionsErr = make(map[string]error)
+	m.transitionFieldOptionsQuery = make(map[string]string)
 	for _, field := range supportedTransitionFields(transition.Fields) {
-		if field.ID == "resolution" {
+		if transitionFieldUsesMultiSelect(field) {
+			m.transitionFieldSelections[field.ID] = -1
+			m.transitionFieldMultiSelections[field.ID] = make(map[int]bool)
+		} else if transitionFieldUsesPicker(field) {
 			m.transitionFieldSelections[field.ID] = -1
 		}
 	}
 	m.transitionFieldCommentEditor = newCommentEditor("")
 	m.transitionFieldCommentEditorReady = true
+	m.transitionFieldEditorFieldID = ""
 	m.detailNotice = "Complete required transition fields before applying status."
+}
+
+func (m Model) handleTransitionFieldOptionsResult(result worker.Result) Model {
+	if result.ID != m.activeTransitionFieldOptionsReqID {
+		return m
+	}
+	m.ensureTransitionFieldOptionsState()
+	if result.SearchFieldOptions == nil {
+		return m.finishTransitionFieldOptionsResult("", workerResultError(result))
+	}
+	fieldID := strings.TrimSpace(result.SearchFieldOptions.FieldID)
+	if fieldID == "" {
+		return m
+	}
+	if result.SearchFieldOptions.Query != m.transitionFieldOptionsQuery[fieldID] {
+		return m
+	}
+	if result.Err != nil {
+		return m.finishTransitionFieldOptionsResult(fieldID, result.Err)
+	}
+	m.transitionFieldOptionsLoading[fieldID] = false
+	m.transitionFieldOptionsErr[fieldID] = nil
+	m.replaceTransitionFieldOptions(fieldID, result.SearchFieldOptions.Options)
+	if len(result.SearchFieldOptions.Options) > 0 {
+		m.transitionFieldSelections[fieldID] = 0
+	} else {
+		m.transitionFieldSelections[fieldID] = -1
+	}
+	return m
+}
+
+func (m Model) finishTransitionFieldOptionsResult(fieldID string, err error) Model {
+	if fieldID != "" {
+		m.ensureTransitionFieldOptionsState()
+		m.transitionFieldOptionsLoading[fieldID] = false
+		m.transitionFieldOptionsErr[fieldID] = err
+	}
+	return m
+}
+
+func (m *Model) ensureTransitionFieldOptionsState() {
+	if m.transitionFieldFilters == nil {
+		m.transitionFieldFilters = make(map[string]string)
+	}
+	if m.transitionFieldOptionsLoading == nil {
+		m.transitionFieldOptionsLoading = make(map[string]bool)
+	}
+	if m.transitionFieldOptionsErr == nil {
+		m.transitionFieldOptionsErr = make(map[string]error)
+	}
+	if m.transitionFieldOptionsQuery == nil {
+		m.transitionFieldOptionsQuery = make(map[string]string)
+	}
+	if m.transitionFieldSelections == nil {
+		m.transitionFieldSelections = make(map[string]int)
+	}
+}
+
+func (m *Model) replaceTransitionFieldOptions(fieldID string, options []jira.FieldOption) {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return
+	}
+	transitions := m.transitions[selected.Key]
+	for transitionIndex := range transitions {
+		for fieldIndex := range transitions[transitionIndex].Fields {
+			if transitions[transitionIndex].Fields[fieldIndex].ID == fieldID {
+				transitions[transitionIndex].Fields[fieldIndex].AllowedValues = append([]jira.FieldOption(nil), options...)
+			}
+		}
+	}
+	m.transitions[selected.Key] = transitions
 }
 
 func (m Model) transitionSelectedOption(field jira.TransitionField) (jira.FieldOption, bool) {
@@ -1322,12 +1887,50 @@ func (m Model) transitionSelectedOption(field jira.TransitionField) (jira.FieldO
 	return field.AllowedValues[index], true
 }
 
+func (m Model) transitionSelectedOptions(field jira.TransitionField) []jira.FieldOption {
+	if m.transitionFieldMultiSelections == nil {
+		return nil
+	}
+	selected := m.transitionFieldMultiSelections[field.ID]
+	if len(selected) == 0 {
+		return nil
+	}
+	options := make([]jira.FieldOption, 0, len(selected))
+	for index, option := range field.AllowedValues {
+		if selected[index] {
+			options = append(options, option)
+		}
+	}
+	return options
+}
+
+func (m Model) transitionMultiSelectedLabel(field jira.TransitionField) string {
+	options := m.transitionSelectedOptions(field)
+	if len(options) == 0 {
+		return ""
+	}
+	labels := make([]string, 0, len(options))
+	for _, option := range options {
+		labels = append(labels, displayValue(option.Name, option.ID))
+	}
+	return strings.Join(labels, ", ")
+}
+
 func (m Model) transitionFieldValues(transition jira.Transition) ([]jira.TransitionFieldValue, error) {
 	fields := supportedTransitionFields(transition.Fields)
 	values := make([]jira.TransitionFieldValue, 0, len(fields))
 	for _, field := range fields {
-		switch field.ID {
-		case "resolution":
+		switch {
+		case transitionFieldUsesMultiSelect(field):
+			options := m.transitionSelectedOptions(field)
+			if len(options) == 0 {
+				if field.Required {
+					return nil, fmt.Errorf("select %s", displayValue(field.Name, field.ID))
+				}
+				continue
+			}
+			values = append(values, jira.TransitionFieldValue{FieldID: field.ID, SchemaType: field.SchemaType, SchemaSystem: field.SchemaSystem, SchemaItems: field.SchemaItems, Options: options})
+		case transitionFieldUsesPicker(field):
 			option, ok := m.transitionSelectedOption(field)
 			if !ok {
 				if field.Required {
@@ -1335,10 +1938,10 @@ func (m Model) transitionFieldValues(transition jira.Transition) ([]jira.Transit
 				}
 				continue
 			}
-			values = append(values, jira.TransitionFieldValue{FieldID: field.ID, Option: option})
-		case "comment":
+			values = append(values, jira.TransitionFieldValue{FieldID: field.ID, SchemaType: field.SchemaType, SchemaSystem: field.SchemaSystem, SchemaItems: field.SchemaItems, Option: option})
+		case transitionFieldUsesText(field):
 			text := strings.TrimSpace(m.transitionFieldDrafts[field.ID])
-			if text == "" && m.transitionFieldCommentEditorReady {
+			if text == "" && m.transitionFieldCommentEditorReady && m.transitionFieldEditorFieldID == field.ID {
 				text = strings.TrimSpace(m.transitionFieldCommentEditor.Value())
 			}
 			if text == "" {
@@ -1347,7 +1950,7 @@ func (m Model) transitionFieldValues(transition jira.Transition) ([]jira.Transit
 				}
 				continue
 			}
-			values = append(values, jira.TransitionFieldValue{FieldID: field.ID, Text: text})
+			values = append(values, jira.TransitionFieldValue{FieldID: field.ID, SchemaType: field.SchemaType, SchemaSystem: field.SchemaSystem, SchemaItems: field.SchemaItems, Text: text})
 		}
 	}
 	return values, nil
@@ -1370,6 +1973,21 @@ func (m Model) updateTransitionFieldForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	selectedIndex := clamp(m.selectedTransitionField, 0, len(fields)-1)
 	selectedField := fields[selectedIndex]
+	if transitionFieldUsesPicker(selectedField) && strings.TrimSpace(selectedField.AutoCompleteURL) != "" && len(selectedField.AllowedValues) == 0 {
+		switch keyMsg.String() {
+		case "backspace", "ctrl+h":
+			query := []rune(m.transitionFieldFilters[selectedField.ID])
+			if len(query) > 0 {
+				m.transitionFieldFilters[selectedField.ID] = string(query[:len(query)-1])
+			}
+			return m, m.requestTransitionFieldOptions(selectedField)
+		}
+		if len(keyMsg.String()) == 1 {
+			m.ensureTransitionFieldOptionsState()
+			m.transitionFieldFilters[selectedField.ID] += keyMsg.String()
+			return m, m.requestTransitionFieldOptions(selectedField)
+		}
+	}
 	switch keyMsg.String() {
 	case "esc":
 		m.transitionFieldEditing = false
@@ -1395,7 +2013,7 @@ func (m Model) updateTransitionFieldForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m.submitTransitionWithFields(selected.Key, transition, values)
 	case "up", "k":
-		if selectedField.ID == "resolution" && len(selectedField.AllowedValues) > 0 {
+		if (transitionFieldUsesPicker(selectedField) || transitionFieldUsesMultiSelect(selectedField)) && len(selectedField.AllowedValues) > 0 {
 			current := m.transitionFieldSelections[selectedField.ID]
 			if current < 0 {
 				current = 0
@@ -1404,23 +2022,78 @@ func (m Model) updateTransitionFieldForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "down", "j":
-		if selectedField.ID == "resolution" && len(selectedField.AllowedValues) > 0 {
+		if (transitionFieldUsesPicker(selectedField) || transitionFieldUsesMultiSelect(selectedField)) && len(selectedField.AllowedValues) > 0 {
 			current := m.transitionFieldSelections[selectedField.ID]
 			m.transitionFieldSelections[selectedField.ID] = clamp(current+1, 0, len(selectedField.AllowedValues)-1)
 		}
 		return m, nil
-	}
-	if selectedField.ID == "comment" {
-		if !m.transitionFieldCommentEditorReady {
-			m.transitionFieldCommentEditor = newCommentEditor(m.transitionFieldDrafts[selectedField.ID])
-			m.transitionFieldCommentEditorReady = true
+	case " ":
+		if transitionFieldUsesMultiSelect(selectedField) && len(selectedField.AllowedValues) > 0 {
+			current := m.transitionFieldSelections[selectedField.ID]
+			if current < 0 {
+				current = 0
+				m.transitionFieldSelections[selectedField.ID] = current
+			}
+			if m.transitionFieldMultiSelections == nil {
+				m.transitionFieldMultiSelections = make(map[string]map[int]bool)
+			}
+			if m.transitionFieldMultiSelections[selectedField.ID] == nil {
+				m.transitionFieldMultiSelections[selectedField.ID] = make(map[int]bool)
+			}
+			m.transitionFieldMultiSelections[selectedField.ID][current] = !m.transitionFieldMultiSelections[selectedField.ID][current]
 		}
+		return m, nil
+	}
+	if transitionFieldUsesPicker(selectedField) && strings.TrimSpace(selectedField.AutoCompleteURL) != "" {
+		switch keyMsg.String() {
+		case "backspace", "ctrl+h":
+			query := []rune(m.transitionFieldFilters[selectedField.ID])
+			if len(query) > 0 {
+				m.transitionFieldFilters[selectedField.ID] = string(query[:len(query)-1])
+			}
+			return m, m.requestTransitionFieldOptions(selectedField)
+		}
+		if len(keyMsg.String()) == 1 {
+			m.ensureTransitionFieldOptionsState()
+			m.transitionFieldFilters[selectedField.ID] += keyMsg.String()
+			return m, m.requestTransitionFieldOptions(selectedField)
+		}
+	}
+	if transitionFieldUsesText(selectedField) {
+		m.ensureTransitionTextEditor(selectedField)
 		editor, cmd := m.transitionFieldCommentEditor.Update(msg)
 		m.transitionFieldCommentEditor = editor
 		m.transitionFieldDrafts[selectedField.ID] = editor.Value()
 		return m, cmd
 	}
 	return m, nil
+}
+
+func (m *Model) ensureTransitionTextEditor(field jira.TransitionField) {
+	if m.transitionFieldCommentEditorReady && m.transitionFieldEditorFieldID == field.ID {
+		return
+	}
+	m.transitionFieldCommentEditor = newCommentEditor(m.transitionFieldDrafts[field.ID])
+	m.transitionFieldCommentEditorReady = true
+	m.transitionFieldEditorFieldID = field.ID
+}
+
+func (m *Model) requestTransitionFieldOptions(field jira.TransitionField) tea.Cmd {
+	m.ensureTransitionFieldOptionsState()
+	fieldID := strings.TrimSpace(field.ID)
+	query := strings.TrimSpace(m.transitionFieldFilters[fieldID])
+	if fieldID == "" || strings.TrimSpace(field.AutoCompleteURL) == "" {
+		return nil
+	}
+	if m.transitionFieldOptionsLoading[fieldID] && m.transitionFieldOptionsQuery[fieldID] == query {
+		return nil
+	}
+	m.nextRequestID++
+	m.activeTransitionFieldOptionsReqID = m.nextRequestID
+	m.transitionFieldOptionsLoading[fieldID] = true
+	m.transitionFieldOptionsErr[fieldID] = nil
+	m.transitionFieldOptionsQuery[fieldID] = query
+	return m.submitTransitionFieldOptions(m.activeTransitionFieldOptionsReqID, field, query)
 }
 
 func (m Model) startPriorityEditor() (Model, tea.Cmd) {
@@ -1433,6 +2106,7 @@ func (m Model) startPriorityEditor() (Model, tea.Cmd) {
 	m.actionFocus = false
 	m.transitionFocus = false
 	m.summaryFocus = false
+	m.labelsFocus = false
 	m.priorityFocus = true
 	m.hydrateIssueEditMetadata(selected.Key)
 	if metadata, ok := m.editMetadata[selected.Key]; ok {
@@ -1471,6 +2145,191 @@ func (m Model) beginPriorityEditing(metadata jira.EditMetadata) Model {
 	m.selectedPriority = indexFieldOptionByName(metadata.Priority.AllowedValues, selected.Priority)
 	m.detailNotice = ""
 	return m
+}
+
+func (m Model) startLabelsEditor() (Model, tea.Cmd) {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return m, nil
+	}
+	m.linkFocus = false
+	m.hierarchyFocus = false
+	m.actionFocus = false
+	m.transitionFocus = false
+	m.summaryFocus = false
+	m.priorityFocus = false
+	m.assigneeFocus = false
+	m.labelsFocus = true
+	m.hydrateIssueEditMetadata(selected.Key)
+	if metadata, ok := m.editMetadata[selected.Key]; ok {
+		if _, cached := m.cachedIssueEditMetadata(selected.Key); !cached || m.isIssueEditMetadataFresh(selected.Key) {
+			return m.beginLabelsEditing(metadata), nil
+		}
+	}
+	if m.labelsMetadataLoading && m.labelsMetadataRequestKey == selected.Key {
+		return m, nil
+	}
+	m.nextRequestID++
+	m.activeLabelsMetadataReqID = m.nextRequestID
+	m.labelsMetadataRequestKey = selected.Key
+	m.labelsMetadataLoading = true
+	m.labelsMetadataErr = nil
+	m.detailNotice = ""
+	return m, m.submitEditMetadata(m.activeLabelsMetadataReqID, selected.Key)
+}
+
+func (m Model) beginLabelsEditing(metadata jira.EditMetadata) Model {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return m
+	}
+	if !metadata.Labels.Editable {
+		m.labelsFocus = false
+		m.detailNotice = "Labels are not editable for " + selected.Key + "."
+		return m
+	}
+	m.labelsFocus = true
+	m.labelsEditing = true
+	m.labelsDraft = strings.Join(m.currentIssueLabels(selected.Key), ", ")
+	m.labelsDirty = false
+	m.labelsEditor = newLabelsEditor(m.labelsDraft)
+	m.labelsEditorReady = true
+	m.detailNotice = ""
+	return m
+}
+
+func (m Model) currentIssueLabels(key string) []string {
+	if detail, ok := m.details[key]; ok {
+		return append([]string{}, detail.Labels...)
+	}
+	return nil
+}
+
+func (m Model) submitSelectedLabels() (Model, tea.Cmd) {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return m, nil
+	}
+	if !m.labelsDirty {
+		m.detailNotice = "Edit labels before saving."
+		return m, nil
+	}
+	labels := parseLabelsDraft(m.labelsEditorValue())
+	if labelsEqual(labels, m.currentIssueLabels(selected.Key)) {
+		m.detailNotice = "Labels unchanged."
+		return m, nil
+	}
+	m.nextRequestID++
+	m.activeLabelsReqID = m.nextRequestID
+	m.labelsSubmitting = true
+	m.labelsSubmitKey = selected.Key
+	m.labelsSubmitValue = append([]string{}, labels...)
+	m.detailNotice = "Updating labels."
+	return m, m.submitUpdateLabels(m.activeLabelsReqID, selected.Key, labels)
+}
+
+func (m Model) startComponentsEditor() (Model, tea.Cmd) {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return m, nil
+	}
+	m.linkFocus = false
+	m.hierarchyFocus = false
+	m.actionFocus = false
+	m.transitionFocus = false
+	m.summaryFocus = false
+	m.priorityFocus = false
+	m.labelsFocus = false
+	m.assigneeFocus = false
+	m.componentsFocus = true
+	m.hydrateIssueEditMetadata(selected.Key)
+	if metadata, ok := m.editMetadata[selected.Key]; ok {
+		if _, cached := m.cachedIssueEditMetadata(selected.Key); !cached || m.isIssueEditMetadataFresh(selected.Key) {
+			return m.beginComponentsEditing(metadata), nil
+		}
+	}
+	if m.componentsMetadataLoading && m.componentsMetadataRequestKey == selected.Key {
+		return m, nil
+	}
+	m.nextRequestID++
+	m.activeComponentsMetadataReqID = m.nextRequestID
+	m.componentsMetadataRequestKey = selected.Key
+	m.componentsMetadataLoading = true
+	m.componentsMetadataErr = nil
+	m.detailNotice = ""
+	return m, m.submitEditMetadata(m.activeComponentsMetadataReqID, selected.Key)
+}
+
+func (m Model) beginComponentsEditing(metadata jira.EditMetadata) Model {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return m
+	}
+	if !metadata.Components.Editable {
+		m.componentsFocus = false
+		m.detailNotice = "Components are not editable for " + selected.Key + "."
+		return m
+	}
+	if len(metadata.Components.AllowedValues) == 0 {
+		m.componentsFocus = false
+		m.detailNotice = "Components metadata returned no allowed values for " + selected.Key + "."
+		return m
+	}
+	m.componentsFocus = true
+	m.selectedComponent = 0
+	m.selectedComponents = map[string]bool{}
+	current := m.currentIssueComponents(selected.Key)
+	for _, option := range metadata.Components.AllowedValues {
+		for _, name := range current {
+			if strings.EqualFold(strings.TrimSpace(name), strings.TrimSpace(displayValue(option.Name, option.ID))) {
+				m.selectedComponents[componentSelectionKey(option)] = true
+				break
+			}
+		}
+	}
+	m.componentsFilter = ""
+	m.componentsFilterEditor = newComponentsFilterInput("")
+	m.componentsFilterEditorReady = true
+	m.componentsDirty = false
+	m.detailNotice = ""
+	return m
+}
+
+func (m Model) currentIssueComponents(key string) []string {
+	if detail, ok := m.details[key]; ok {
+		return append([]string{}, detail.Components...)
+	}
+	return nil
+}
+
+func (m Model) componentOptions(key string) []jira.FieldOption {
+	if metadata, ok := m.editMetadata[key]; ok {
+		return metadata.Components.AllowedValues
+	}
+	return nil
+}
+
+func (m Model) submitSelectedComponents() (Model, tea.Cmd) {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return m, nil
+	}
+	if !m.componentsDirty {
+		m.detailNotice = "Edit components before saving."
+		return m, nil
+	}
+	components := m.selectedComponentOptions(selected.Key)
+	if componentOptionsEqual(components, m.currentIssueComponents(selected.Key)) {
+		m.detailNotice = "Components unchanged."
+		return m, nil
+	}
+	m.nextRequestID++
+	m.activeComponentsReqID = m.nextRequestID
+	m.componentsSubmitting = true
+	m.componentsSubmitKey = selected.Key
+	m.componentsSubmitValue = append([]jira.FieldOption{}, components...)
+	m.detailNotice = "Updating components."
+	return m, m.submitUpdateComponents(m.activeComponentsReqID, selected.Key, components)
 }
 
 func (m Model) priorityOptions(key string) []jira.FieldOption {
@@ -1537,6 +2396,7 @@ func (m Model) startAssigneePicker() (Model, tea.Cmd) {
 	m.selectedAssignee = 0
 	m.assigneeSearchLoading = false
 	m.assigneeSearchErr = nil
+	m.assigneeSearchIssueKey = ""
 	m.detailNotice = ""
 	return m, nil
 }
@@ -1552,6 +2412,7 @@ func (m Model) updateAssigneePicker(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.selectedAssignee = 0
 		m.assigneeSearchLoading = false
 		m.assigneeSearchErr = nil
+		m.assigneeSearchIssueKey = ""
 		m.detailNotice = ""
 		return m, nil
 	case "enter":
@@ -1581,9 +2442,18 @@ func (m Model) updateAssigneePicker(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if strings.TrimSpace(query) == "" {
 		m.assigneeUsers = nil
 		m.assigneeSearchLoading = false
+		m.assigneeSearchIssueKey = ""
 		return m, nil
 	}
-	if users, ok := m.cachedUserSearch(query); ok {
+	selected, ok := m.selectedIssue()
+	if !ok || strings.TrimSpace(selected.Key) == "" {
+		m.assigneeUsers = nil
+		m.assigneeSearchLoading = false
+		m.assigneeSearchIssueKey = ""
+		m.detailNotice = "Select an issue before searching assignable users."
+		return m, nil
+	}
+	if users, ok := m.cachedAssignableUserSearch(selected.Key, query); ok {
 		m.assigneeUsers = users
 		m.assigneeSearchLoading = false
 		m.selectedAssignee = clamp(m.selectedAssignee, 0, max(0, len(users)-1))
@@ -1591,8 +2461,9 @@ func (m Model) updateAssigneePicker(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 	m.nextRequestID++
 	m.assigneeSearchReqID = m.nextRequestID
+	m.assigneeSearchIssueKey = selected.Key
 	m.assigneeSearchLoading = true
-	return m, m.submitUserSearch(m.assigneeSearchReqID, query)
+	return m, m.submitUserSearch(m.assigneeSearchReqID, query, selected.Key)
 }
 
 func (m *Model) moveSelectedAssignee(delta int) {

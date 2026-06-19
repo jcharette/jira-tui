@@ -4,6 +4,63 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Clarified issue-list hierarchy glyphs: expanded parents now use a distinct expanded marker, while
+  subtasks use their own type glyph instead of a tree-connector-shaped icon.
+- Added worklog support in ticket detail: recent worklogs load through the worker pool, the detail
+  view has a Worklog section with count/loading/error states, and Ticket Actions can add a worklog
+  with a Jira duration plus optional note.
+- Added Ticket Actions issue-link creation: Jira link types load through the worker pool, users can
+  enter a target issue key, choose the relationship direction, and refresh the selected issue detail
+  after the link is created.
+- Added a metadata-backed generic edit field flow from Ticket Actions for safe Jira custom fields:
+  text/string/number/date/datetime fields, single-select options, and multi-select option arrays
+  with inline Jira allowed values now submit through the worker pool while complex schemas remain
+  disabled.
+- Added a bounded persistent Diagnostics JSONL log under the OS user cache directory, shown in the
+  Diagnostics overlay, with sanitized worker/API/cache/state breadcrumbs for bug reports.
+- Added Diagnostics state breadcrumbs for issue-list layout switches and collapse actions so
+  collapsed-row glyph problems can be tied to local collapsed state and loaded descendant counts.
+- Added local issue-table layout modes with `Lanes` as the default, plus a compact
+  view/filter/layout/sort control strip and no Jira query or saved-view changes when switching
+  layouts.
+- Added clearer issue-row glyphs in Lanes: collapsed parent rows now show a folder affordance plus
+  hidden descendant count while retaining the Epic/Story/Task type glyph.
+- Added a responsive Workbench issue-table layout that shows selected-ticket context, latest
+  comments, hierarchy, and description preview from loaded data on wide terminals, plus a Lanes
+  layout that groups the current scoped issue set by status, shows a selected-row cursor, orders
+  in-progress work before to-do work, and preserves selection and `enter` behavior.
+- Polished issue-list layout labels so footer/help context names match the active presentation:
+  `Issue Lanes`, `Issue Workbench`, or `Issue Table`.
+- Redesigned focused ticket detail around `Overview + Control Strip`: tickets open on Overview,
+  Status/Priority/Assignee are focusable controls, and Description/Status/Actions are no longer
+  primary tabs.
+- Added metadata-backed Components editing from focused ticket detail through the Ticket Actions
+  palette, with a bounded searchable multi-select picker and worker-backed Jira updates.
+- Added metadata-backed Labels editing from focused ticket detail through the Ticket Actions palette,
+  with comma-separated local editing and worker-backed Jira updates.
+- Added a searchable Ticket Actions palette from focused ticket detail, letting users filter and run
+  existing comment, open/copy, field edit, workflow, assignment, and subtask actions from one
+  bounded modal.
+- Added a retained Jira edit metadata field catalog and surfaced unsupported editable fields as
+  disabled, searchable Ticket Actions rows instead of hiding them behind a fake generic editor.
+- Extended retained Jira edit field metadata with schema, operations, default markers, allowed-value
+  counts, and autocomplete URLs so future generic editors can choose the right option source.
+- Added worker-backed autocomplete option fetching for create-ticket picker fields whose Jira
+  metadata exposes `autoCompleteUrl`, so option fields without inline values can load Jira choices
+  as users type.
+- Added explicit Jira comment editing from focused ticket detail: loaded comments can be selected,
+  edited in the existing composer, reviewed, updated through the worker pool, and refreshed with
+  comment cache invalidation.
+- Added metadata-backed subtask creation from the ticket detail Ticket Actions palette, reusing the
+  bounded create modal, filtering to Jira subtask issue types, and submitting the selected issue as
+  the parent key.
+- Added issue-scoped assignable-user search for assignee editing, keeping comment mentions on
+  global Jira user search while assignee typeahead uses issue-key-scoped cache entries.
+- Added first-class saved-view creation from the issue table, direct JQL drafts, AI-generated JQL
+  previews, recent queries, and project-scoped templates, plus in-app saved-view rename, reorder,
+  delete, and `include_children` management without running Jira reads.
+- Added bounded Jira Agile sprint metadata scheduling: board discovery remains single-flight while
+  returned board sprint reads are queued with at most two active background requests.
 - Added durable saved profile support for config files, including retained non-active profiles,
   `--profile` selection for the main app and config editor, and active-profile editing in config UI.
 - Added worker-backed Jira Agile board and sprint metadata loading for sprint-oriented views,
@@ -13,12 +70,17 @@ All notable changes to this project should be recorded here.
   lookups while ordinary views avoid extra child-search Jira reads unless configured.
 - Added metadata-backed transition-screen field support for required Resolution and Comment fields,
   including clear blocking feedback for unsupported required transition fields.
+- Added transition-screen support for required custom single-select option fields, reusing the
+  status transition field picker and Jira custom field payload path.
+- Expanded transition-screen field support to custom text/string, date/datetime, user picker,
+  multi-select option/user array, and autocomplete-backed picker schemas so more Jira workflow
+  status moves can be completed from the TUI.
 - Added comment composer formatting controls and Jira ADF mark conversion for bold, italic, and
   inline code while preserving detected links and selected Jira mentions.
 - Closed the active Read/View backlog bucket by moving the remaining concrete follow-ups into
   Navigation/Query, Comments/Workflow, and Creation/Editing backlog sections.
-- Added concrete `Edit Summary` and `Change Priority` rows to the ticket detail Actions workspace,
-  routing them to the existing metadata-backed edit flows.
+- Added concrete `Edit Summary` and `Change Priority` routes to the ticket detail Ticket Actions
+  palette, routing them to the existing metadata-backed edit flows.
 - Removed the stale linked-issues placeholder from the ticket detail Hierarchy workspace and added
   clearer hierarchy empty states for root issues and known-parent issues.
 - Added read-only Jira issue links to the ticket detail Links workspace, including link badges,
@@ -150,6 +212,8 @@ All notable changes to this project should be recorded here.
 - Added persistent TOML config with a Bubble Tea config editor and required default project setup.
 - Renamed the installed binary to `jira` and added `make install-user` for updating `~/bin/jira`.
 - Added configurable appearance colors and shared Lip Gloss styling for config and issue screens.
+- Documented the recommended Nerd Font icon setup and clarified that `auto` uses colored
+  terminal-safe glyphs while `nerd` is the premium opt-in mode.
 - Added explicit config editor navigation between sections and fields.
 - Aligned config editor header and footer chrome with the issue browser, including context labels
   and grouped footer commands.

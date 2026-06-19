@@ -46,6 +46,8 @@ type field struct {
 	value   string
 	secret  bool
 	boolean bool
+	options []string
+	help    string
 }
 
 type layout struct {
@@ -110,7 +112,7 @@ func NewModel(path string, cfg config.Config, problems []string) Model {
 			{section: sectionAppearance, label: "Border", value: cfg.Theme.Border},
 			{section: sectionAppearance, label: "Surface", value: cfg.Theme.Surface},
 			{section: sectionAppearance, label: "Text", value: cfg.Theme.Text},
-			{section: sectionDisplay, label: "Symbol Mode", value: cfg.Display.SymbolMode},
+			{section: sectionDisplay, label: "Symbol Mode", value: cfg.Display.SymbolMode, options: []string{"auto", "symbols", "emoji", "nerd", "plain"}, help: "Auto detects Nerd-capable iTerm profiles, then falls back to colored safe glyphs.\nNerd setup: brew install --cask font-jetbrains-mono-nerd-font\nThen set your terminal profile font to JetBrainsMono Nerd Font, restart the terminal, and select nerd if auto does not switch."},
 			{section: sectionRuntime, label: "Refresh Interval", value: cfg.RefreshInterval.String()},
 			{section: sectionRuntime, label: "Request Timeout", value: cfg.RequestTimeout.String()},
 			{section: sectionRuntime, label: "Workers", value: strconv.Itoa(cfg.WorkerCount)},
@@ -210,16 +212,28 @@ func (m Model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.setCurrentValue("false")
 			return m, nil
 		}
+		if len(m.currentField().options) > 0 {
+			m.cycleCurrentOption(-1)
+			return m, nil
+		}
 		m.switchSection(-1)
 	case "right", "tab", "l":
 		if m.currentField().boolean {
 			m.setCurrentValue("true")
 			return m, nil
 		}
+		if len(m.currentField().options) > 0 {
+			m.cycleCurrentOption(1)
+			return m, nil
+		}
 		m.switchSection(1)
 	case " ":
 		if m.currentField().boolean {
 			m.toggleCurrentBool()
+			return m, nil
+		}
+		if len(m.currentField().options) > 0 {
+			m.cycleCurrentOption(1)
 			return m, nil
 		}
 	case "enter":
@@ -234,6 +248,10 @@ func (m Model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		default:
 			if m.currentField().boolean {
 				m.toggleCurrentBool()
+				return m, nil
+			}
+			if len(m.currentField().options) > 0 {
+				m.cycleCurrentOption(1)
 				return m, nil
 			}
 			m.startEditingCurrentField()
@@ -553,6 +571,8 @@ func (m Model) renderFields(layout layout) string {
 			value = renderColorSwatch(m.theme, value)
 		} else if field.boolean {
 			value = renderBoolPicker(m.theme, field.value)
+		} else if len(field.options) > 0 {
+			value = renderOptionPicker(m.theme, field.value, field.options)
 		}
 
 		label := m.theme.FieldLabel.Render(field.label + ":")
@@ -565,6 +585,9 @@ func (m Model) renderFields(layout layout) string {
 	}
 
 	content := m.theme.PaneTitle.Render(sectionLabels[m.section]) + " " + m.theme.Muted.Render("j/k") + "\n\n" + strings.TrimRight(b.String(), "\n")
+	if help := strings.TrimSpace(m.currentField().help); help != "" {
+		content += "\n\n" + m.theme.Muted.Render(wrapConfigHelp(help, max(20, layout.fieldPane-6)))
+	}
 	return m.theme.ActivePane.Width(layout.fieldPane).Render(content)
 }
 
@@ -807,6 +830,23 @@ func (m *Model) toggleCurrentBool() {
 	m.setCurrentValue(strconv.FormatBool(!current))
 }
 
+func (m *Model) cycleCurrentOption(delta int) {
+	field := m.currentField()
+	if len(field.options) == 0 {
+		return
+	}
+	current := strings.ToLower(strings.TrimSpace(field.value))
+	selected := 0
+	for index, option := range field.options {
+		if strings.EqualFold(option, current) {
+			selected = index
+			break
+		}
+	}
+	selected = (selected + delta + len(field.options)) % len(field.options)
+	m.setCurrentValue(field.options[selected])
+}
+
 func displayValue(field field) string {
 	if field.secret && field.value != "" {
 		return strings.Repeat("*", len(field.value))
@@ -829,6 +869,52 @@ func renderBoolPicker(theme ui.Theme, value string) string {
 		falseValue = theme.Selected.Render("false")
 	}
 	return falseValue + theme.Muted.Render(" / ") + trueValue
+}
+
+func renderOptionPicker(theme ui.Theme, value string, options []string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	rendered := make([]string, 0, len(options))
+	for _, option := range options {
+		text := option
+		if strings.EqualFold(option, value) {
+			text = theme.Selected.Render(option)
+		} else {
+			text = theme.Text.Render(option)
+		}
+		rendered = append(rendered, text)
+	}
+	return strings.Join(rendered, theme.Muted.Render(" / "))
+}
+
+func wrapConfigText(value string, width int) string {
+	if width <= 0 {
+		return value
+	}
+	words := strings.Fields(value)
+	if len(words) == 0 {
+		return ""
+	}
+	var lines []string
+	line := words[0]
+	for _, word := range words[1:] {
+		if lipgloss.Width(line)+1+lipgloss.Width(word) > width {
+			lines = append(lines, line)
+			line = word
+			continue
+		}
+		line += " " + word
+	}
+	lines = append(lines, line)
+	return strings.Join(lines, "\n")
+}
+
+func wrapConfigHelp(value string, width int) string {
+	parts := strings.Split(value, "\n")
+	lines := make([]string, 0, len(parts))
+	for _, part := range parts {
+		lines = append(lines, wrapConfigText(part, width))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func sanitizePastedText(value string) string {

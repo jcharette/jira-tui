@@ -1,6 +1,9 @@
 package configui
 
 import (
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -26,6 +29,18 @@ func TestRenderShowsTerminalSizeWarningBelowMinimum(t *testing.T) {
 	}
 }
 
+func TestConfigDisplaySymbolModeGoldenSnapshot(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Display.SymbolMode = "auto"
+	model := NewModel("/tmp/jira.toml", cfg, nil)
+	model.width = 120
+	model.height = 30
+	model.section = sectionDisplay
+	model.selected = fieldIndexForTest(model, sectionDisplay, "Symbol Mode")
+
+	assertConfigGoldenSnapshot(t, "config_symbol_mode.golden", model.render())
+}
+
 func TestFooterHelpUsesContextAndGroupsCommands(t *testing.T) {
 	model := NewModel("/tmp/jira.toml", config.Defaults(), nil)
 
@@ -39,6 +54,33 @@ func TestFooterHelpUsesContextAndGroupsCommands(t *testing.T) {
 	if lipgloss.Width(footer) > 118 {
 		t.Fatalf("footer width = %d, want <= 118: %q", lipgloss.Width(footer), footer)
 	}
+}
+
+var configAnsiEscapeForTest = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
+
+func assertConfigGoldenSnapshot(t *testing.T, name string, rendered string) {
+	t.Helper()
+	got := normalizeConfigSnapshotForTest(rendered)
+	path := filepath.Join("testdata", name)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read golden snapshot %s: %v\n\nrendered:\n%s", path, err, got)
+	}
+	want := strings.TrimRight(string(data), "\n")
+	if got != want {
+		t.Fatalf("golden snapshot %s mismatch\n\nwant:\n%s\n\ngot:\n%s", path, want, got)
+	}
+}
+
+func normalizeConfigSnapshotForTest(rendered string) string {
+	rendered = configAnsiEscapeForTest.ReplaceAllString(rendered, "")
+	rendered = strings.ReplaceAll(rendered, "\r\n", "\n")
+	rendered = strings.ReplaceAll(rendered, "\r", "\n")
+	lines := strings.Split(rendered, "\n")
+	for index, line := range lines {
+		lines[index] = strings.TrimRight(line, " ")
+	}
+	return strings.TrimRight(strings.Join(lines, "\n"), "\n")
 }
 
 func TestFooterHelpUsesEditContext(t *testing.T) {
@@ -181,6 +223,50 @@ func TestBooleanFieldsToggleWithoutTextEditing(t *testing.T) {
 	view := next.render()
 	if !strings.Contains(view, "false") || !strings.Contains(view, "true") {
 		t.Fatalf("boolean field should render true/false options in %q", view)
+	}
+}
+
+func TestSymbolModeFieldCyclesOptionsWithoutTextEditing(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Display.SymbolMode = "auto"
+	model := NewModel("/tmp/jira.toml", cfg, nil)
+	model.section = sectionDisplay
+	model.selected = fieldIndexForTest(model, sectionDisplay, "Symbol Mode")
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+
+	if next.editing {
+		t.Fatal("symbol mode should cycle options without entering text edit mode")
+	}
+	if value := fieldValueForTest(next, "Symbol Mode"); value != "symbols" {
+		t.Fatalf("Symbol Mode after enter = %q, want symbols", value)
+	}
+
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "left", Code: tea.KeyLeft}))
+	next = updated.(Model)
+	if value := fieldValueForTest(next, "Symbol Mode"); value != "auto" {
+		t.Fatalf("Symbol Mode after left = %q, want auto", value)
+	}
+}
+
+func TestSymbolModeHelpShowsNerdFontSetupCommand(t *testing.T) {
+	model := NewModel("/tmp/jira.toml", config.Defaults(), nil)
+	model.width = 120
+	model.height = 30
+	model.section = sectionDisplay
+	model.selected = fieldIndexForTest(model, sectionDisplay, "Symbol Mode")
+
+	view := model.render()
+
+	for _, want := range []string{
+		"Auto detects Nerd-capable iTerm profiles",
+		"brew install --cask font-jetbrains-mono-nerd-font",
+		"set your terminal profile font to JetBrainsMono Nerd Font",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in %q", want, view)
+		}
 	}
 }
 

@@ -190,7 +190,39 @@ func (m Model) startDetailRequestForSelected() (Model, tea.Cmd) {
 		cmds = append(cmds, m.submitIssueComments(m.activeCommentsReqID, selected.Key))
 	}
 
+	if _, ok := m.worklogs[selected.Key]; ok {
+		m.worklogsLoading = false
+		m.worklogsErr = nil
+		m.worklogsRequestKey = ""
+	} else if !(m.worklogsLoading && m.worklogsRequestKey == selected.Key) {
+		m.nextRequestID++
+		m.activeWorklogsReqID = m.nextRequestID
+		m.worklogsRequestKey = selected.Key
+		m.worklogsLoading = true
+		m.worklogsErr = nil
+		cmds = append(cmds, m.submitIssueWorklogs(m.activeWorklogsReqID, selected.Key))
+	}
+
 	return m, tea.Batch(cmds...)
+}
+
+func (m Model) startWorklogRequestForSelected() (Model, tea.Cmd) {
+	selected, ok := m.selectedIssue()
+	if !ok || strings.TrimSpace(selected.Key) == "" {
+		m.worklogsLoading = false
+		m.worklogsErr = nil
+		m.worklogsRequestKey = ""
+		return m, nil
+	}
+	if m.worklogsLoading && m.worklogsRequestKey == selected.Key {
+		return m, nil
+	}
+	m.nextRequestID++
+	m.activeWorklogsReqID = m.nextRequestID
+	m.worklogsRequestKey = selected.Key
+	m.worklogsLoading = true
+	m.worklogsErr = nil
+	return m, m.submitIssueWorklogs(m.activeWorklogsReqID, selected.Key)
 }
 
 func (m Model) startSelectedIssuePrefetch() (Model, tea.Cmd) {
@@ -202,6 +234,7 @@ func (m Model) startSelectedIssuePrefetch() (Model, tea.Cmd) {
 		return m, nil
 	}
 
+	var cmds []tea.Cmd
 	m.hydrateIssueDetail(selected.Key)
 	_, hasDetail := m.details[selected.Key]
 	if hasDetail && m.isIssueDetailFresh(selected.Key) {
@@ -211,29 +244,63 @@ func (m Model) startSelectedIssuePrefetch() (Model, tea.Cmd) {
 			m.detailErr = nil
 			m.detailRequestKey = ""
 		}
-		return m, nil
-	}
-
-	if m.detailLoading && m.detailRequestKey == selected.Key {
-		return m, nil
-	}
-
-	if !hasDetail && len(m.issues) > selectedIssueDetailPrefetchLimit {
+	} else if m.detailLoading && m.detailRequestKey == selected.Key {
+		// Existing request will hydrate the preview.
+	} else if !hasDetail && len(m.issues) > selectedIssueDetailPrefetchLimit {
 		m.recordDiagnosticEvent(diagnosticKindCache, "issue_detail", "prefetch_skip", selected.Key)
-		return m, nil
+	} else {
+		status := "miss"
+		if hasDetail {
+			status = "stale"
+		}
+		m.recordDiagnosticEvent(diagnosticKindCache, "issue_detail", status, selected.Key)
+		m.nextRequestID++
+		m.activeDetailRequestID = m.nextRequestID
+		m.detailRequestKey = selected.Key
+		m.detailLoading = true
+		m.detailErr = nil
+		cmds = append(cmds, m.submitIssueDetailWithPriority(m.activeDetailRequestID, selected.Key, worker.PriorityPrefetch))
 	}
 
+	if m.issueLayout == issueLayoutWorkbench {
+		var commentCmd tea.Cmd
+		m, commentCmd = m.startSelectedIssueCommentPrefetch(selected.Key)
+		if commentCmd != nil {
+			cmds = append(cmds, commentCmd)
+		}
+	}
+
+	return m, tea.Batch(cmds...)
+}
+
+func (m Model) startSelectedIssueCommentPrefetch(key string) (Model, tea.Cmd) {
+	if key == "" {
+		return m, nil
+	}
+	m.hydrateIssueComments(key)
+	_, hasComments := m.comments[key]
+	if hasComments && m.isIssueCommentsFresh(key) {
+		if m.commentsRequestKey == key {
+			m.commentsLoading = false
+			m.commentsErr = nil
+			m.commentsRequestKey = ""
+		}
+		return m, nil
+	}
+	if m.commentsLoading && m.commentsRequestKey == key {
+		return m, nil
+	}
 	status := "miss"
-	if hasDetail {
+	if hasComments {
 		status = "stale"
 	}
-	m.recordDiagnosticEvent(diagnosticKindCache, "issue_detail", status, selected.Key)
+	m.recordDiagnosticEvent(diagnosticKindCache, "issue_comments", status, key)
 	m.nextRequestID++
-	m.activeDetailRequestID = m.nextRequestID
-	m.detailRequestKey = selected.Key
-	m.detailLoading = true
-	m.detailErr = nil
-	return m, m.submitIssueDetailWithPriority(m.activeDetailRequestID, selected.Key, worker.PriorityPrefetch)
+	m.activeCommentsReqID = m.nextRequestID
+	m.commentsRequestKey = key
+	m.commentsLoading = true
+	m.commentsErr = nil
+	return m, m.submitIssueComments(m.activeCommentsReqID, key)
 }
 
 func (m Model) submitIssueDetail(requestID int, key string) tea.Cmd {
@@ -428,6 +495,84 @@ func (m Model) submitCreateFields(requestID int, projectKey string, issueTypeID 
 	}
 }
 
+func (m Model) submitCreateFieldOptions(requestID int, field jira.CreateField, query string) tea.Cmd {
+	return func() tea.Msg {
+		fieldID := createFieldValueKey(field)
+		autocompleteURL := strings.TrimSpace(field.AutoCompleteURL)
+		if strings.TrimSpace(fieldID) == "" || autocompleteURL == "" {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindSearchFieldOptions,
+					Err:  worker.ErrInvalidRequest,
+				},
+			}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:          requestID,
+			Kind:        worker.KindSearchFieldOptions,
+			Timeout:     m.requestTimeout,
+			Priority:    worker.PriorityForeground,
+			CoalesceKey: "field-options:" + fieldID + ":" + strings.TrimSpace(query),
+			SearchFieldOptions: &worker.SearchFieldOptionsRequest{
+				FieldID:         fieldID,
+				AutoCompleteURL: autocompleteURL,
+				Query:           strings.TrimSpace(query),
+				MaxResults:      createFieldOptionMaxResults,
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindSearchFieldOptions,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindSearchFieldOptions, id: requestID, key: fieldID}
+	}
+}
+
+func (m Model) submitTransitionFieldOptions(requestID int, field jira.TransitionField, query string) tea.Cmd {
+	return func() tea.Msg {
+		fieldID := strings.TrimSpace(field.ID)
+		autocompleteURL := strings.TrimSpace(field.AutoCompleteURL)
+		if fieldID == "" || autocompleteURL == "" {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindSearchFieldOptions,
+					Err:  worker.ErrInvalidRequest,
+				},
+			}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:          requestID,
+			Kind:        worker.KindSearchFieldOptions,
+			Timeout:     m.requestTimeout,
+			Priority:    worker.PriorityForeground,
+			CoalesceKey: "transition-field-options:" + fieldID + ":" + strings.TrimSpace(query),
+			SearchFieldOptions: &worker.SearchFieldOptionsRequest{
+				FieldID:         fieldID,
+				AutoCompleteURL: autocompleteURL,
+				Query:           strings.TrimSpace(query),
+				MaxResults:      createFieldOptionMaxResults,
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindSearchFieldOptions,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindSearchFieldOptions, id: requestID, key: fieldID}
+	}
+}
+
 func (m Model) submitCreateIssue(requestID int, request worker.CreateIssueRequest) tea.Cmd {
 	return func() tea.Msg {
 		if strings.TrimSpace(request.ProjectKey) == "" || strings.TrimSpace(request.IssueTypeID) == "" || strings.TrimSpace(request.Summary) == "" {
@@ -533,6 +678,194 @@ func (m Model) submitUpdatePriority(requestID int, key string, priority jira.Fie
 	}
 }
 
+func (m Model) submitUpdateLabels(requestID int, key string, labels []string) tea.Cmd {
+	return func() tea.Msg {
+		if key == "" {
+			return noDetailRequestMsg{}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:      requestID,
+			Kind:    worker.KindUpdateLabels,
+			Timeout: m.requestTimeout,
+			UpdateLabels: &worker.UpdateLabelsRequest{
+				Key:    key,
+				Labels: append([]string{}, labels...),
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindUpdateLabels,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindUpdateLabels, id: requestID, key: key}
+	}
+}
+
+func (m Model) submitUpdateComponents(requestID int, key string, components []jira.FieldOption) tea.Cmd {
+	return func() tea.Msg {
+		if key == "" {
+			return noDetailRequestMsg{}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:      requestID,
+			Kind:    worker.KindUpdateComponents,
+			Timeout: m.requestTimeout,
+			UpdateComponents: &worker.UpdateComponentsRequest{
+				Key:        key,
+				Components: append([]jira.FieldOption{}, components...),
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindUpdateComponents,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindUpdateComponents, id: requestID, key: key}
+	}
+}
+
+func (m Model) submitUpdateEditField(requestID int, key string, field jira.EditField, value jira.EditFieldValue) tea.Cmd {
+	return func() tea.Msg {
+		if key == "" || strings.TrimSpace(value.FieldID) == "" {
+			return noDetailRequestMsg{}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:       requestID,
+			Kind:     worker.KindUpdateEditField,
+			Timeout:  m.requestTimeout,
+			Priority: worker.PriorityWrite,
+			UpdateEditField: &worker.UpdateEditFieldRequest{
+				Key:   key,
+				Field: field,
+				Value: value,
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindUpdateEditField,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindUpdateEditField, id: requestID, key: key}
+	}
+}
+
+func (m Model) submitIssueLinkTypes(requestID int) tea.Cmd {
+	return func() tea.Msg {
+		err := m.workers.Submit(worker.Request{
+			ID:                requestID,
+			Kind:              worker.KindGetIssueLinkTypes,
+			Timeout:           m.requestTimeout,
+			Priority:          worker.PriorityForeground,
+			GetIssueLinkTypes: &worker.GetIssueLinkTypesRequest{},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindGetIssueLinkTypes,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindGetIssueLinkTypes, id: requestID}
+	}
+}
+
+func (m Model) submitCreateIssueLink(requestID int, request jira.CreateIssueLinkRequest) tea.Cmd {
+	return func() tea.Msg {
+		if strings.TrimSpace(request.SourceKey) == "" || strings.TrimSpace(request.TargetKey) == "" {
+			return noDetailRequestMsg{}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:       requestID,
+			Kind:     worker.KindCreateIssueLink,
+			Timeout:  m.requestTimeout,
+			Priority: worker.PriorityWrite,
+			CreateIssueLink: &worker.CreateIssueLinkRequest{
+				Request: request,
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindCreateIssueLink,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindCreateIssueLink, id: requestID, key: request.SourceKey}
+	}
+}
+
+func (m Model) submitIssueWorklogs(requestID int, key string) tea.Cmd {
+	return func() tea.Msg {
+		if strings.TrimSpace(key) == "" {
+			return noDetailRequestMsg{}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:       requestID,
+			Kind:     worker.KindGetWorklogs,
+			Timeout:  m.requestTimeout,
+			Priority: worker.PriorityForeground,
+			GetWorklogs: &worker.GetWorklogsRequest{
+				Key:        key,
+				MaxResults: 20,
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindGetWorklogs,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindGetWorklogs, id: requestID, key: key}
+	}
+}
+
+func (m Model) submitAddWorklog(requestID int, key string, request jira.AddWorklogRequest) tea.Cmd {
+	return func() tea.Msg {
+		if strings.TrimSpace(key) == "" || strings.TrimSpace(request.TimeSpent) == "" {
+			return noDetailRequestMsg{}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:       requestID,
+			Kind:     worker.KindAddWorklog,
+			Timeout:  m.requestTimeout,
+			Priority: worker.PriorityWrite,
+			AddWorklog: &worker.AddWorklogRequest{
+				Key:     key,
+				Request: request,
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindAddWorklog,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindAddWorklog, id: requestID, key: key}
+	}
+}
+
 func (m Model) submitUpdateAssignee(requestID int, key string, assignee jira.User) tea.Cmd {
 	return func() tea.Msg {
 		if key == "" || strings.TrimSpace(assignee.AccountID) == "" {
@@ -588,10 +921,43 @@ func (m Model) submitAddComment(requestID int, key string, body string, mentions
 	}
 }
 
-func (m Model) submitUserSearch(requestID int, query string) tea.Cmd {
+func (m Model) submitUpdateComment(requestID int, key string, commentID string, body string, mentions []jira.Mention) tea.Cmd {
+	return func() tea.Msg {
+		if key == "" || commentID == "" || strings.TrimSpace(body) == "" {
+			return noDetailRequestMsg{}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:      requestID,
+			Kind:    worker.KindUpdateComment,
+			Timeout: m.requestTimeout,
+			UpdateComment: &worker.UpdateCommentRequest{
+				Key:       key,
+				CommentID: commentID,
+				Body:      body,
+				Mentions:  mentions,
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindUpdateComment,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindUpdateComment, id: requestID, key: key}
+	}
+}
+
+func (m Model) submitUserSearch(requestID int, query string, issueKeys ...string) tea.Cmd {
 	return func() tea.Msg {
 		if strings.TrimSpace(query) == "" {
 			return noDetailRequestMsg{}
+		}
+		issueKey := ""
+		if len(issueKeys) > 0 {
+			issueKey = strings.TrimSpace(issueKeys[0])
 		}
 		err := m.workers.Submit(worker.Request{
 			ID:      requestID,
@@ -599,6 +965,7 @@ func (m Model) submitUserSearch(requestID int, query string) tea.Cmd {
 			Timeout: m.requestTimeout,
 			SearchUsers: &worker.SearchUsersRequest{
 				Query:      query,
+				IssueKey:   issueKey,
 				MaxResults: 20,
 			},
 		})

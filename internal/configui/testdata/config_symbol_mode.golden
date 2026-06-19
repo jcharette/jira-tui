@@ -1,0 +1,19 @@
+ Jira Config  editing                                                                                   /tmp/jira.toml
+
+╭────────────────────────────────╮  ╭────────────────────────────────────────────────────────────────────────────────╮
+│                                │  │                                                                                │
+│  Sections left/right           │  │  Display j/k                                                                   │
+│                                │  │                                                                                │
+│    Jira Account                │  │  > Symbol Mode:       auto / symbols / emoji / nerd / plain                    │
+│    Queries                     │  │                                                                                │
+│    Appearance                  │  │  Auto detects Nerd-capable iTerm profiles, then falls back to colored safe     │
+│    Display                     │  │  glyphs.                                                                       │
+│    Runtime                     │  │  Nerd setup: brew install --cask font-jetbrains-mono-nerd-font                 │
+│    Claude                      │  │  Then set your terminal profile font to JetBrainsMono Nerd Font, restart       │
+│    Test Connection             │  │  the terminal, and select nerd if auto does not switch.                        │
+│    Save and Exit               │  │                                                                                │
+│    Quit Without Saving         │  ╰────────────────────────────────────────────────────────────────────────────────╯
+│                                │
+╰────────────────────────────────╯
+
+Config  left/right section  tab section  j/k field  |  enter edit/select  |  t test  s save  |  q quit

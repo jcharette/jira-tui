@@ -56,7 +56,7 @@ func (m Model) handleGetCreateIssueTypesResult(result worker.Result) Model {
 		return m
 	}
 	m.cacheCreateIssueTypes(result.GetCreateIssueTypes.ProjectKey, result.GetCreateIssueTypes.IssueTypes, result.GetCreateIssueTypes.SyncedAt)
-	m.selectedCreateIssueType = clamp(m.selectedCreateIssueType, 0, max(0, len(m.createIssueTypes)-1))
+	m.selectedCreateIssueType = clamp(m.selectedCreateIssueType, 0, max(0, len(m.selectableCreateIssueTypes())-1))
 	m.createIssueTypesErr = nil
 	return m
 }
@@ -83,6 +83,59 @@ func (m Model) handleGetCreateFieldsResult(result worker.Result) Model {
 	m.beginCreateForm()
 	m.applyCreateAIFieldDrafts()
 	return m
+}
+
+func (m Model) handleSearchFieldOptionsResult(result worker.Result) Model {
+	if result.ID != m.activeCreateFieldOptionsReqID {
+		return m
+	}
+	m.ensureCreateFieldOptionsState()
+	if result.SearchFieldOptions == nil {
+		return m.finishCreateFieldOptionsResult("", workerResultError(result))
+	}
+	fieldID := strings.TrimSpace(result.SearchFieldOptions.FieldID)
+	if fieldID == "" {
+		return m
+	}
+	if result.SearchFieldOptions.Query != m.createFieldOptionsQuery[fieldID] {
+		return m
+	}
+	if result.Err != nil {
+		return m.finishCreateFieldOptionsResult(fieldID, result.Err)
+	}
+	m.createFieldOptionsLoading[fieldID] = false
+	m.createFieldOptionsErr[fieldID] = nil
+	m.replaceCreateFieldOptions(fieldID, result.SearchFieldOptions.Options)
+	if len(result.SearchFieldOptions.Options) > 0 {
+		m.createDynamicSelections[fieldID] = 0
+	} else {
+		m.createDynamicSelections[fieldID] = -1
+	}
+	return m
+}
+
+func workerResultError(result worker.Result) error {
+	if result.Err != nil {
+		return result.Err
+	}
+	return worker.ErrInvalidRequest
+}
+
+func (m Model) finishCreateFieldOptionsResult(fieldID string, err error) Model {
+	if fieldID != "" {
+		m.createFieldOptionsLoading[fieldID] = false
+		m.createFieldOptionsErr[fieldID] = err
+	}
+	return m
+}
+
+func (m *Model) replaceCreateFieldOptions(fieldID string, options []jira.FieldOption) {
+	for index := range m.createFields {
+		if createFieldValueKey(m.createFields[index]) == fieldID {
+			m.createFields[index].AllowedValues = append([]jira.FieldOption(nil), options...)
+			return
+		}
+	}
 }
 
 func (m Model) handleCreateIssueResult(result worker.Result) Model {
@@ -123,14 +176,26 @@ func (m Model) renderCreateIssue(layout browserLayout) string {
 	var lines []string
 	focusLine := -1
 	subtitle := displayValue(m.createProjectKey, "Project unknown")
+	title := "Create Ticket"
+	if strings.TrimSpace(m.createParentKey) != "" {
+		title = "Create Subtask"
+		subtitle = "Parent " + m.createParentKey
+		if strings.TrimSpace(m.createParentSummary) != "" {
+			subtitle += "  " + truncate(m.createParentSummary, 48)
+		}
+	}
 	footer := "esc cancel"
 	switch {
 	case m.createIssueTypesLoading:
 		lines = append(lines, m.detailStatusBlock("Loading issue types...", bodyWidth, false))
 	case m.createIssueTypesErr != nil:
 		lines = append(lines, m.renderDetailNotice("Issue type metadata failed: "+m.createIssueTypesErr.Error(), bodyWidth))
-	case len(m.createIssueTypes) == 0 && m.createIssueType.ID == "":
-		lines = append(lines, m.detailEmptyState("Jira returned 0 creatable issue types for "+displayValue(m.createProjectKey, "this project")+". Press ctrl+d for request diagnostics.", bodyWidth))
+	case len(m.selectableCreateIssueTypes()) == 0 && m.createIssueType.ID == "":
+		kind := "issue types"
+		if strings.TrimSpace(m.createParentKey) != "" {
+			kind = "subtask issue types"
+		}
+		lines = append(lines, m.detailEmptyState("Jira returned 0 creatable "+kind+" for "+displayValue(m.createProjectKey, "this project")+". Press ctrl+d for request diagnostics.", bodyWidth))
 	case m.createIssueType.ID == "":
 		if m.claudeCreateTicketDraftEnabled() {
 			lines = append(lines, m.renderCreateModeTabs(bodyWidth), "")
@@ -227,7 +292,7 @@ func (m Model) renderCreateIssue(layout browserLayout) string {
 		}
 	}
 	body := m.windowCreateBody(lines, bodyWidth, focusLine)
-	return m.renderDetailDialogWithLimit(width, "Create Ticket", subtitle, body, footer, dialogWidth)
+	return m.renderDetailDialogWithLimit(width, title, subtitle, body, footer, dialogWidth)
 }
 
 func (m Model) windowCreateBody(lines []string, width int, focusLine int) string {
@@ -286,9 +351,10 @@ func (m Model) renderCreateModeTabs(width int) string {
 }
 
 func (m Model) renderCreateIssueTypePickerLines() []string {
-	cursor := clamp(m.selectedCreateIssueType, 0, len(m.createIssueTypes)-1)
-	options := make([]choiceListOption, 0, len(m.createIssueTypes))
-	for _, issueType := range m.createIssueTypes {
+	issueTypes := m.selectableCreateIssueTypes()
+	cursor := clamp(m.selectedCreateIssueType, 0, len(issueTypes)-1)
+	options := make([]choiceListOption, 0, len(issueTypes))
+	for _, issueType := range issueTypes {
 		options = append(options, choiceListOption{Label: displayValue(issueType.Name, issueType.ID)})
 	}
 	return m.renderChoiceList(options, cursor, 60, createPickerMaxRows)
@@ -404,6 +470,18 @@ func (m Model) renderCreateDynamicField(field jira.CreateField, width int) strin
 	}
 	if createFieldUsesPicker(field) {
 		if len(field.AllowedValues) == 0 {
+			key := createFieldValueKey(field)
+			if strings.TrimSpace(field.AutoCompleteURL) != "" {
+				if m.createFieldOptionsLoading[key] {
+					return m.detailStatusBlock("Loading Jira options...", width, false)
+				}
+				if err := m.createFieldOptionsErr[key]; err != nil {
+					return m.renderDetailNotice("Option lookup failed: "+err.Error(), width)
+				}
+				if strings.TrimSpace(m.createDynamicFilters[key]) == "" {
+					return m.theme.Muted.Render("Type to search Jira options.")
+				}
+			}
 			return m.detailEmptyState("No Jira options available.", width)
 		}
 		key := createFieldValueKey(field)
@@ -607,7 +685,14 @@ func normalizeCreateDraftFieldName(value string) string {
 }
 
 func (m Model) startCreateIssue() (Model, tea.Cmd) {
+	return m.startCreateIssueWithParent("", "")
+}
+
+func (m Model) startCreateIssueWithParent(parentKey string, parentSummary string) (Model, tea.Cmd) {
 	projectKey := projectKeyFromJQL(m.jql)
+	if project := projectKeyFromIssueKey(parentKey); project != "" {
+		projectKey = project
+	}
 	if projectKey == "" {
 		projectKey = projectKeyFromJQL(m.filterSummary())
 	}
@@ -618,9 +703,11 @@ func (m Model) startCreateIssue() (Model, tea.Cmd) {
 	m.resetCreateIssueState()
 	m.createOpen = true
 	m.createProjectKey = projectKey
+	m.createParentKey = strings.TrimSpace(parentKey)
+	m.createParentSummary = strings.TrimSpace(parentSummary)
 	m.hydrateCreateIssueTypes(projectKey)
 	if _, cached := m.cachedCreateIssueTypes(projectKey); cached && m.isCreateIssueTypesFresh(projectKey) {
-		m.selectedCreateIssueType = clamp(m.selectedCreateIssueType, 0, max(0, len(m.createIssueTypes)-1))
+		m.selectedCreateIssueType = clamp(m.selectedCreateIssueType, 0, max(0, len(m.selectableCreateIssueTypes())-1))
 		m.createIssueTypesErr = nil
 		return m, nil
 	}
@@ -628,6 +715,19 @@ func (m Model) startCreateIssue() (Model, tea.Cmd) {
 	m.nextRequestID++
 	m.activeCreateIssueTypesReqID = m.nextRequestID
 	return m, m.submitCreateIssueTypes(m.activeCreateIssueTypesReqID, projectKey)
+}
+
+func (m Model) selectableCreateIssueTypes() []jira.CreateIssueType {
+	if strings.TrimSpace(m.createParentKey) == "" {
+		return m.createIssueTypes
+	}
+	issueTypes := make([]jira.CreateIssueType, 0, len(m.createIssueTypes))
+	for _, issueType := range m.createIssueTypes {
+		if issueType.Subtask {
+			issueTypes = append(issueTypes, issueType)
+		}
+	}
+	return issueTypes
 }
 
 func (m Model) updateCreatePaste(msg tea.PasteMsg) (Model, tea.Cmd) {
@@ -766,20 +866,22 @@ func (m Model) updateCreateIssue(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, nil
 		case "backspace", "ctrl+h", "left", "right", "home", "end":
 			cmd := m.updateCreateDynamicFilter(field, msg)
-			return m, cmd
+			optionCmd := m.requestCreateFieldOptions(field)
+			return m, tea.Batch(cmd, optionCmd)
 		}
 		if len(msg.String()) == 1 {
 			cmd := m.updateCreateDynamicFilter(field, msg)
-			return m, cmd
+			optionCmd := m.requestCreateFieldOptions(field)
+			return m, tea.Batch(cmd, optionCmd)
 		}
 	}
 	switch msg.String() {
 	case "tab":
 		m.moveCreateFieldFocus(1)
-		return m, nil
+		return m, m.requestFocusedCreateFieldOptions()
 	case "shift+tab", "backtab":
 		m.moveCreateFieldFocus(-1)
-		return m, nil
+		return m, m.requestFocusedCreateFieldOptions()
 	case "enter":
 		if m.createFieldFocus == createTypeFieldIndex {
 			m.startCreateIssueTypeChange()
@@ -895,19 +997,21 @@ func (m *Model) saveCreateQuestionAnswer() {
 }
 
 func (m *Model) moveSelectedCreateIssueType(delta int) {
-	if len(m.createIssueTypes) == 0 {
+	issueTypes := m.selectableCreateIssueTypes()
+	if len(issueTypes) == 0 {
 		m.selectedCreateIssueType = 0
 		return
 	}
-	m.selectedCreateIssueType = clamp(m.selectedCreateIssueType+delta, 0, len(m.createIssueTypes)-1)
+	m.selectedCreateIssueType = clamp(m.selectedCreateIssueType+delta, 0, len(issueTypes)-1)
 }
 
 func (m Model) selectCreateIssueType() (Model, tea.Cmd) {
-	if len(m.createIssueTypes) == 0 {
+	issueTypes := m.selectableCreateIssueTypes()
+	if len(issueTypes) == 0 {
 		m.detailNotice = "No Jira issue types are available."
 		return m, nil
 	}
-	m.createIssueType = m.createIssueTypes[clamp(m.selectedCreateIssueType, 0, len(m.createIssueTypes)-1)]
+	m.createIssueType = issueTypes[clamp(m.selectedCreateIssueType, 0, len(issueTypes)-1)]
 	m.createChangingType = false
 	if strings.TrimSpace(m.createIssueType.ID) == "" {
 		m.detailNotice = "Create ticket failed: missing issue type ID."
@@ -930,7 +1034,7 @@ func (m Model) selectCreateIssueType() (Model, tea.Cmd) {
 func (m *Model) startCreateIssueTypeChange() {
 	m.createChangingType = true
 	m.detailNotice = ""
-	for index, issueType := range m.createIssueTypes {
+	for index, issueType := range m.selectableCreateIssueTypes() {
 		if createIssueTypeMatches(issueType, m.createIssueType.Name) || createIssueTypeMatches(issueType, m.createIssueType.ID) {
 			m.selectedCreateIssueType = index
 			return
@@ -949,6 +1053,9 @@ func (m *Model) beginCreateForm() {
 	m.createDynamicSelections = map[string]int{}
 	m.createDynamicFilters = map[string]string{}
 	m.createDynamicFilterEditors = map[string]textinput.Model{}
+	m.createFieldOptionsLoading = map[string]bool{}
+	m.createFieldOptionsErr = map[string]error{}
+	m.createFieldOptionsQuery = map[string]string{}
 	for _, field := range supportedCreateFields(m.createFields) {
 		key := createFieldValueKey(field)
 		m.createDynamicValues[key] = ""
@@ -1023,6 +1130,14 @@ func createIssueTypeMatches(issueType jira.CreateIssueType, value string) bool {
 		}
 	}
 	return false
+}
+
+func projectKeyFromIssueKey(issueKey string) string {
+	before, _, ok := strings.Cut(strings.TrimSpace(issueKey), "-")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(before)
 }
 
 func (m *Model) moveCreateFieldFocus(delta int) {
@@ -1109,6 +1224,47 @@ func (m *Model) updateCreateDynamicFilter(field jira.CreateField, msg tea.KeyMsg
 	updated, cmd := editor.Update(msg)
 	m.setCreateDynamicFilterEditor(field, updated)
 	return cmd
+}
+
+func (m *Model) ensureCreateFieldOptionsState() {
+	if m.createFieldOptionsLoading == nil {
+		m.createFieldOptionsLoading = map[string]bool{}
+	}
+	if m.createFieldOptionsErr == nil {
+		m.createFieldOptionsErr = map[string]error{}
+	}
+	if m.createFieldOptionsQuery == nil {
+		m.createFieldOptionsQuery = map[string]string{}
+	}
+}
+
+func (m *Model) requestFocusedCreateFieldOptions() tea.Cmd {
+	field, ok := m.focusedCreateDynamicField()
+	if !ok {
+		return nil
+	}
+	return m.requestCreateFieldOptions(field)
+}
+
+func (m *Model) requestCreateFieldOptions(field jira.CreateField) tea.Cmd {
+	if strings.TrimSpace(field.AutoCompleteURL) == "" || !createFieldUsesPicker(field) {
+		return nil
+	}
+	key := createFieldValueKey(field)
+	query := strings.TrimSpace(m.createDynamicFilters[key])
+	if len(field.AllowedValues) > 0 && query == "" {
+		return nil
+	}
+	m.ensureCreateFieldOptionsState()
+	if m.createFieldOptionsLoading[key] && m.createFieldOptionsQuery[key] == query {
+		return nil
+	}
+	m.nextRequestID++
+	m.activeCreateFieldOptionsReqID = m.nextRequestID
+	m.createFieldOptionsLoading[key] = true
+	m.createFieldOptionsErr[key] = nil
+	m.createFieldOptionsQuery[key] = query
+	return m.submitCreateFieldOptions(m.activeCreateFieldOptionsReqID, field, query)
 }
 
 func (m *Model) clearCreateDynamicFilter(field jira.CreateField) {
@@ -1239,6 +1395,7 @@ func (m Model) submitCreateIssueDraft() (Model, tea.Cmd) {
 	m.nextRequestID++
 	m.activeCreateIssueReqID = m.nextRequestID
 	m.createSubmitting = true
+	m.createSubmitParentKey = strings.TrimSpace(m.createParentKey)
 	m.createSubmitSummary = summary
 	m.createSubmitDescription = strings.TrimSpace(m.createDescriptionDraft)
 	fields, err := m.createIssueFieldValues()
@@ -1252,6 +1409,7 @@ func (m Model) submitCreateIssueDraft() (Model, tea.Cmd) {
 	return m, m.submitCreateIssue(m.activeCreateIssueReqID, worker.CreateIssueRequest{
 		ProjectKey:  m.createProjectKey,
 		IssueTypeID: m.createIssueType.ID,
+		ParentKey:   m.createSubmitParentKey,
 		Summary:     summary,
 		Description: m.createSubmitDescription,
 		Fields:      fields,
@@ -1691,6 +1849,8 @@ func mergeCreateAIQuestionAnswers(next []createAIQuestion, existing []createAIQu
 func (m *Model) resetCreateIssueState() {
 	m.createOpen = false
 	m.createProjectKey = ""
+	m.createParentKey = ""
+	m.createParentSummary = ""
 	m.createIssueTypes = nil
 	m.selectedCreateIssueType = 0
 	m.createIssueTypesLoading = false
@@ -1709,12 +1869,16 @@ func (m *Model) resetCreateIssueState() {
 	m.createDescriptionEditor = newCommentEditor("")
 	m.createDescriptionEditorReady = true
 	m.createSubmitting = false
+	m.createSubmitParentKey = ""
 	m.createSubmitSummary = ""
 	m.createSubmitDescription = ""
 	m.createDynamicValues = nil
 	m.createDynamicSelections = nil
 	m.createDynamicFilters = nil
 	m.createDynamicFilterEditors = nil
+	m.createFieldOptionsLoading = nil
+	m.createFieldOptionsErr = nil
+	m.createFieldOptionsQuery = nil
 	m.createSubmitFields = nil
 	m.createAIPromptOpen = false
 	m.createAIPrompt = ""
@@ -1838,6 +2002,9 @@ func supportedCreateField(field jira.CreateField) bool {
 	if len(field.AllowedValues) > 0 && (schemaType == "option" || schemaType == "priority" || schemaType == "") {
 		return true
 	}
+	if strings.TrimSpace(field.AutoCompleteURL) != "" && (schemaType == "option" || schemaType == "array" || schemaType == "") {
+		return true
+	}
 	switch schemaType {
 	case "string", "textarea", "text", "number":
 		return true
@@ -1858,7 +2025,7 @@ func isBuiltInCreateTextField(field jira.CreateField) bool {
 func createFieldUsesPicker(field jira.CreateField) bool {
 	id := strings.ToLower(strings.TrimSpace(displayValue(field.ID, field.Key)))
 	system := strings.ToLower(strings.TrimSpace(field.SchemaSystem))
-	return len(field.AllowedValues) > 0 || id == "priority" || system == "priority"
+	return len(field.AllowedValues) > 0 || strings.TrimSpace(field.AutoCompleteURL) != "" || id == "priority" || system == "priority"
 }
 
 func createFieldValueKey(field jira.CreateField) string {

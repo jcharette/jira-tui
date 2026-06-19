@@ -54,6 +54,18 @@ Required settings:
 The config editor also includes appearance colors and display symbol mode. Defaults are provided,
 and saved colors/symbol settings are used by both the config editor and issue browser.
 
+Recommended icon setup:
+
+- `auto` tries to detect Nerd-capable terminal setups and otherwise uses colored terminal-safe
+  glyphs.
+- For the richest icon set, install a Nerd Font and set Symbol Mode to `nerd` in `jira config` if
+  auto does not switch.
+  Recommended fonts:
+  - macOS/Homebrew: `brew install --cask font-jetbrains-mono-nerd-font`
+  - Alternative: `brew install --cask font-meslo-lg-nerd-font`
+- After installing, configure your terminal profile to use that Nerd Font for normal text and
+  non-ASCII symbols, then restart the terminal and run `jira config`.
+
 Terminal size:
 
 - Minimum supported size: `88x24`

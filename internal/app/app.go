@@ -91,6 +91,7 @@ func runApp(profile string) error {
 		jiratui.WithPlanningProject(cfg.DefaultProject),
 		jiratui.WithEventStream(eventStream),
 		jiratui.WithSavedViewWriter(savedViewWriter(cfgPath, &cfg)),
+		jiratui.WithSavedViewsWriter(savedViewsWriter(cfgPath, &cfg)),
 		jiratui.WithClaudeConfig(jiratui.ClaudeConfig{
 			Enabled:             cfg.Claude.Enabled,
 			TicketPlan:          cfg.Claude.Features.TicketPlan,
@@ -109,6 +110,12 @@ func runApp(profile string) error {
 			Message:   claudeStatus.Message,
 			Err:       claudeStatus.Err,
 		}),
+	}
+	if logPath, pathErr := jiratui.DefaultDiagnosticLogPath(); pathErr == nil {
+		if diagnosticLog, logErr := jiratui.OpenPersistentDiagnosticLog(logPath); logErr == nil {
+			defer diagnosticLog.Close()
+			options = append(options, jiratui.WithDiagnosticLog(diagnosticLog, diagnosticLog.Path()))
+		}
 	}
 	if cacheStore, cacheErr := cache.OpenDefault(); cacheErr == nil {
 		defer cacheStore.Close()
@@ -130,6 +137,22 @@ func runApp(profile string) error {
 func savedViewWriter(path string, cfg *config.Config) jiratui.SavedViewWriter {
 	return func(view config.IssueView) error {
 		next, err := config.AddSavedView(*cfg, view)
+		if err != nil {
+			return err
+		}
+		if err := config.Save(path, next); err != nil {
+			return err
+		}
+		*cfg = next
+		return nil
+	}
+}
+
+func savedViewsWriter(path string, cfg *config.Config) jiratui.SavedViewsWriter {
+	return func(views []config.IssueView, activeView string) error {
+		nextCfg := *cfg
+		nextCfg.ActiveView = activeView
+		next, err := config.SetSavedViews(nextCfg, views)
 		if err != nil {
 			return err
 		}

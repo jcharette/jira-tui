@@ -210,7 +210,7 @@ func TestCommentBlockLeadsWithAuthorAndSeparatesBody(t *testing.T) {
 	defer model.workers.Stop()
 	created := time.Date(2026, 6, 13, 10, 15, 0, 0, time.Local)
 
-	rendered := model.renderCommentBlock(2, 4, "Comment Person", formatTime(created), "Please check `main.tf`.", 80)
+	rendered := model.renderCommentBlock(2, 4, "Comment Person", formatTime(created), "Please check `main.tf`.", 80, false)
 
 	authorIndex := strings.Index(rendered, "Comment Person")
 	countIndex := strings.Index(rendered, "Comment 2/4")

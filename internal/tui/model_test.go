@@ -345,6 +345,7 @@ func TestFreshCachedDetailSkipsDetailRefresh(t *testing.T) {
 	model.issues = []jira.Issue{{Key: "ABC-1"}}
 	model.cacheIssueDetail("ABC-1", jira.IssueDetail{Issue: jira.Issue{Key: "ABC-1"}, Description: "Cached detail"}, now)
 	model.cacheIssueComments("ABC-1", nil, now)
+	model.worklogs["ABC-1"] = nil
 
 	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
 	next := updated.(Model)
@@ -396,6 +397,7 @@ func TestFreshCachedCommentsSkipCommentsRefresh(t *testing.T) {
 	model.issues = []jira.Issue{{Key: "ABC-1"}}
 	model.cacheIssueDetail("ABC-1", jira.IssueDetail{Issue: jira.Issue{Key: "ABC-1"}, Description: "Cached detail"}, now)
 	model.cacheIssueComments("ABC-1", []jira.Comment{{ID: "10001", Body: "Cached comment"}}, now)
+	model.worklogs["ABC-1"] = nil
 
 	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
 	next := updated.(Model)
@@ -465,6 +467,7 @@ func TestPersistentDetailAndCommentsHydrateOnDetailOpen(t *testing.T) {
 	model.now = func() time.Time { return now }
 	model.loading = false
 	model.issues = []jira.Issue{{Key: "ABC-1"}}
+	model.worklogs["ABC-1"] = nil
 
 	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
 	next := updated.(Model)
@@ -807,7 +810,16 @@ type fakeIssueSearcher struct {
 	addedComment           jira.Comment
 	addedBody              string
 	addMentions            []jira.Mention
+	updatedComment         jira.Comment
+	updatedBody            string
+	updateCommentKey       string
+	updateCommentID        string
+	updateMentions         []jira.Mention
 	users                  []jira.User
+	assignableUsers        []jira.User
+	assignableIssueKey     string
+	assignableQuery        string
+	assignableMaxResults   int
 	transitions            []jira.Transition
 	transitionKey          string
 	transitionID           string
@@ -815,6 +827,18 @@ type fakeIssueSearcher struct {
 	editMetadata           jira.EditMetadata
 	createIssueTypes       []jira.CreateIssueType
 	createFields           []jira.CreateField
+	fieldOptions           []jira.FieldOption
+	fieldOptionURL         string
+	fieldOptionQuery       string
+	fieldOptionMaxResults  int
+	issueLinkTypes         []jira.IssueLinkType
+	issueLinkRequest       jira.CreateIssueLinkRequest
+	worklogs               []jira.Worklog
+	worklogKey             string
+	worklogMaxResults      int
+	addWorklogKey          string
+	addWorklogRequest      jira.AddWorklogRequest
+	addedWorklog           jira.Worklog
 	createIssueRequest     jira.CreateIssueRequest
 	createdIssue           jira.Issue
 	boardPage              jira.BoardPage
@@ -832,6 +856,12 @@ type fakeIssueSearcher struct {
 	updateDescriptionValue string
 	updatePriorityKey      string
 	updatePriorityValue    jira.FieldOption
+	updateLabelsKey        string
+	updateLabelsValue      []string
+	updateComponentsKey    string
+	updateComponentsValue  []jira.FieldOption
+	updateEditFieldKey     string
+	updateEditFieldValue   jira.EditFieldValue
 	updateAssigneeKey      string
 	updateAssigneeValue    jira.User
 	err                    error
@@ -885,6 +915,20 @@ func (f *fakeIssueSearcher) AddComment(_ context.Context, key string, body strin
 	return jira.Comment{ID: "10002", Author: "Current User", Body: body}, nil
 }
 
+func (f *fakeIssueSearcher) UpdateComment(_ context.Context, key string, commentID string, body string, mentions []jira.Mention) (jira.Comment, error) {
+	if f.err != nil {
+		return jira.Comment{}, f.err
+	}
+	f.updateCommentKey = key
+	f.updateCommentID = commentID
+	f.updatedBody = body
+	f.updateMentions = mentions
+	if f.updatedComment.ID != "" {
+		return f.updatedComment, nil
+	}
+	return jira.Comment{ID: commentID, Author: "Current User", Body: body}, nil
+}
+
 func (f *fakeIssueSearcher) SearchUsers(_ context.Context, query string, _ int) ([]jira.User, error) {
 	if f.err != nil {
 		return nil, f.err
@@ -893,6 +937,19 @@ func (f *fakeIssueSearcher) SearchUsers(_ context.Context, query string, _ int) 
 		return f.users, nil
 	}
 	return []jira.User{{AccountID: "abc-123", DisplayName: query}}, nil
+}
+
+func (f *fakeIssueSearcher) SearchAssignableUsers(_ context.Context, issueKey string, query string, maxResults int) ([]jira.User, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.assignableIssueKey = issueKey
+	f.assignableQuery = query
+	f.assignableMaxResults = maxResults
+	if f.assignableUsers != nil {
+		return f.assignableUsers, nil
+	}
+	return []jira.User{{AccountID: "assignable-123", DisplayName: query}}, nil
 }
 
 func (f *fakeIssueSearcher) GetTransitions(_ context.Context, key string) ([]jira.Transition, error) {
@@ -921,10 +978,14 @@ func (f *fakeIssueSearcher) GetEditMetadata(_ context.Context, key string) (jira
 		return jira.EditMetadata{}, f.err
 	}
 	f.transitionKey = key
-	if f.editMetadata.Summary.ID != "" || f.editMetadata.Summary.Editable || f.editMetadata.Priority.ID != "" || f.editMetadata.Priority.Editable {
+	if f.editMetadata.Summary.ID != "" || f.editMetadata.Summary.Editable || f.editMetadata.Priority.ID != "" || f.editMetadata.Priority.Editable || f.editMetadata.Labels.ID != "" || f.editMetadata.Labels.Editable || f.editMetadata.Components.ID != "" || f.editMetadata.Components.Editable {
 		return f.editMetadata, nil
 	}
-	return jira.EditMetadata{Summary: jira.EditField{ID: "summary", Name: "Summary", Editable: true}}, nil
+	return jira.EditMetadata{
+		Summary:    jira.EditField{ID: "summary", Name: "Summary", Editable: true},
+		Labels:     jira.EditField{ID: "labels", Name: "Labels", Editable: true},
+		Components: jira.EditField{ID: "components", Name: "Components", Editable: true},
+	}, nil
 }
 
 func (f *fakeIssueSearcher) GetCreateIssueTypes(_ context.Context, projectKey string) ([]jira.CreateIssueType, error) {
@@ -942,6 +1003,55 @@ func (f *fakeIssueSearcher) GetCreateFields(_ context.Context, projectKey string
 	f.transitionKey = projectKey
 	f.transitionID = issueTypeID
 	return f.createFields, nil
+}
+
+func (f *fakeIssueSearcher) SearchFieldOptions(_ context.Context, autocompleteURL string, query string, maxResults int) ([]jira.FieldOption, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.fieldOptionURL = autocompleteURL
+	f.fieldOptionQuery = query
+	f.fieldOptionMaxResults = maxResults
+	return f.fieldOptions, nil
+}
+
+func (f *fakeIssueSearcher) GetIssueLinkTypes(_ context.Context) ([]jira.IssueLinkType, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.issueLinkTypes != nil {
+		return f.issueLinkTypes, nil
+	}
+	return []jira.IssueLinkType{{ID: "10000", Name: "Blocks", Inward: "is blocked by", Outward: "blocks"}}, nil
+}
+
+func (f *fakeIssueSearcher) CreateIssueLink(_ context.Context, request jira.CreateIssueLinkRequest) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.issueLinkRequest = request
+	return nil
+}
+
+func (f *fakeIssueSearcher) GetWorklogs(_ context.Context, key string, maxResults int) ([]jira.Worklog, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.worklogKey = key
+	f.worklogMaxResults = maxResults
+	return f.worklogs, nil
+}
+
+func (f *fakeIssueSearcher) AddWorklog(_ context.Context, key string, request jira.AddWorklogRequest) (jira.Worklog, error) {
+	if f.err != nil {
+		return jira.Worklog{}, f.err
+	}
+	f.addWorklogKey = key
+	f.addWorklogRequest = request
+	if f.addedWorklog.ID != "" {
+		return f.addedWorklog, nil
+	}
+	return jira.Worklog{ID: "10001", Author: "Current User", TimeSpent: request.TimeSpent, Comment: request.Comment, Started: request.Started}, nil
 }
 
 func (f *fakeIssueSearcher) CreateIssue(_ context.Context, request jira.CreateIssueRequest) (jira.Issue, error) {
@@ -1000,6 +1110,33 @@ func (f *fakeIssueSearcher) UpdatePriority(_ context.Context, key string, priori
 	}
 	f.updatePriorityKey = key
 	f.updatePriorityValue = priority
+	return nil
+}
+
+func (f *fakeIssueSearcher) UpdateLabels(_ context.Context, key string, labels []string) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.updateLabelsKey = key
+	f.updateLabelsValue = append([]string{}, labels...)
+	return nil
+}
+
+func (f *fakeIssueSearcher) UpdateComponents(_ context.Context, key string, components []jira.FieldOption) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.updateComponentsKey = key
+	f.updateComponentsValue = append([]jira.FieldOption{}, components...)
+	return nil
+}
+
+func (f *fakeIssueSearcher) UpdateEditField(_ context.Context, key string, value jira.EditFieldValue) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.updateEditFieldKey = key
+	f.updateEditFieldValue = value
 	return nil
 }
 

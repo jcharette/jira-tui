@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -49,6 +50,7 @@ type issueService interface {
 type commentService interface {
 	Gets(ctx context.Context, issueKeyOrID, orderBy string, expand []string, startAt, maxResults int) (*model.IssueCommentPageScheme, *model.ResponseScheme, error)
 	Add(ctx context.Context, issueKeyOrID string, payload *model.CommentPayloadScheme, expand []string) (*model.IssueCommentScheme, *model.ResponseScheme, error)
+	Update(ctx context.Context, issueKeyOrID, commentID string, payload *model.CommentPayloadScheme, expand []string) (*model.IssueCommentScheme, *model.ResponseScheme, error)
 }
 
 type userSearchService interface {
@@ -98,6 +100,20 @@ type IssueLink struct {
 	URL          string
 }
 
+type IssueLinkType struct {
+	ID      string
+	Name    string
+	Inward  string
+	Outward string
+}
+
+type CreateIssueLinkRequest struct {
+	SourceKey string
+	TargetKey string
+	Type      IssueLinkType
+	Direction string
+}
+
 type IssueDetail struct {
 	Issue
 	Description string
@@ -119,6 +135,22 @@ type Comment struct {
 	Updated time.Time
 }
 
+type Worklog struct {
+	ID               string
+	Author           string
+	Comment          string
+	TimeSpent        string
+	TimeSpentSeconds int
+	Started          time.Time
+	Updated          time.Time
+}
+
+type AddWorklogRequest struct {
+	TimeSpent string
+	Started   time.Time
+	Comment   string
+}
+
 type User struct {
 	AccountID   string
 	DisplayName string
@@ -132,21 +164,55 @@ type Mention struct {
 }
 
 type EditMetadata struct {
-	Summary  EditField
-	Priority EditField
+	Summary    EditField
+	Priority   EditField
+	Labels     EditField
+	Components EditField
+	Fields     []EditField
 }
 
 type EditField struct {
-	ID            string
-	Name          string
-	Required      bool
-	Editable      bool
-	AllowedValues []FieldOption
+	ID              string
+	Name            string
+	Required        bool
+	HasDefaultValue bool
+	Editable        bool
+	SchemaType      string
+	SchemaSystem    string
+	SchemaItems     string
+	SchemaCustom    string
+	SchemaCustomID  int
+	Operations      []string
+	AllowedValues   []FieldOption
+	AutoCompleteURL string
+}
+
+type EditFieldValue struct {
+	FieldID      string
+	SchemaType   string
+	SchemaSystem string
+	SchemaItems  string
+	Text         string
+	Option       FieldOption
+	Options      []FieldOption
 }
 
 type FieldOption struct {
 	ID   string
 	Name string
+}
+
+type fieldOptionSearchResponse struct {
+	Results []fieldOptionSearchItem `json:"results"`
+	Values  []fieldOptionSearchItem `json:"values"`
+}
+
+type fieldOptionSearchItem struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Value       string `json:"value"`
+	DisplayName string `json:"displayName"`
+	Key         string `json:"key"`
 }
 
 type CreateIssueType struct {
@@ -176,6 +242,7 @@ type CreateField struct {
 type CreateIssueRequest struct {
 	ProjectKey  string
 	IssueTypeID string
+	ParentKey   string
 	Summary     string
 	Description string
 	Fields      []CreateIssueFieldValue
@@ -525,9 +592,263 @@ func (c *Client) GetCreateFields(ctx context.Context, projectKey string, issueTy
 	return parseExpandedCreateFields(fallback, projectKey, issueTypeID), nil
 }
 
+func (c *Client) SearchFieldOptions(ctx context.Context, autocompleteURL string, query string, maxResults int) ([]FieldOption, error) {
+	autocompleteURL = strings.TrimSpace(autocompleteURL)
+	query = strings.TrimSpace(query)
+	if autocompleteURL == "" {
+		return nil, fmt.Errorf("search jira field options: empty autocomplete URL")
+	}
+	if maxResults <= 0 {
+		maxResults = 25
+	}
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+	if c.rest == nil {
+		return nil, fmt.Errorf("search jira field options: REST service unavailable")
+	}
+	endpoint, err := c.fieldOptionAutocompleteEndpoint(autocompleteURL, query, maxResults)
+	if err != nil {
+		return nil, err
+	}
+	request, err := c.rest.NewRequest(ctx, http.MethodGet, endpoint, "", nil)
+	if err != nil {
+		return nil, fmt.Errorf("search jira field options: %w", err)
+	}
+	var response fieldOptionSearchResponse
+	if _, err := c.rest.Call(request, &response); err != nil {
+		return nil, fmt.Errorf("search jira field options: %w", err)
+	}
+	return parseFieldOptionSearchResponse(response), nil
+}
+
+func (c *Client) GetIssueLinkTypes(ctx context.Context) ([]IssueLinkType, error) {
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+	if c.rest == nil {
+		return nil, fmt.Errorf("get jira issue link types: REST service unavailable")
+	}
+	request, err := c.rest.NewRequest(ctx, http.MethodGet, "rest/api/3/issueLinkType", "", nil)
+	if err != nil {
+		return nil, fmt.Errorf("get jira issue link types: %w", err)
+	}
+	var response model.IssueLinkTypeSearchScheme
+	if _, err := c.rest.Call(request, &response); err != nil {
+		return nil, fmt.Errorf("get jira issue link types: %w", err)
+	}
+	return parseIssueLinkTypes(response.IssueLinkTypes), nil
+}
+
+func parseIssueLinkTypes(rawTypes []*model.LinkTypeScheme) []IssueLinkType {
+	types := make([]IssueLinkType, 0, len(rawTypes))
+	seen := make(map[string]struct{}, len(rawTypes))
+	for _, raw := range rawTypes {
+		if raw == nil {
+			continue
+		}
+		linkType := IssueLinkType{
+			ID:      strings.TrimSpace(raw.ID),
+			Name:    strings.TrimSpace(raw.Name),
+			Inward:  strings.TrimSpace(raw.Inward),
+			Outward: strings.TrimSpace(raw.Outward),
+		}
+		if linkType.ID == "" && linkType.Name == "" {
+			continue
+		}
+		key := linkType.ID
+		if key == "" {
+			key = strings.ToLower(linkType.Name)
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		types = append(types, linkType)
+	}
+	sort.SliceStable(types, func(i, j int) bool {
+		left := strings.ToLower(displayLinkTypeName(types[i]))
+		right := strings.ToLower(displayLinkTypeName(types[j]))
+		return left < right
+	})
+	return types
+}
+
+func displayLinkTypeName(linkType IssueLinkType) string {
+	if strings.TrimSpace(linkType.Name) != "" {
+		return strings.TrimSpace(linkType.Name)
+	}
+	return strings.TrimSpace(linkType.ID)
+}
+
+func (c *Client) CreateIssueLink(ctx context.Context, request CreateIssueLinkRequest) error {
+	request.SourceKey = strings.ToUpper(strings.TrimSpace(request.SourceKey))
+	request.TargetKey = strings.ToUpper(strings.TrimSpace(request.TargetKey))
+	request.Direction = strings.ToLower(strings.TrimSpace(request.Direction))
+	if request.SourceKey == "" {
+		return fmt.Errorf("create jira issue link: empty source issue key")
+	}
+	if request.TargetKey == "" {
+		return fmt.Errorf("create jira issue link %s: empty target issue key", request.SourceKey)
+	}
+	if request.SourceKey == request.TargetKey {
+		return fmt.Errorf("create jira issue link %s: target issue must be different", request.SourceKey)
+	}
+	linkTypeID := strings.TrimSpace(request.Type.ID)
+	linkTypeName := strings.TrimSpace(request.Type.Name)
+	if linkTypeID == "" && linkTypeName == "" {
+		return fmt.Errorf("create jira issue link %s: empty link type", request.SourceKey)
+	}
+	if request.Direction != "outward" && request.Direction != "inward" {
+		return fmt.Errorf("create jira issue link %s: unsupported direction %s", request.SourceKey, request.Direction)
+	}
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+	if c.rest == nil {
+		return fmt.Errorf("create jira issue link %s: REST service unavailable", request.SourceKey)
+	}
+
+	payload := createIssueLinkPayload(request)
+	restRequest, err := c.rest.NewRequest(ctx, http.MethodPost, "rest/api/3/issueLink", "", payload)
+	if err != nil {
+		return fmt.Errorf("create jira issue link %s: %w", request.SourceKey, err)
+	}
+	if _, err := c.rest.Call(restRequest, nil); err != nil {
+		return fmt.Errorf("create jira issue link %s: %w", request.SourceKey, err)
+	}
+	return nil
+}
+
+func (c *Client) GetWorklogs(ctx context.Context, key string, maxResults int) ([]Worklog, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return nil, fmt.Errorf("get jira worklogs: empty issue key")
+	}
+	if maxResults <= 0 {
+		maxResults = 20
+	}
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+	if c.rest == nil {
+		return nil, fmt.Errorf("get jira worklogs %s: REST service unavailable", key)
+	}
+	endpoint := fmt.Sprintf("rest/api/3/issue/%s/worklog?maxResults=%d&startAt=0", url.PathEscape(key), maxResults)
+	restRequest, err := c.rest.NewRequest(ctx, http.MethodGet, endpoint, "", nil)
+	if err != nil {
+		return nil, fmt.Errorf("get jira worklogs %s: %w", key, err)
+	}
+	var page model.IssueWorklogADFPageScheme
+	if _, err := c.rest.Call(restRequest, &page); err != nil {
+		return nil, fmt.Errorf("get jira worklogs %s: %w", key, err)
+	}
+	return parseWorklogs(page.Worklogs), nil
+}
+
+func (c *Client) AddWorklog(ctx context.Context, key string, request AddWorklogRequest) (Worklog, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return Worklog{}, fmt.Errorf("add jira worklog: empty issue key")
+	}
+	timeSpent := strings.TrimSpace(request.TimeSpent)
+	if timeSpent == "" {
+		return Worklog{}, fmt.Errorf("add jira worklog %s: empty time spent", key)
+	}
+	started := request.Started
+	if started.IsZero() {
+		started = time.Now()
+	}
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+	if c.rest == nil {
+		return Worklog{}, fmt.Errorf("add jira worklog %s: REST service unavailable", key)
+	}
+	payload := &model.WorklogADFPayloadScheme{
+		TimeSpent: timeSpent,
+		Started:   formatJiraWorklogTime(started),
+	}
+	if strings.TrimSpace(request.Comment) != "" {
+		payload.Comment = plainTextADF(request.Comment, nil)
+	}
+	restRequest, err := c.rest.NewRequest(ctx, http.MethodPost, "rest/api/3/issue/"+url.PathEscape(key)+"/worklog", "", payload)
+	if err != nil {
+		return Worklog{}, fmt.Errorf("add jira worklog %s: %w", key, err)
+	}
+	var raw model.IssueWorklogADFScheme
+	if _, err := c.rest.Call(restRequest, &raw); err != nil {
+		return Worklog{}, fmt.Errorf("add jira worklog %s: %w", key, err)
+	}
+	return parseWorklog(&raw), nil
+}
+
+func formatJiraWorklogTime(value time.Time) string {
+	return value.Format("2006-01-02T15:04:05.000-0700")
+}
+
+func createIssueLinkPayload(request CreateIssueLinkRequest) *model.LinkPayloadSchemeV3 {
+	linkType := &model.LinkTypeScheme{
+		ID:   strings.TrimSpace(request.Type.ID),
+		Name: strings.TrimSpace(request.Type.Name),
+	}
+	payload := &model.LinkPayloadSchemeV3{
+		Type: linkType,
+	}
+	source := &model.LinkedIssueScheme{Key: strings.ToUpper(strings.TrimSpace(request.SourceKey))}
+	target := &model.LinkedIssueScheme{Key: strings.ToUpper(strings.TrimSpace(request.TargetKey))}
+	if strings.EqualFold(request.Direction, "inward") {
+		payload.InwardIssue = target
+		payload.OutwardIssue = source
+		return payload
+	}
+	payload.InwardIssue = source
+	payload.OutwardIssue = target
+	return payload
+}
+
+func (c *Client) fieldOptionAutocompleteEndpoint(autocompleteURL string, query string, maxResults int) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(autocompleteURL))
+	if err != nil {
+		return "", fmt.Errorf("search jira field options: invalid autocomplete URL: %w", err)
+	}
+	if parsed.IsAbs() {
+		if c.baseURL != "" {
+			base, err := url.Parse(c.baseURL)
+			if err == nil && base.Host != "" && !strings.EqualFold(parsed.Host, base.Host) {
+				return "", fmt.Errorf("search jira field options: autocomplete URL host %s does not match Jira host %s", parsed.Host, base.Host)
+			}
+		}
+		parsed.Scheme = ""
+		parsed.Host = ""
+	}
+	params := parsed.Query()
+	if query != "" {
+		params.Set("query", query)
+	}
+	params.Set("maxResults", strconv.Itoa(maxResults))
+	parsed.RawQuery = params.Encode()
+	endpoint := strings.TrimLeft(parsed.String(), "/")
+	if endpoint == "" {
+		return "", fmt.Errorf("search jira field options: empty autocomplete endpoint")
+	}
+	return endpoint, nil
+}
+
 func (c *Client) CreateIssue(ctx context.Context, request CreateIssueRequest) (Issue, error) {
 	request.ProjectKey = strings.TrimSpace(request.ProjectKey)
 	request.IssueTypeID = strings.TrimSpace(request.IssueTypeID)
+	request.ParentKey = strings.TrimSpace(request.ParentKey)
 	request.Summary = strings.TrimSpace(request.Summary)
 	if request.ProjectKey == "" || request.IssueTypeID == "" || request.Summary == "" {
 		return Issue{}, fmt.Errorf("create jira issue: missing project key, issue type ID, or summary")
@@ -547,6 +868,9 @@ func (c *Client) CreateIssue(ctx context.Context, request CreateIssueRequest) (I
 	}
 	if strings.TrimSpace(request.Description) != "" {
 		payload.Fields.Description = plainTextADF(request.Description, nil)
+	}
+	if request.ParentKey != "" {
+		payload.Fields.Parent = &model.ParentScheme{Key: request.ParentKey}
 	}
 	customFields, err := applyCreateIssueFieldValues(payload.Fields, request.Fields)
 	if err != nil {
@@ -736,6 +1060,121 @@ func (c *Client) UpdatePriority(ctx context.Context, key string, priority FieldO
 	return nil
 }
 
+func (c *Client) UpdateLabels(ctx context.Context, key string, labels []string) error {
+	labels = normalizeLabels(labels)
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+
+	payload := &model.IssueScheme{
+		Fields: &model.IssueFieldsScheme{
+			Labels: labels,
+		},
+	}
+	if _, err := c.issue.Update(ctx, key, false, payload, nil, nil); err != nil {
+		return fmt.Errorf("update jira labels %s: %w", key, err)
+	}
+	return nil
+}
+
+func (c *Client) UpdateComponents(ctx context.Context, key string, components []FieldOption) error {
+	components = normalizeFieldOptions(components)
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+
+	payload := &model.IssueScheme{
+		Fields: &model.IssueFieldsScheme{
+			Components: fieldOptionsToComponents(components),
+		},
+	}
+	if _, err := c.issue.Update(ctx, key, false, payload, nil, nil); err != nil {
+		return fmt.Errorf("update jira components %s: %w", key, err)
+	}
+	return nil
+}
+
+func (c *Client) UpdateEditField(ctx context.Context, key string, value EditFieldValue) error {
+	fieldID := strings.TrimSpace(value.FieldID)
+	if fieldID == "" {
+		return fmt.Errorf("update jira field %s: empty field ID", key)
+	}
+	if !strings.HasPrefix(fieldID, "customfield_") {
+		return fmt.Errorf("update jira field %s: unsupported field %s", key, fieldID)
+	}
+	raw, ok := editCustomFieldPayload(value)
+	if !ok {
+		return fmt.Errorf("update jira field %s: missing value for %s", key, fieldID)
+	}
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+
+	customFields := &model.CustomFields{}
+	if err := customFields.Raw(fieldID, raw); err != nil {
+		return fmt.Errorf("update jira field %s: %w", key, err)
+	}
+	if _, err := c.issue.Update(ctx, key, false, &model.IssueScheme{}, customFields, nil); err != nil {
+		return fmt.Errorf("update jira field %s: %w", key, err)
+	}
+	return nil
+}
+
+func editCustomFieldPayload(value EditFieldValue) (interface{}, bool) {
+	text := strings.TrimSpace(value.Text)
+	schemaType := strings.ToLower(strings.TrimSpace(value.SchemaType))
+	schemaItems := strings.ToLower(strings.TrimSpace(value.SchemaItems))
+	switch schemaType {
+	case "number":
+		if text == "" {
+			return nil, false
+		}
+		number, err := strconv.ParseFloat(text, 64)
+		if err != nil {
+			return nil, false
+		}
+		return number, true
+	case "string", "text", "textarea", "date", "datetime":
+		if text == "" {
+			return nil, false
+		}
+		return text, true
+	case "option":
+		option := createFieldOptionPayload(value.Option)
+		if len(option) == 0 {
+			return nil, false
+		}
+		return option, true
+	case "array":
+		if schemaItems != "option" {
+			return nil, false
+		}
+		options := normalizeFieldOptions(value.Options)
+		if len(options) == 0 && (value.Option.ID != "" || value.Option.Name != "") {
+			options = []FieldOption{value.Option}
+		}
+		items := make([]map[string]interface{}, 0, len(options))
+		for _, option := range options {
+			item := createFieldOptionPayload(option)
+			if len(item) > 0 {
+				items = append(items, item)
+			}
+		}
+		if len(items) == 0 {
+			return nil, false
+		}
+		return items, true
+	default:
+		return nil, false
+	}
+}
+
 func (c *Client) UpdateAssignee(ctx context.Context, key string, assignee User) error {
 	assignee.AccountID = strings.TrimSpace(assignee.AccountID)
 	if assignee.AccountID == "" {
@@ -834,6 +1273,34 @@ func (c *Client) AddComment(ctx context.Context, key string, body string, mentio
 	return parseComment(raw), nil
 }
 
+func (c *Client) UpdateComment(ctx context.Context, key string, commentID string, body string, mentions []Mention) (Comment, error) {
+	key = strings.TrimSpace(key)
+	commentID = strings.TrimSpace(commentID)
+	body = strings.TrimSpace(body)
+	if key == "" || commentID == "" || body == "" {
+		return Comment{}, fmt.Errorf("update jira comment: missing issue key, comment ID, or body")
+	}
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+	if c.comment == nil {
+		return Comment{}, fmt.Errorf("update jira comment %s/%s: comment service unavailable", key, commentID)
+	}
+
+	raw, _, err := c.comment.Update(ctx, key, commentID, &model.CommentPayloadScheme{
+		Body: plainTextADF(body, mentions),
+	}, nil)
+	if err != nil {
+		return Comment{}, fmt.Errorf("update jira comment %s/%s: %w", key, commentID, err)
+	}
+	if raw == nil {
+		return Comment{}, fmt.Errorf("update jira comment %s/%s: empty response", key, commentID)
+	}
+	return parseComment(raw), nil
+}
+
 func (c *Client) SearchUsers(ctx context.Context, query string, maxResults int) ([]User, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
@@ -858,6 +1325,49 @@ func (c *Client) SearchUsers(ctx context.Context, query string, maxResults int) 
 	users := make([]User, 0, len(rawUsers))
 	for _, raw := range rawUsers {
 		if user, ok := parseUser(raw); ok {
+			users = append(users, user)
+		}
+	}
+	return users, nil
+}
+
+func (c *Client) SearchAssignableUsers(ctx context.Context, issueKey string, query string, maxResults int) ([]User, error) {
+	issueKey = strings.TrimSpace(issueKey)
+	query = strings.TrimSpace(query)
+	if issueKey == "" {
+		return nil, fmt.Errorf("search jira assignable users: empty issue key")
+	}
+	if query == "" {
+		return nil, fmt.Errorf("search jira assignable users %s: empty query", issueKey)
+	}
+	if maxResults <= 0 {
+		maxResults = 10
+	}
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+	if c.rest == nil {
+		return nil, fmt.Errorf("search jira assignable users %s: REST service unavailable", issueKey)
+	}
+
+	params := url.Values{}
+	params.Set("issueKey", issueKey)
+	params.Set("maxResults", strconv.Itoa(maxResults))
+	params.Set("query", query)
+	endpoint := "rest/api/3/user/assignable/search?" + params.Encode()
+	request, err := c.rest.NewRequest(ctx, http.MethodGet, endpoint, "", nil)
+	if err != nil {
+		return nil, fmt.Errorf("search jira assignable users %s: %w", issueKey, err)
+	}
+	var rawUsers []model.UserScheme
+	if _, err := c.rest.Call(request, &rawUsers); err != nil {
+		return nil, fmt.Errorf("search jira assignable users %s: %w", issueKey, err)
+	}
+	users := make([]User, 0, len(rawUsers))
+	for index := range rawUsers {
+		if user, ok := parseUser(&rawUsers[index]); ok {
 			users = append(users, user)
 		}
 	}
@@ -1050,6 +1560,35 @@ func parseComment(raw *model.IssueCommentScheme) Comment {
 	return comment
 }
 
+func parseWorklogs(rawWorklogs []*model.IssueWorklogADFScheme) []Worklog {
+	worklogs := make([]Worklog, 0, len(rawWorklogs))
+	for _, raw := range rawWorklogs {
+		worklog := parseWorklog(raw)
+		if worklog.ID == "" && worklog.TimeSpent == "" && worklog.Comment == "" {
+			continue
+		}
+		worklogs = append(worklogs, worklog)
+	}
+	return worklogs
+}
+
+func parseWorklog(raw *model.IssueWorklogADFScheme) Worklog {
+	worklog := Worklog{
+		Author: "Unknown",
+	}
+	if raw == nil {
+		return worklog
+	}
+	worklog.ID = raw.ID
+	worklog.Author = jiraUserDetailDisplayName(raw.Author, worklog.Author)
+	worklog.Comment = adf.Render(raw.Comment)
+	worklog.TimeSpent = raw.TimeSpent
+	worklog.TimeSpentSeconds = raw.TimeSpentSeconds
+	worklog.Started = parseJiraCommentTime(raw.Started)
+	worklog.Updated = parseJiraCommentTime(raw.Updated)
+	return worklog
+}
+
 func parseBoardPage(raw *model.BoardPageScheme) BoardPage {
 	if raw == nil {
 		return BoardPage{}
@@ -1121,10 +1660,35 @@ func parseUser(raw *model.UserScheme) (User, bool) {
 }
 
 func parseEditMetadata(raw gjson.Result) EditMetadata {
+	fields := parseEditFields(raw.Get("fields"))
 	return EditMetadata{
-		Summary:  parseEditField("summary", raw.Get("fields.summary")),
-		Priority: parseEditField("priority", raw.Get("fields.priority")),
+		Summary:    parseEditField("summary", raw.Get("fields.summary")),
+		Priority:   parseEditField("priority", raw.Get("fields.priority")),
+		Labels:     parseEditField("labels", raw.Get("fields.labels")),
+		Components: parseEditField("components", raw.Get("fields.components")),
+		Fields:     fields,
 	}
+}
+
+func parseEditFields(raw gjson.Result) []EditField {
+	var fields []EditField
+	raw.ForEach(func(key, value gjson.Result) bool {
+		field := parseEditField(strings.TrimSpace(key.String()), value)
+		if field.ID == "" && field.Name == "" {
+			return true
+		}
+		fields = append(fields, field)
+		return true
+	})
+	sort.SliceStable(fields, func(i, j int) bool {
+		left := strings.ToLower(strings.TrimSpace(firstNonEmpty(fields[i].Name, fields[i].ID)))
+		right := strings.ToLower(strings.TrimSpace(firstNonEmpty(fields[j].Name, fields[j].ID)))
+		if left == right {
+			return fields[i].ID < fields[j].ID
+		}
+		return left < right
+	})
+	return fields
 }
 
 func parseCreateIssueTypes(raw gjson.Result) []CreateIssueType {
@@ -1245,14 +1809,25 @@ func parseCreateField(defaultID string, item gjson.Result) CreateField {
 
 func parseEditField(id string, raw gjson.Result) EditField {
 	field := EditField{
-		ID:       id,
-		Name:     raw.Get("name").String(),
-		Required: raw.Get("required").Bool(),
+		ID:              strings.TrimSpace(id),
+		Name:            strings.TrimSpace(raw.Get("name").String()),
+		Required:        raw.Get("required").Bool(),
+		HasDefaultValue: raw.Get("hasDefaultValue").Bool(),
+		SchemaType:      strings.TrimSpace(raw.Get("schema.type").String()),
+		SchemaSystem:    strings.TrimSpace(raw.Get("schema.system").String()),
+		SchemaItems:     strings.TrimSpace(raw.Get("schema.items").String()),
+		SchemaCustom:    strings.TrimSpace(raw.Get("schema.custom").String()),
+		SchemaCustomID:  int(raw.Get("schema.customId").Int()),
+		AutoCompleteURL: strings.TrimSpace(raw.Get("autoCompleteUrl").String()),
 	}
 	for _, operation := range raw.Get("operations").Array() {
-		if operation.String() == "set" {
+		value := strings.TrimSpace(operation.String())
+		if value == "" {
+			continue
+		}
+		field.Operations = append(field.Operations, value)
+		if value == "set" {
 			field.Editable = true
-			break
 		}
 	}
 	for _, allowed := range raw.Get("allowedValues").Array() {
@@ -1277,6 +1852,30 @@ func parseFieldOption(raw gjson.Result) FieldOption {
 	}
 }
 
+func parseFieldOptionSearchResponse(response fieldOptionSearchResponse) []FieldOption {
+	items := response.Results
+	if len(items) == 0 {
+		items = response.Values
+	}
+	options := make([]FieldOption, 0, len(items))
+	for _, item := range items {
+		option := FieldOption{
+			ID: strings.TrimSpace(item.ID),
+			Name: strings.TrimSpace(firstNonEmpty(
+				item.Name,
+				item.Value,
+				item.DisplayName,
+				item.Key,
+			)),
+		}
+		if option.ID == "" && option.Name == "" {
+			continue
+		}
+		options = append(options, option)
+	}
+	return normalizeFieldOptions(options)
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
@@ -1286,7 +1885,84 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+func normalizeLabels(labels []string) []string {
+	normalized := make([]string, 0, len(labels))
+	seen := map[string]bool{}
+	for _, label := range labels {
+		label = strings.TrimSpace(label)
+		if label == "" {
+			continue
+		}
+		key := strings.ToLower(label)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		normalized = append(normalized, label)
+	}
+	if normalized == nil {
+		return []string{}
+	}
+	return normalized
+}
+
+func normalizeFieldOptions(options []FieldOption) []FieldOption {
+	normalized := make([]FieldOption, 0, len(options))
+	seen := map[string]bool{}
+	for _, option := range options {
+		option.ID = strings.TrimSpace(option.ID)
+		option.Name = strings.TrimSpace(option.Name)
+		if option.ID == "" && option.Name == "" {
+			continue
+		}
+		key := strings.ToLower(firstNonEmpty(option.ID, option.Name))
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		normalized = append(normalized, option)
+	}
+	if normalized == nil {
+		return []FieldOption{}
+	}
+	return normalized
+}
+
+func fieldOptionsToComponents(options []FieldOption) []*model.ComponentScheme {
+	components := make([]*model.ComponentScheme, 0, len(options))
+	for _, option := range options {
+		components = append(components, &model.ComponentScheme{
+			ID:   strings.TrimSpace(option.ID),
+			Name: strings.TrimSpace(option.Name),
+		})
+	}
+	if components == nil {
+		return []*model.ComponentScheme{}
+	}
+	return components
+}
+
 func jiraUserDisplayName(raw *model.UserScheme, fallback string) string {
+	if raw == nil {
+		return fallback
+	}
+	for _, candidate := range []string{raw.DisplayName, raw.Name, raw.EmailAddress, raw.Key, raw.AccountID} {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if IsPrivacyUserAlias(candidate) {
+			continue
+		}
+		return candidate
+	}
+	if trimmed := strings.TrimSpace(raw.DisplayName); trimmed != "" {
+		return trimmed
+	}
+	return fallback
+}
+
+func jiraUserDetailDisplayName(raw *model.UserDetailScheme, fallback string) string {
 	if raw == nil {
 		return fallback
 	}
@@ -1413,6 +2089,10 @@ func (f failingCommentService) Gets(_ context.Context, _ string, _ string, _ []s
 }
 
 func (f failingCommentService) Add(_ context.Context, _ string, _ *model.CommentPayloadScheme, _ []string) (*model.IssueCommentScheme, *model.ResponseScheme, error) {
+	return nil, nil, f.err
+}
+
+func (f failingCommentService) Update(_ context.Context, _, _ string, _ *model.CommentPayloadScheme, _ []string) (*model.IssueCommentScheme, *model.ResponseScheme, error) {
 	return nil, nil, f.err
 }
 

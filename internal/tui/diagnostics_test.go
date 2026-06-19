@@ -2,7 +2,10 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -81,6 +84,91 @@ func TestDiagnosticsRecordsWorkerSubmitAndResult(t *testing.T) {
 	if next.diagnosticsEvents[2].Kind != diagnosticKindAPI || next.diagnosticsEvents[2].Status != "ok" {
 		t.Fatalf("api event = %#v", next.diagnosticsEvents[2])
 	}
+}
+
+func TestDiagnosticsRecordsSearchIssueTypeSample(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+
+	updated, _ := model.Update(workerResultMsg{result: worker.Result{
+		ID:   42,
+		Kind: worker.KindSearchIssues,
+		SearchIssues: &worker.SearchIssuesResult{
+			Issues: []jira.Issue{
+				{Key: "ABC-1", IssueType: "Epic"},
+				{Key: "ABC-2", IssueType: "Epic"},
+				{Key: "ABC-3", IssueType: "Enhancement"},
+				{Key: "ABC-4", IssueType: "Story"},
+			},
+		},
+	}})
+	next := updated.(Model)
+
+	event := lastDiagnosticEventWithLabelForTest(t, next, diagnosticKindWorker, string(worker.KindSearchIssues))
+	for _, want := range []string{"types=Epic:2,Enhancement:1,Story:1"} {
+		if !strings.Contains(event.Detail, want) {
+			t.Fatalf("search diagnostic detail = %q, missing %q", event.Detail, want)
+		}
+	}
+}
+
+func TestDiagnosticsWritesToPersistentSink(t *testing.T) {
+	sink := &recordingDiagnosticSink{}
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDiagnosticLog(sink, "/tmp/jira-diagnostics.jsonl"))
+	defer model.workers.Stop()
+	model.now = func() time.Time { return time.Date(2026, 6, 18, 20, 48, 0, 0, time.UTC) }
+
+	model.recordDiagnosticEvent(diagnosticKindWorker, "get_issue", "submit", "#7 ABC-1")
+
+	if len(sink.events) != 1 {
+		t.Fatalf("sink events = %#v", sink.events)
+	}
+	event := sink.events[0]
+	if event.Kind != diagnosticKindWorker || event.Label != "get_issue" || event.Status != "submit" || event.Detail != "#7 ABC-1" {
+		t.Fatalf("event = %#v", event)
+	}
+	view := model.renderDiagnostics(model.browserLayout(120))
+	if !strings.Contains(view, "/tmp/jira-diagnostics.jsonl") {
+		t.Fatalf("diagnostics should show persistent log path:\n%s", view)
+	}
+}
+
+func TestPersistentDiagnosticLogWritesJSONLines(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "diagnostics.jsonl")
+	log, err := OpenPersistentDiagnosticLog(path)
+	if err != nil {
+		t.Fatalf("OpenPersistentDiagnosticLog() error = %v", err)
+	}
+	log.RecordDiagnosticEvent(diagnosticEvent{
+		At:     time.Date(2026, 6, 18, 20, 48, 0, 0, time.UTC),
+		Kind:   diagnosticKindWorker,
+		Label:  "get_issue",
+		Status: "ok",
+		Detail: "#7 ABC-1",
+	})
+	if err := log.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	var record map[string]string
+	if err := json.Unmarshal([]byte(strings.TrimSpace(string(data))), &record); err != nil {
+		t.Fatalf("log record is not JSON: %s: %v", string(data), err)
+	}
+	if record["kind"] != "worker" || record["label"] != "get_issue" || record["status"] != "ok" || record["detail"] != "#7 ABC-1" {
+		t.Fatalf("record = %#v", record)
+	}
+}
+
+type recordingDiagnosticSink struct {
+	events []diagnosticEvent
+}
+
+func (s *recordingDiagnosticSink) RecordDiagnosticEvent(event diagnosticEvent) {
+	s.events = append(s.events, event)
 }
 
 func TestDiagnosticsRecordsSanitizedAPIResult(t *testing.T) {

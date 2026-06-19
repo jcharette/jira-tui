@@ -28,7 +28,7 @@ func TestCreateShortcutOpensFromDetailWithoutMovingFocus(t *testing.T) {
 		"ABC-1": {Issue: model.issues[0]},
 	}
 
-	if target := model.focusedDetailTargetID(); target != "summary" {
+	if target := model.focusedDetailTargetID(); target != "overview" {
 		t.Fatalf("initial focused target = %q", target)
 	}
 
@@ -38,7 +38,7 @@ func TestCreateShortcutOpensFromDetailWithoutMovingFocus(t *testing.T) {
 	if !next.createOpen {
 		t.Fatal("expected create modal to open")
 	}
-	if target := next.focusedDetailTargetID(); target != "summary" {
+	if target := next.focusedDetailTargetID(); target != "overview" {
 		t.Fatalf("focused target moved to %q", target)
 	}
 	if cmd == nil {
@@ -73,6 +73,58 @@ func TestCreateShortcutLoadsCreateIssueTypes(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q in %q", want, view)
 		}
+	}
+}
+
+func TestCreateSubtaskFiltersIssueTypesAndSubmitsParent(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 100
+	model.height = 30
+	model.createOpen = true
+	model.createProjectKey = "ABC"
+	model.createParentKey = "ABC-1"
+	model.createParentSummary = "Parent story"
+	model.createIssueTypes = []jira.CreateIssueType{
+		{ID: "10001", Name: "Task", Subtask: false},
+		{ID: "10002", Name: "Sub-task", Subtask: true},
+	}
+
+	view := model.render()
+	if strings.Contains(view, "Task") && !strings.Contains(view, "Sub-task") {
+		t.Fatalf("normal issue type should not render for subtask creation:\n%s", view)
+	}
+	for _, want := range []string{"Create Subtask", "ABC-1", "Sub-task"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in:\n%s", want, view)
+		}
+	}
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected create field metadata request")
+	}
+	if next.createIssueType.ID != "10002" {
+		t.Fatalf("createIssueType = %#v", next.createIssueType)
+	}
+
+	next.createFieldsLoading = false
+	next.createFields = []jira.CreateField{{ID: "summary", Name: "Summary", Required: true, SchemaSystem: "summary"}}
+	next.beginCreateForm()
+	updated, _ = next.Update(tea.PasteMsg{Content: "Add regression coverage"})
+	next = updated.(Model)
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next = updated.(Model)
+	if !next.createSubmitting {
+		t.Fatal("expected create submission")
+	}
+	if next.createSubmitParentKey != "ABC-1" {
+		t.Fatalf("createSubmitParentKey = %q", next.createSubmitParentKey)
+	}
+	if cmd == nil {
+		t.Fatal("expected create issue command")
 	}
 }
 
@@ -681,6 +733,69 @@ func TestCreateComponentPickerFiltersAndSelectsWithTypeahead(t *testing.T) {
 	}
 	if model.createDynamicFilters[fieldKey] != "" {
 		t.Fatalf("filter should clear after enter, got %q", model.createDynamicFilters[fieldKey])
+	}
+}
+
+func TestCreateAutocompleteFieldFetchesOptionsWithTypeahead(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = DEVOPS")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 120
+	model.height = 45
+	model.createOpen = true
+	model.createProjectKey = "DEVOPS"
+	model.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Story"}
+	model.createFields = []jira.CreateField{
+		{ID: "summary", Name: "Summary", SchemaSystem: "summary", SchemaType: "string"},
+		{ID: "description", Name: "Description", SchemaSystem: "description", SchemaType: "string"},
+		{
+			ID:              "customfield_10010",
+			Name:            "Investment Category",
+			SchemaType:      "option",
+			AutoCompleteURL: "https://example.atlassian.net/rest/api/3/customFieldOption/suggest",
+		},
+	}
+	model.beginCreateForm()
+	model.createFieldFocus = model.createDynamicFieldFocusIndex(0)
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "p", Code: 'p'}))
+	next := updated.(Model)
+	fieldKey := createFieldValueKey(model.createFields[2])
+	if cmd == nil {
+		t.Fatal("expected autocomplete option request command")
+	}
+	if !next.createFieldOptionsLoading[fieldKey] {
+		t.Fatalf("createFieldOptionsLoading = %#v", next.createFieldOptionsLoading)
+	}
+	if next.createFieldOptionsQuery[fieldKey] != "p" {
+		t.Fatalf("createFieldOptionsQuery = %#v", next.createFieldOptionsQuery)
+	}
+	if !strings.Contains(next.render(), "Loading Jira options") {
+		t.Fatalf("expected loading state:\n%s", next.render())
+	}
+
+	updated, _ = next.Update(workerResultMsg{result: worker.Result{
+		ID:   next.activeCreateFieldOptionsReqID,
+		Kind: worker.KindSearchFieldOptions,
+		SearchFieldOptions: &worker.SearchFieldOptionsResult{
+			FieldID: "customfield_10010",
+			Query:   "p",
+			Options: []jira.FieldOption{{ID: "101", Name: "Platform"}, {ID: "102", Name: "Product"}},
+		},
+	}})
+	next = updated.(Model)
+	if next.createFieldOptionsLoading[fieldKey] {
+		t.Fatalf("createFieldOptionsLoading = %#v", next.createFieldOptionsLoading)
+	}
+	if len(next.createFields[2].AllowedValues) != 2 {
+		t.Fatalf("AllowedValues = %#v", next.createFields[2].AllowedValues)
+	}
+	if next.createDynamicSelections[fieldKey] != 0 {
+		t.Fatalf("selection = %d", next.createDynamicSelections[fieldKey])
+	}
+	view := next.render()
+	if !strings.Contains(view, "Platform") || !strings.Contains(view, "Product") {
+		t.Fatalf("expected autocomplete options in picker:\n%s", view)
 	}
 }
 

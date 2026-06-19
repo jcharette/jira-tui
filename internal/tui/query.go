@@ -9,7 +9,6 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/jcharette/jira-tui/internal/cache"
-	"github.com/jcharette/jira-tui/internal/config"
 	"github.com/jcharette/jira-tui/internal/events"
 	"github.com/jcharette/jira-tui/internal/worker"
 )
@@ -22,7 +21,13 @@ func (m *Model) startQueryModal() {
 	m.queryJQLEditorReady = true
 	m.queryHistory = m.loadQueryHistory()
 	m.queryHistorySelected = min(m.queryHistorySelected, max(0, len(m.queryHistory)-1))
+	m.queryTemplateSelected = min(m.queryTemplateSelected, max(0, len(m.queryViewTemplates())-1))
+	m.queryViewSelected = min(m.queryViewSelected, max(0, len(m.views)-1))
 	m.querySaveViewOpen = false
+	m.querySaveViewJQL = ""
+	m.querySaveViewIncludeChildren = false
+	m.querySaveViewAction = querySaveViewActionAdd
+	m.querySaveViewIndex = -1
 	if strings.TrimSpace(m.queryAIPrompt) == "" {
 		m.queryAIEditor = newQueryTextArea("", "Describe the issues you want to see")
 		m.queryAIEditorReady = true
@@ -61,8 +66,11 @@ func (m Model) updateQueryModal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.querySaveViewOpen = false
 			m.detailNotice = ""
 			return m, nil
+		case "i":
+			m.querySaveViewIncludeChildren = !m.querySaveViewIncludeChildren
+			return m, nil
 		case "enter", "ctrl+s":
-			return m.saveSelectedRecentQueryAsView(), nil
+			return m.saveQueryViewPrompt(), nil
 		}
 		editor, cmd := m.configuredQuerySaveViewEditor(max(24, m.browserLayout(m.width).contentWidth-12)).Update(msg)
 		m.querySaveViewEditor = editor
@@ -77,6 +85,9 @@ func (m Model) updateQueryModal(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "tab":
 		m.toggleQueryMode()
 		return m, nil
+	case "ctrl+v":
+		m.openQuerySaveViewPromptForCurrentMode()
+		return m, nil
 	case "enter":
 		if m.queryMode == queryModeAI && strings.TrimSpace(m.queryGeneratedJQL) != "" {
 			m.queryMode = queryModeJQL
@@ -84,6 +95,8 @@ func (m Model) updateQueryModal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.detailNotice = "Generated JQL copied for review."
 		} else if m.queryMode == queryModeRecent {
 			m.loadSelectedRecentQueryForReview()
+		} else if m.queryMode == queryModeViews {
+			m.loadSelectedSavedViewForReview()
 		}
 		return m, nil
 	case "ctrl+s":
@@ -102,10 +115,49 @@ func (m Model) updateQueryModal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		return m.applyQueryJQLWithHistory(m.queryJQLValue(), cache.QueryHistorySourceDirect, "")
 	}
+	if m.queryMode == queryModeViews {
+		switch msg.String() {
+		case "j", "down":
+			if len(m.views) > 0 {
+				m.queryViewSelected = min(len(m.views)-1, m.queryViewSelected+1)
+			}
+		case "k", "up":
+			if len(m.views) > 0 {
+				m.queryViewSelected = max(0, m.queryViewSelected-1)
+			}
+		case "r":
+			m.openSelectedSavedViewRenamePrompt()
+		case "d":
+			m.deleteSelectedSavedView()
+		case "i":
+			m.toggleSelectedSavedViewChildren()
+		case "J":
+			m.moveSelectedSavedView(1)
+		case "K":
+			m.moveSelectedSavedView(-1)
+		}
+		return m, nil
+	}
+	if m.queryMode == queryModeTemplates {
+		switch msg.String() {
+		case "s":
+			m.openQuerySaveViewPromptForCurrentMode()
+		case "j", "down":
+			templates := m.queryViewTemplates()
+			if len(templates) > 0 {
+				m.queryTemplateSelected = min(len(templates)-1, m.queryTemplateSelected+1)
+			}
+		case "k", "up":
+			if len(m.queryViewTemplates()) > 0 {
+				m.queryTemplateSelected = max(0, m.queryTemplateSelected-1)
+			}
+		}
+		return m, nil
+	}
 	if m.queryMode == queryModeRecent {
 		switch msg.String() {
 		case "s":
-			m.openQuerySaveViewPrompt()
+			m.openQuerySaveViewPromptForCurrentMode()
 		case "j", "down":
 			if len(m.queryHistory) > 0 {
 				m.queryHistorySelected = min(len(m.queryHistory)-1, m.queryHistorySelected+1)
@@ -138,7 +190,15 @@ func (m *Model) toggleQueryMode() {
 		return
 	}
 	if m.queryMode == queryModeAI {
+		m.queryMode = queryModeTemplates
+		return
+	}
+	if m.queryMode == queryModeTemplates {
 		m.queryMode = queryModeRecent
+		return
+	}
+	if m.queryMode == queryModeRecent {
+		m.queryMode = queryModeViews
 		return
 	}
 	m.queryMode = queryModeJQL
@@ -256,10 +316,21 @@ func (m Model) renderQueryModal(layout browserLayout) string {
 			lines = append(lines, m.theme.Text.Render(wrapText(m.queryGeneratedJQL, bodyWidth)))
 		}
 	} else if m.querySaveViewOpen {
-		lines = append(lines, m.theme.Muted.Render("Save Selected Recent Query"))
+		lines = append(lines, m.theme.Muted.Render(m.querySaveViewPromptTitle()))
 		lines = append(lines, m.configuredQuerySaveViewEditor(bodyWidth).View())
+		lines = append(lines, "", m.theme.Muted.Render("JQL"))
+		lines = append(lines, m.theme.Text.Render(wrapText(m.querySaveViewJQL, bodyWidth)))
+		children := "off"
+		if m.querySaveViewIncludeChildren {
+			children = "on"
+		}
+		lines = append(lines, m.theme.Muted.Render("include children: "+children))
+	} else if m.queryMode == queryModeTemplates {
+		lines = append(lines, m.renderQueryTemplates(bodyWidth)...)
 	} else if m.queryMode == queryModeRecent {
 		lines = append(lines, m.renderQueryHistory(bodyWidth)...)
+	} else if m.queryMode == queryModeViews {
+		lines = append(lines, m.renderSavedViews(bodyWidth)...)
 	} else {
 		lines = append(lines, m.configuredQueryJQLEditor(bodyWidth, 4).View())
 	}
@@ -302,31 +373,47 @@ func (m Model) configuredQuerySaveViewEditor(width int) textinput.Model {
 func (m Model) queryModeLabel() string {
 	switch m.queryMode {
 	case queryModeAI:
-		return "JQL  |  AI selected  |  Recent"
+		return "JQL  |  AI selected  |  Templates  |  Recent  |  Views"
+	case queryModeTemplates:
+		return "JQL  |  AI  |  Templates selected  |  Recent  |  Views"
 	case queryModeRecent:
-		return "JQL  |  AI  |  Recent selected"
+		return "JQL  |  AI  |  Templates  |  Recent selected  |  Views"
+	case queryModeViews:
+		return "JQL  |  AI  |  Templates  |  Recent  |  Views selected"
 	default:
-		return "JQL selected  |  AI  |  Recent"
+		return "JQL selected  |  AI  |  Templates  |  Recent  |  Views"
 	}
 }
 
 func (m Model) queryFooterText() string {
 	if m.querySaveViewOpen {
-		return "ctrl+s save  enter save  esc cancel"
+		return "i children  ctrl+s save  enter save  esc cancel"
 	}
 	if m.queryMode == queryModeAI {
 		if strings.TrimSpace(m.queryGeneratedJQL) != "" {
-			return "ctrl+s run preview  enter edit preview  tab recent  esc cancel"
+			return "ctrl+s run preview  ctrl+v save view  enter edit preview  tab templates  esc cancel"
 		}
-		return "ctrl+s generate  tab recent  esc cancel"
+		return "ctrl+s generate  tab templates  esc cancel"
+	}
+	if m.queryMode == queryModeTemplates {
+		if len(m.queryViewTemplates()) == 0 {
+			return "tab recent  esc cancel"
+		}
+		return "j/k select  s save view  tab recent  esc cancel"
 	}
 	if m.queryMode == queryModeRecent {
 		if len(m.queryHistory) == 0 {
+			return "tab views  esc cancel"
+		}
+		return "j/k select  enter edit  ctrl+s run  s save view  tab views  esc cancel"
+	}
+	if m.queryMode == queryModeViews {
+		if len(m.views) == 0 {
 			return "tab direct JQL  esc cancel"
 		}
-		return "j/k select  enter edit  ctrl+s run  s save view  tab direct JQL  esc cancel"
+		return "j/k select  enter edit  r rename  d delete  i children  J/K move  tab JQL  esc cancel"
 	}
-	return "ctrl+s run  tab AI  esc cancel"
+	return "ctrl+s run  ctrl+v save view  tab AI  esc cancel"
 }
 
 func (m Model) renderQueryHistory(width int) []string {
@@ -370,58 +457,6 @@ func (m *Model) loadSelectedRecentQueryForReview() {
 	m.queryMode = queryModeJQL
 	m.setQueryJQLDraft(record.JQL)
 	m.detailNotice = "Recent query loaded for review."
-}
-
-func (m *Model) openQuerySaveViewPrompt() {
-	record, ok := m.selectedQueryHistoryRecord()
-	if !ok {
-		m.detailNotice = "No recent queries yet."
-		return
-	}
-	name := strings.TrimSpace(record.Prompt)
-	if name == "" {
-		name = "Recent Query"
-	}
-	m.querySaveViewOpen = true
-	m.setQuerySaveViewName(name)
-	m.detailNotice = ""
-}
-
-func (m Model) querySaveViewNameValue() string {
-	if m.querySaveViewReady {
-		return m.querySaveViewEditor.Value()
-	}
-	return m.querySaveViewName
-}
-
-func (m Model) saveSelectedRecentQueryAsView() Model {
-	record, ok := m.selectedQueryHistoryRecord()
-	if !ok {
-		m.detailNotice = "No recent queries yet."
-		return m
-	}
-	view := config.IssueView{
-		Name: m.querySaveViewNameValue(),
-		JQL:  record.JQL,
-	}
-	cfg, err := config.AddSavedView(config.Config{Views: m.views}, view)
-	if err != nil {
-		m.detailNotice = err.Error()
-		return m
-	}
-	view = cfg.Views[len(cfg.Views)-1]
-	if m.savedViewWriter == nil {
-		m.detailNotice = "Saved-view persistence is not available."
-		return m
-	}
-	if err := m.savedViewWriter(view); err != nil {
-		m.detailNotice = "Saved view failed: " + err.Error()
-		return m
-	}
-	m.views = cfg.Views
-	m.querySaveViewOpen = false
-	m.detailNotice = "Saved view " + view.Name + "."
-	return m
 }
 
 func (m Model) queryAIAvailable() bool {

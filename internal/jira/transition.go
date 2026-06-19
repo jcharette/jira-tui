@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 
 	model "github.com/ctreminiom/go-atlassian/v2/pkg/infra/models"
@@ -20,19 +21,26 @@ type Transition struct {
 }
 
 type TransitionField struct {
-	ID            string
-	Name          string
-	Required      bool
-	SchemaType    string
-	SchemaSystem  string
-	SchemaItems   string
-	AllowedValues []FieldOption
+	ID              string
+	Name            string
+	Required        bool
+	SchemaType      string
+	SchemaSystem    string
+	SchemaItems     string
+	SchemaCustom    string
+	SchemaCustomID  int
+	AutoCompleteURL string
+	AllowedValues   []FieldOption
 }
 
 type TransitionFieldValue struct {
-	FieldID string
-	Option  FieldOption
-	Text    string
+	FieldID      string
+	SchemaType   string
+	SchemaSystem string
+	SchemaItems  string
+	Option       FieldOption
+	Options      []FieldOption
+	Text         string
 }
 
 type TransitionIssueRequest struct {
@@ -54,21 +62,28 @@ type transitionFieldsRaw struct {
 }
 
 type transitionFieldRaw struct {
-	Name          string                   `json:"name"`
-	Required      bool                     `json:"required"`
-	Schema        transitionFieldSchema    `json:"schema"`
-	AllowedValues []transitionAllowedValue `json:"allowedValues"`
+	Name            string                   `json:"name"`
+	Required        bool                     `json:"required"`
+	AutoCompleteURL string                   `json:"autoCompleteUrl"`
+	Schema          transitionFieldSchema    `json:"schema"`
+	AllowedValues   []transitionAllowedValue `json:"allowedValues"`
 }
 
 type transitionFieldSchema struct {
-	Type   string `json:"type"`
-	System string `json:"system"`
-	Items  string `json:"items"`
+	Type     string `json:"type"`
+	System   string `json:"system"`
+	Items    string `json:"items"`
+	Custom   string `json:"custom"`
+	CustomID int    `json:"customId"`
 }
 
 type transitionAllowedValue struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Value       string `json:"value"`
+	DisplayName string `json:"displayName"`
+	Key         string `json:"key"`
+	AccountID   string `json:"accountId"`
 }
 
 func (c *Client) getTransitionsWithFields(ctx context.Context, key string) ([]Transition, error) {
@@ -116,11 +131,14 @@ func transitionMoveOptions(values []TransitionFieldValue) (*model.IssueMoveOptio
 		return nil, nil
 	}
 	fields := &model.IssueFieldsScheme{}
+	customFields := &model.CustomFields{}
 	operations := &model.UpdateOperations{}
 	hasField := false
+	hasCustomField := false
 	hasOperation := false
 	for _, value := range values {
-		switch strings.TrimSpace(value.FieldID) {
+		fieldID := strings.TrimSpace(value.FieldID)
+		switch fieldID {
 		case "":
 			continue
 		case "resolution":
@@ -145,19 +163,106 @@ func transitionMoveOptions(values []TransitionFieldValue) (*model.IssueMoveOptio
 			}
 			hasOperation = true
 		default:
+			if strings.HasPrefix(fieldID, "customfield_") {
+				raw, ok := transitionCustomFieldPayload(value)
+				if !ok {
+					return nil, fmt.Errorf("transition field %s requires a value", fieldID)
+				}
+				if err := customFields.Raw(fieldID, raw); err != nil {
+					return nil, err
+				}
+				hasCustomField = true
+				continue
+			}
 			return nil, fmt.Errorf("unsupported transition field %s", value.FieldID)
 		}
 	}
-	if !hasField && !hasOperation {
+	if !hasField && !hasCustomField && !hasOperation {
 		return nil, nil
 	}
 	options := &model.IssueMoveOptionsV3{
 		Fields: &model.IssueScheme{Fields: fields},
 	}
+	if hasCustomField {
+		options.CustomFields = customFields
+	}
 	if hasOperation {
 		options.Operations = operations
 	}
 	return options, nil
+}
+
+func transitionCustomFieldPayload(value TransitionFieldValue) (interface{}, bool) {
+	text := strings.TrimSpace(value.Text)
+	schemaType := strings.ToLower(strings.TrimSpace(value.SchemaType))
+	schemaItems := strings.ToLower(strings.TrimSpace(value.SchemaItems))
+	switch schemaType {
+	case "number":
+		if text == "" {
+			return nil, false
+		}
+		number, err := strconv.ParseFloat(text, 64)
+		if err != nil {
+			return nil, false
+		}
+		return number, true
+	case "string", "text", "textarea", "date", "datetime":
+		if text == "" {
+			return nil, false
+		}
+		return text, true
+	case "user":
+		return transitionUserPayload(value.Option)
+	case "array":
+		options := value.Options
+		if len(options) == 0 && (value.Option.ID != "" || value.Option.Name != "") {
+			options = []FieldOption{value.Option}
+		}
+		if len(options) == 0 {
+			return nil, false
+		}
+		items := make([]map[string]interface{}, 0, len(options))
+		for _, option := range options {
+			var item map[string]interface{}
+			if schemaItems == "user" {
+				item, _ = transitionUserPayload(option)
+			} else {
+				item = createFieldOptionPayload(option)
+			}
+			if len(item) > 0 {
+				items = append(items, item)
+			}
+		}
+		if len(items) == 0 {
+			return nil, false
+		}
+		return items, true
+	case "option", "priority":
+		option := createFieldOptionPayload(value.Option)
+		if len(option) == 0 {
+			return nil, false
+		}
+		return option, true
+	default:
+		if value.Option.ID != "" || value.Option.Name != "" {
+			option := createFieldOptionPayload(value.Option)
+			if len(option) > 0 {
+				return option, true
+			}
+		}
+		if text == "" {
+			return nil, false
+		}
+		return text, true
+	}
+}
+
+func transitionUserPayload(option FieldOption) (map[string]interface{}, bool) {
+	accountID := strings.TrimSpace(option.ID)
+	if accountID == "" {
+		return nil, false
+	}
+	return map[string]interface{}{"accountId": accountID}, true
 }
 
 func parseTransition(raw *model.IssueTransitionScheme) (Transition, bool) {
@@ -207,24 +312,35 @@ func parseTransitionFieldMap(rawFields map[string]transitionFieldRaw) []Transiti
 		raw := rawFields[id]
 		allowedValues := make([]FieldOption, 0, len(raw.AllowedValues))
 		for _, value := range raw.AllowedValues {
-			if value.ID == "" && value.Name == "" {
+			option := transitionFieldOption(value)
+			if option.ID == "" && option.Name == "" {
 				continue
 			}
-			allowedValues = append(allowedValues, FieldOption{ID: value.ID, Name: value.Name})
+			allowedValues = append(allowedValues, option)
 		}
 		name := raw.Name
 		if name == "" {
 			name = id
 		}
 		fields = append(fields, TransitionField{
-			ID:            id,
-			Name:          name,
-			Required:      raw.Required,
-			SchemaType:    raw.Schema.Type,
-			SchemaSystem:  raw.Schema.System,
-			SchemaItems:   raw.Schema.Items,
-			AllowedValues: allowedValues,
+			ID:              id,
+			Name:            name,
+			Required:        raw.Required,
+			SchemaType:      raw.Schema.Type,
+			SchemaSystem:    raw.Schema.System,
+			SchemaItems:     raw.Schema.Items,
+			SchemaCustom:    raw.Schema.Custom,
+			SchemaCustomID:  raw.Schema.CustomID,
+			AutoCompleteURL: raw.AutoCompleteURL,
+			AllowedValues:   allowedValues,
 		})
 	}
 	return fields
+}
+
+func transitionFieldOption(value transitionAllowedValue) FieldOption {
+	return FieldOption{
+		ID:   firstNonEmpty(value.ID, value.AccountID, value.Key),
+		Name: firstNonEmpty(value.Name, value.Value, value.DisplayName, value.Key),
+	}
 }

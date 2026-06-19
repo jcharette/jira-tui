@@ -580,7 +580,7 @@ func (m Model) inlineDescriptionAIAvailable() bool {
 		return false
 	}
 	section, ok := m.focusedDetailSection()
-	return ok && section.ID == "description"
+	return ok && (section.ID == "overview" || section.ID == "description")
 }
 
 func (m Model) openInlineDescriptionAI() (Model, tea.Cmd) {

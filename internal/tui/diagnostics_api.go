@@ -40,9 +40,9 @@ func apiEndpointFamily(kind worker.Kind) string {
 	switch kind {
 	case worker.KindSearchIssues:
 		return "search"
-	case worker.KindGetIssue, worker.KindUpdateSummary, worker.KindUpdateDescription, worker.KindUpdatePriority, worker.KindUpdateAssignee:
+	case worker.KindGetIssue, worker.KindUpdateSummary, worker.KindUpdateDescription, worker.KindUpdatePriority, worker.KindUpdateLabels, worker.KindUpdateAssignee, worker.KindUpdateComponents:
 		return "issue"
-	case worker.KindGetComments, worker.KindAddComment:
+	case worker.KindGetComments, worker.KindAddComment, worker.KindUpdateComment:
 		return "comment"
 	case worker.KindSearchUsers:
 		return "user"
@@ -71,6 +71,8 @@ func apiDiagnosticScope(result worker.Result) string {
 		return issueScope(result.GetComments.Key)
 	case result.AddComment != nil:
 		return issueScope(result.AddComment.Key)
+	case result.UpdateComment != nil:
+		return issueScope(result.UpdateComment.Key)
 	case result.SearchUsers != nil:
 		return "user_query"
 	case result.ExpandIssues != nil:
@@ -99,6 +101,8 @@ func apiDiagnosticScope(result worker.Result) string {
 		return issueScope(result.UpdatePriority.Key)
 	case result.UpdateAssignee != nil:
 		return issueScope(result.UpdateAssignee.Key)
+	case result.UpdateComponents != nil:
+		return issueScope(result.UpdateComponents.Key)
 	default:
 		return apiFallbackScope(result)
 	}

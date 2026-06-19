@@ -316,6 +316,40 @@ func AddSavedView(cfg Config, view IssueView) (Config, error) {
 	return next, nil
 }
 
+func SetSavedViews(cfg Config, views []IssueView) (Config, error) {
+	if len(views) == 0 {
+		return Config{}, errors.New("at least one issue view is required")
+	}
+	nextViews := make([]IssueView, 0, len(views))
+	seen := make(map[string]struct{}, len(views))
+	activeFound := false
+	for _, view := range views {
+		view.Name = strings.TrimSpace(view.Name)
+		view.JQL = strings.TrimSpace(view.JQL)
+		if view.Name == "" {
+			return Config{}, errors.New("issue view name is required")
+		}
+		if view.JQL == "" {
+			return Config{}, errors.New("issue view JQL is required")
+		}
+		key := strings.ToLower(view.Name)
+		if _, ok := seen[key]; ok {
+			return Config{}, fmt.Errorf("saved view %q already exists", view.Name)
+		}
+		seen[key] = struct{}{}
+		if strings.EqualFold(view.Name, strings.TrimSpace(cfg.ActiveView)) {
+			activeFound = true
+		}
+		nextViews = append(nextViews, view)
+	}
+	next := cfg
+	next.Views = nextViews
+	if !activeFound {
+		next.ActiveView = nextViews[0].Name
+	}
+	return next, nil
+}
+
 func Validate(cfg Config) error {
 	var problems []string
 	if strings.TrimSpace(cfg.BaseURL) == "" {
