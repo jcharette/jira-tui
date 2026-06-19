@@ -20,6 +20,7 @@ import (
 	"github.com/jcharette/jira-tui/internal/events"
 	"github.com/jcharette/jira-tui/internal/jira"
 	"github.com/jcharette/jira-tui/internal/ui"
+	"github.com/jcharette/jira-tui/internal/version"
 	"github.com/jcharette/jira-tui/internal/worker"
 )
 
@@ -2386,7 +2387,7 @@ func TestHeaderUsesAvailableWidth(t *testing.T) {
 
 	header := model.renderHeader(model.browserLayout(model.width))
 
-	if !strings.Contains(header, "Jira") || !strings.Contains(header, "Assigned") || !strings.Contains(header, "2 issues") {
+	if !strings.Contains(header, "Jira") || !strings.Contains(header, "Assigned") || !strings.Contains(header, "2 issues") || !strings.Contains(header, version.Display()) {
 		t.Fatalf("header = %q", header)
 	}
 	if lipgloss.Width(header) != model.browserLayout(model.width).contentWidth {

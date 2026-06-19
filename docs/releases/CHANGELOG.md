@@ -2,6 +2,10 @@
 
 All notable changes to this project should be recorded here.
 
+## 1.0.1 - 2026-06-19
+
+- Added the app version to the main TUI and config UI headers.
+
 ## 1.0.0 - 2026-06-19
 
 Initial public baseline release of `jira-tui`.

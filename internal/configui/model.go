@@ -14,6 +14,7 @@ import (
 	"github.com/jcharette/jira-tui/internal/config"
 	"github.com/jcharette/jira-tui/internal/jira"
 	"github.com/jcharette/jira-tui/internal/ui"
+	"github.com/jcharette/jira-tui/internal/version"
 )
 
 type Model struct {
@@ -452,7 +453,7 @@ func (m Model) renderHeader(width int) string {
 	} else if m.saved {
 		status = "saved"
 	}
-	left := m.theme.Header.Render("Jira Config") + " " + m.theme.Subtitle.Render(status)
+	left := m.theme.Header.Render("Jira Config") + " " + m.theme.Subtitle.Render(status) + " " + m.theme.Muted.Render(version.Display())
 	right := m.theme.Muted.Render(truncate(m.path, max(20, contentWidth-lipgloss.Width(left)-2)))
 	rightColumn := lipgloss.PlaceHorizontal(
 		max(0, contentWidth-lipgloss.Width(left)-1),

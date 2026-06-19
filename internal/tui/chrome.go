@@ -9,6 +9,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jcharette/jira-tui/internal/ui"
+	"github.com/jcharette/jira-tui/internal/version"
 )
 
 const backgroundActivityRecentWindow = 10 * time.Second
@@ -26,7 +27,7 @@ func (m Model) renderHeader(layout browserLayout) string {
 	}
 
 	left := m.theme.Header.Render("Jira") + " " + m.theme.Subtitle.Render(status) + " " + m.theme.Selected.Render(m.activeViewName())
-	rightParts := []string{fmt.Sprintf("%d issues", len(m.issues)), m.viewFreshnessLabel()}
+	rightParts := []string{fmt.Sprintf("%d issues", len(m.issues)), m.viewFreshnessLabel(), version.Display()}
 	if planning := m.planningSprintLabel(); planning != "" {
 		rightParts = append(rightParts, planning)
 	}

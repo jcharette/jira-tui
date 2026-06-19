@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jcharette/jira-tui/internal/config"
+	"github.com/jcharette/jira-tui/internal/version"
 )
 
 func TestRenderShowsTerminalSizeWarningBelowMinimum(t *testing.T) {
@@ -104,7 +105,7 @@ func TestHeaderUsesAvailableWidth(t *testing.T) {
 
 	header := model.renderHeader(72)
 
-	for _, want := range []string{"Jira Config", "editing", "/tmp/jira.toml"} {
+	for _, want := range []string{"Jira Config", "editing", version.Display(), "/tmp/jira.toml"} {
 		if !strings.Contains(header, want) {
 			t.Fatalf("missing %q in %q", want, header)
 		}
