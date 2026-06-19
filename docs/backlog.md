@@ -14,10 +14,6 @@ index in the same change. When an item lands, close or update the issue and add 
 
 ## Public Backlog Index
 
-### Backlog Process
-
-- [#1 Adopt GitHub Issues as the public backlog](https://github.com/jcharette/jira-tui/issues/1)
-
 ### Security And Auth
 
 - [#2 Add Jira OAuth or device authorization](https://github.com/jcharette/jira-tui/issues/2)

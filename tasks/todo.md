@@ -16,6 +16,7 @@ completed historical task notes from `tasks/todo.md` as issues.
 ### GitHub Backlog Publication Review
 
 - Created GitHub issues #1-#7 for the initial public backlog.
+- Closed GitHub issue #1 as completed after the public backlog/index process landed.
 - Synced `docs/backlog.md` into a curated issue index.
 - Updated `docs/working-agreement.md` so future user-visible backlog changes require GitHub issue
   updates alongside local docs.
