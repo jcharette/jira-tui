@@ -25,8 +25,8 @@ runs.
 - Added `jira finish [ticket]` with the same commit/report state, branch push, GitHub draft PR
   create/reuse through `internal/prprovider`, final Jira PR note, and safe terminal transition
   selection that skips required transition-screen fields.
-- Posted progress comments to GitHub issues #5 and #8 and left both open until this branch merges to
-  `main`.
+- Posted progress comments to GitHub issues #5 and #8 before merge, then closed both after PR #9
+  landed on `main`.
 - Verification: `git diff --check`, `go test ./... -count=1`, `make docs-status`, `make check`, and
   `make install-user` passed.
 
