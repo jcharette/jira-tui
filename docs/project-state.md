@@ -1,6 +1,6 @@
 # Project State
 
-Last updated: 2026-06-18
+Last updated: 2026-06-19
 
 ## Goal
 
@@ -34,12 +34,12 @@ edit/delete, and fuller sprint/board UX.
 Install a tagged release with Go:
 
 ```bash
-go install github.com/jcharette/jira-tui/cmd/jira@v0.2.1
+go install github.com/jcharette/jira-tui/cmd/jira@v0.2.2
 ```
 
 Release archives are published at
 [GitHub Releases](https://github.com/jcharette/jira-tui/releases) with names such as
-`jira-tui_0.2.1_darwin_arm64.tar.gz` and include a `jira` binary.
+`jira-tui_0.2.2_darwin_arm64.tar.gz` and include a `jira` binary.
 
 Run from the project root:
 

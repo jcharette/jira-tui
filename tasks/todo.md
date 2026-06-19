@@ -1,5 +1,29 @@
 # Task Plan
 
+## README Positioning Refresh
+
+- [x] Rewrite the README opening around product value instead of implementation detail.
+- [x] Add a compact feature map that reflects current browsing, query, creation, editing, comment,
+  workflow, diagnostics, and release support.
+- [x] Keep install/setup commands accurate for `v0.2.2`.
+- [x] Verify Markdown links, stale version strings, and repository checks after the README update.
+
+### README Positioning Scope
+
+Improve the project README so it gives the app appropriate credit without overclaiming. This is a
+documentation-only pass, scoped to `README.md` unless a directly related stale release reference is
+found in nearby docs.
+
+### README Positioning Review
+
+- Reframed the README around the app's current Jira workflows instead of just saved views and a
+  table.
+- Added Highlights and Core Workflows sections for browsing, query/view management, ticket detail,
+  creation/editing, comments/links/worklogs, Diagnostics, and in-app bug reports.
+- Kept install examples on `v0.2.2` and fixed adjacent stale `docs/project-state.md` release
+  examples found during verification.
+- Verification passed: `rg` stale-version/TODO scan, `make docs-status`, and `git diff --check`.
+
 ## In-App Bug Reporting
 
 - [x] Add a compact bug report composer that asks what the user found.
