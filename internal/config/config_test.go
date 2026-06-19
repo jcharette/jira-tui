@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jcharette/jira-tui/internal/secretstore"
 )
 
 func TestLoadReadsConfigFile(t *testing.T) {
@@ -158,6 +160,42 @@ default_project = "ABC"
 	}
 }
 
+func TestLoadReadsAPITokenFromKeyringSource(t *testing.T) {
+	path := writeConfig(t, `
+version = 1
+active_profile = "default"
+
+[profiles.default]
+base_url = "https://example.atlassian.net"
+email = "person@example.com"
+api_token = ""
+api_token_source = "keyring"
+
+[queries]
+default_project = "ABC"
+`)
+	secrets := secretstore.NewMemoryStore()
+	account := secretstore.AccountKey("default", "https://example.atlassian.net", "person@example.com")
+	if err := secrets.Set(t.Context(), account, "keyring-token"); err != nil {
+		t.Fatalf("Set() error = %v", err)
+	}
+
+	cfg, err := Load(LoadOptions{Path: path, SecretStore: secrets})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.APIToken != "keyring-token" {
+		t.Fatalf("APIToken = %q", cfg.APIToken)
+	}
+	if cfg.APITokenSource != tokenSourceKeyring {
+		t.Fatalf("APITokenSource = %q", cfg.APITokenSource)
+	}
+	if cfg.Profiles["default"].APIToken != "keyring-token" {
+		t.Fatalf("profile token = %#v", cfg.Profiles["default"])
+	}
+}
+
 func TestLoadRejectsUnknownRequestedProfile(t *testing.T) {
 	path := writeConfig(t, `
 version = 1
@@ -180,6 +218,7 @@ default_project = "ABC"
 
 func TestSavePreservesNonActiveProfiles(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "jira", "config.toml")
+	secrets := secretstore.NewMemoryStore()
 	cfg := Defaults()
 	cfg.ActiveProfile = "work"
 	cfg.Profiles = map[string]Profile{
@@ -202,18 +241,26 @@ func TestSavePreservesNonActiveProfiles(t *testing.T) {
 	cfg.Views = DefaultViews("ABC")
 	cfg.ActiveView = cfg.Views[0].Name
 
-	if err := Save(path, cfg); err != nil {
+	if err := SaveWithSecretStore(path, cfg, secrets); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
 
-	work, err := Load(LoadOptions{Path: path, Profile: "work"})
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if strings.Contains(string(data), "work-token") || strings.Contains(string(data), "default-token") {
+		t.Fatalf("saved config leaked token: %s", string(data))
+	}
+
+	work, err := Load(LoadOptions{Path: path, Profile: "work", SecretStore: secrets})
 	if err != nil {
 		t.Fatalf("Load(work) error = %v", err)
 	}
 	if work.BaseURL != "https://work.atlassian.net" || work.Email != "work@example.com" || work.APIToken != "work-token" {
 		t.Fatalf("work profile credentials = %#v", work)
 	}
-	defaultProfile, err := Load(LoadOptions{Path: path, Profile: "default"})
+	defaultProfile, err := Load(LoadOptions{Path: path, Profile: "default", SecretStore: secrets})
 	if err != nil {
 		t.Fatalf("Load(default) error = %v", err)
 	}
@@ -505,6 +552,7 @@ queue_size = 16
 
 func TestSaveWritesConfigFileWithPrivatePermissions(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "jira", "config.toml")
+	secrets := secretstore.NewMemoryStore()
 	cfg := Defaults()
 	cfg.BaseURL = "https://example.atlassian.net"
 	cfg.Email = "person@example.com"
@@ -534,7 +582,7 @@ func TestSaveWritesConfigFileWithPrivatePermissions(t *testing.T) {
 	cfg.Claude.Features.ClarifyingQuestions = true
 	cfg.Claude.Gates.AllowGitWrites = true
 
-	if err := Save(path, cfg); err != nil {
+	if err := SaveWithSecretStore(path, cfg, secrets); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
 
@@ -546,9 +594,27 @@ func TestSaveWritesConfigFileWithPrivatePermissions(t *testing.T) {
 		t.Fatalf("file mode = %v", info.Mode().Perm())
 	}
 
-	loaded, err := Load(LoadOptions{Path: path})
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if strings.Contains(string(data), "secret") {
+		t.Fatalf("saved config leaked API token: %s", string(data))
+	}
+	if !strings.Contains(string(data), `api_token_source = "keyring"`) {
+		t.Fatalf("saved config missing keyring token source: %s", string(data))
+	}
+
+	loaded, err := Load(LoadOptions{Path: path, SecretStore: secrets})
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
+	}
+	cfg.APITokenSource = tokenSourceKeyring
+	cfg.Profiles["default"] = Profile{
+		BaseURL:        "https://example.atlassian.net",
+		Email:          "person@example.com",
+		APIToken:       "secret",
+		APITokenSource: tokenSourceKeyring,
 	}
 	if !reflect.DeepEqual(loaded, cfg) {
 		t.Fatalf("loaded config = %#v", loaded)

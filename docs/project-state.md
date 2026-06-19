@@ -12,9 +12,9 @@ The intended scope includes normal Jira user workflows such as editing tickets, 
 subtasks, epics, sprints, boards, comments, and transitions. Jira administration is out of scope.
 The feature roadmap and dependency-aware milestones live in [roadmap.md](roadmap.md).
 
-The Read/View and Creation/Editing backlog buckets are complete as of 2026-06-19. Current product
-work is focused on Git-backed developer workflows: Start Work is implemented for CLI and selected
-TUI tickets, while commit, finish, and broader AI workflow support remain in the public backlog.
+The Read/View, Creation/Editing, and first Git-backed developer workflow buckets are complete as of
+2026-06-19. Current product work is focused on security/auth hardening and broader AI workflow
+support.
 
 ## Current Stack
 
@@ -24,8 +24,9 @@ TUI tickets, while commit, finish, and broader AI workflow support remain in the
 - Jira API: Jira Cloud REST API v3 and Jira Agile REST API
 - Jira library: `go-atlassian` behind `internal/jira`
 - Concurrency: typed dispatcher and bounded worker pool powered by `ants`
-- Authentication: email + Jira API token from config using Basic Auth
-- Configuration: TOML config file
+- Authentication: email + Jira API token using Basic Auth
+- Secret storage: saved Jira API tokens live in the OS keychain through `zalando/go-keyring`
+- Configuration: TOML config file for non-secret settings and keyring references
 
 ## Current Commands
 

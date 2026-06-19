@@ -4,6 +4,10 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Added OS keychain storage for Jira API tokens. Saved configs now keep account metadata in TOML and
+  store tokens in macOS Keychain, Windows Credential Manager, or Linux Secret Service through
+  `zalando/go-keyring`; existing plaintext tokens still load and migrate on the next config save.
+
 ## 0.2.3 - 2026-06-19
 
 - Added `jira commit [ticket]` and `jira finish [ticket]`. Commit reviews dirty work and unreported

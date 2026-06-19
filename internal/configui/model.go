@@ -101,7 +101,7 @@ func NewModel(path string, cfg config.Config, problems []string) Model {
 			{section: sectionAccount, label: "Active Profile", value: cfg.ActiveProfile},
 			{section: sectionAccount, label: "Base URL", value: cfg.BaseURL},
 			{section: sectionAccount, label: "Email", value: cfg.Email},
-			{section: sectionAccount, label: "API Token", value: cfg.APIToken, secret: true},
+			{section: sectionAccount, label: "API Token", value: cfg.APIToken, secret: true, help: "Saved tokens are stored in the OS keychain: macOS Keychain, Windows Credential Manager, or Linux Secret Service. The config file keeps only a keyring reference."},
 			{section: sectionQueries, label: "Default Project", value: cfg.DefaultProject},
 			{section: sectionQueries, label: "Default JQL", value: cfg.DefaultJQL},
 			{section: sectionAppearance, label: "Primary", value: cfg.Theme.Primary},
@@ -543,7 +543,7 @@ func (m Model) renderMenu(layout layout) string {
 
 func (m Model) renderFields(layout layout) string {
 	if m.section == sectionTest {
-		body := "Run a live Jira check with the current account, token, base URL, project, and JQL before saving."
+		body := "Run a live Jira check with the current account, token, base URL, project, and JQL before saving. Saving stores the token in the OS keychain."
 		if m.testing {
 			body = "Testing Jira now..."
 		}
@@ -553,7 +553,7 @@ func (m Model) renderFields(layout layout) string {
 		return m.theme.ActivePane.Width(layout.fieldPane).Render(m.theme.Warning.Render("Test Connection") + "\n\n" + body + "\n\nPress enter or t to run.")
 	}
 	if m.section == sectionSave {
-		return m.theme.ActivePane.Width(layout.fieldPane).Render(m.theme.Success.Render("Save and Exit") + "\n\nPress enter or s to save the config file. Saving runs local validation; use Test Connection for a live Jira check.")
+		return m.theme.ActivePane.Width(layout.fieldPane).Render(m.theme.Success.Render("Save and Exit") + "\n\nPress enter or s to save settings. The Jira API token is stored in the OS keychain, not plaintext TOML. Saving runs local validation; use Test Connection for a live Jira check.")
 	}
 	if m.section == sectionQuit {
 		return m.theme.ActivePane.Width(layout.fieldPane).Render(m.theme.Warning.Render("Quit Without Saving") + "\n\nPress enter or q to leave config unchanged.")

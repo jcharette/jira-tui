@@ -1,5 +1,33 @@
 # Task Plan
 
+## Keychain Credential Storage
+
+- [x] Add an internal secret-store adapter backed by `github.com/zalando/go-keyring` with memory tests.
+- [x] Add profile token-source config so saved Jira API tokens can live in the OS keychain instead of TOML.
+- [x] Migrate plaintext tokens to keyring on config save while still loading existing plaintext configs.
+- [x] Update config UI copy so users understand API tokens are stored in Keychain/Credential Manager.
+- [x] Update README, project state, backlog, changelog, and GitHub issue #3.
+- [x] Run focused tests, `go test ./... -count=1`, `make check`, `make install-user`, and `git diff --check`.
+
+### Keychain Credential Storage Scope
+
+Implement GitHub issue #3. Keep Jira client usage unchanged by resolving the API token into
+`config.Config.APIToken` at load time. Persist new and edited tokens through an internal
+`secretstore.Store` abstraction using `zalando/go-keyring` by default. Existing plaintext
+`api_token` values remain readable and are migrated to `api_token_source = "keyring"` the next time
+the config is saved.
+
+### Keychain Credential Storage Review
+
+- Added `internal/secretstore` with `zalando/go-keyring` production storage and memory-backed tests.
+- Added `api_token_source` profile persistence so saved configs store Jira API tokens in the OS
+  keychain and keep plaintext `api_token` empty for migrated profiles.
+- Existing plaintext `api_token` configs still load, and saving through `jira config` migrates tokens
+  into keyring-backed storage.
+- Updated config UI copy, README, project state, changelog, backlog, and GitHub issue #3.
+- Verification: focused config/configui/app/secretstore tests, `go test ./... -count=1`,
+  `make docs-status`, `make check`, `make install-user`, and `git diff --check` passed.
+
 ## Git Commit And Finish Workflows
 
 - [x] Extend the Git adapter with repo analysis, commit, and push support.

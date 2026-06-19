@@ -1,15 +1,18 @@
 package config
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/jcharette/jira-tui/internal/secretstore"
 )
 
 const defaultJQL = "assignee = currentUser() AND resolution = Unresolved ORDER BY updated DESC"
@@ -20,11 +23,21 @@ const defaultBranchTemplate = "{key}-{summary_slug}"
 const defaultWorkerCount = 2
 const defaultQueueSize = 16
 const currentVersion = 1
+const tokenSourceKeyring = "keyring"
+const tokenSourcePlaintext = "plaintext"
+
+var defaultSecretStore = struct {
+	sync.Mutex
+	new func() secretstore.Store
+}{
+	new: func() secretstore.Store { return secretstore.NewKeyringStore() },
+}
 
 type Config struct {
 	BaseURL         string
 	Email           string
 	APIToken        string
+	APITokenSource  string
 	ActiveProfile   string
 	Profiles        map[string]Profile
 	DefaultProject  string
@@ -42,9 +55,10 @@ type Config struct {
 }
 
 type Profile struct {
-	BaseURL  string
-	Email    string
-	APIToken string
+	BaseURL        string
+	Email          string
+	APIToken       string
+	APITokenSource string
 }
 
 type IssueView struct {
@@ -103,8 +117,9 @@ type ClaudeGates struct {
 }
 
 type LoadOptions struct {
-	Path    string
-	Profile string
+	Path        string
+	Profile     string
+	SecretStore secretstore.Store
 }
 
 type ValidationError struct {
@@ -180,7 +195,7 @@ func Load(options LoadOptions) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	if err := applyFile(&cfg, fileCfg, options.Profile); err != nil {
+	if err := applyFile(&cfg, fileCfg, options.Profile, secretStoreOrDefault(options.SecretStore)); err != nil {
 		return Config{}, err
 	}
 	ensureViews(&cfg)
@@ -208,7 +223,7 @@ func LoadEditable(options LoadOptions) (Config, string, []string, error) {
 	if err != nil {
 		return Config{}, "", nil, err
 	}
-	if err := applyFile(&cfg, fileCfg, options.Profile); err != nil {
+	if err := applyFile(&cfg, fileCfg, options.Profile, secretStoreOrDefault(options.SecretStore)); err != nil {
 		return Config{}, "", nil, err
 	}
 	ensureViews(&cfg)
@@ -225,9 +240,16 @@ func LoadEditable(options LoadOptions) (Config, string, []string, error) {
 }
 
 func Save(path string, cfg Config) error {
+	return SaveWithSecretStore(path, cfg, secretStoreOrDefault(nil))
+}
+
+func SaveWithSecretStore(path string, cfg Config, store secretstore.Store) error {
 	ensureViews(&cfg)
 	if err := Validate(cfg); err != nil {
 		return err
+	}
+	if store == nil {
+		store = secretstore.NewKeyringStore()
 	}
 
 	path, err := PathOrDefault(path)
@@ -243,11 +265,15 @@ func Save(path string, cfg Config) error {
 
 	activeProfile := normalizeProfileName(cfg.ActiveProfile)
 	profiles := profilesForSave(cfg, activeProfile)
+	profileConfigs, err := profileConfigsForSave(context.Background(), store, profiles)
+	if err != nil {
+		return err
+	}
 
 	fileCfg := fileConfig{
 		Version:       currentVersion,
 		ActiveProfile: activeProfile,
-		Profiles:      profileConfigs(profiles),
+		Profiles:      profileConfigs,
 		Queries: queriesConfig{
 			DefaultProject: cfg.DefaultProject,
 			DefaultJQL:     cfg.DefaultJQL,
@@ -435,9 +461,10 @@ type fileConfig struct {
 }
 
 type profileConfig struct {
-	BaseURL  string `toml:"base_url"`
-	Email    string `toml:"email"`
-	APIToken string `toml:"api_token"`
+	BaseURL        string `toml:"base_url"`
+	Email          string `toml:"email"`
+	APIToken       string `toml:"api_token"`
+	APITokenSource string `toml:"api_token_source"`
 }
 
 type queriesConfig struct {
@@ -527,7 +554,7 @@ func readFile(path string) (fileConfig, error) {
 	return fileCfg, nil
 }
 
-func applyFile(cfg *Config, fileCfg fileConfig, requestedProfile string) error {
+func applyFile(cfg *Config, fileCfg fileConfig, requestedProfile string, store secretstore.Store) error {
 	savedProfile := normalizeProfileName(fileCfg.ActiveProfile)
 	profileName := strings.TrimSpace(requestedProfile)
 	if profileName == "" {
@@ -536,6 +563,9 @@ func applyFile(cfg *Config, fileCfg fileConfig, requestedProfile string) error {
 	profileName = normalizeProfileName(profileName)
 	cfg.ActiveProfile = profileName
 	cfg.Profiles = profilesFromConfig(fileCfg.Profiles)
+	if err := resolveProfileSecrets(context.Background(), cfg.Profiles, store); err != nil {
+		return err
+	}
 	if len(cfg.Profiles) > 0 {
 		profile, ok := cfg.Profiles[profileName]
 		if !ok {
@@ -544,6 +574,7 @@ func applyFile(cfg *Config, fileCfg fileConfig, requestedProfile string) error {
 		cfg.BaseURL = profile.BaseURL
 		cfg.Email = profile.Email
 		cfg.APIToken = profile.APIToken
+		cfg.APITokenSource = profile.APITokenSource
 	}
 	if strings.TrimSpace(fileCfg.Queries.DefaultJQL) != "" {
 		cfg.DefaultJQL = strings.TrimSpace(fileCfg.Queries.DefaultJQL)
@@ -639,10 +670,12 @@ func profilesFromConfig(configs map[string]profileConfig) map[string]Profile {
 		if name == "" {
 			continue
 		}
+		token := strings.TrimSpace(profile.APIToken)
 		profiles[name] = Profile{
-			BaseURL:  normalizeBaseURL(profile.BaseURL),
-			Email:    strings.TrimSpace(profile.Email),
-			APIToken: strings.TrimSpace(profile.APIToken),
+			BaseURL:        normalizeBaseURL(profile.BaseURL),
+			Email:          strings.TrimSpace(profile.Email),
+			APIToken:       token,
+			APITokenSource: normalizeLoadedTokenSource(profile.APITokenSource, token),
 		}
 	}
 	return profiles
@@ -656,22 +689,24 @@ func profilesForSave(cfg Config, activeProfile string) map[string]Profile {
 			continue
 		}
 		profiles[name] = Profile{
-			BaseURL:  normalizeBaseURL(profile.BaseURL),
-			Email:    strings.TrimSpace(profile.Email),
-			APIToken: strings.TrimSpace(profile.APIToken),
+			BaseURL:        normalizeBaseURL(profile.BaseURL),
+			Email:          strings.TrimSpace(profile.Email),
+			APIToken:       strings.TrimSpace(profile.APIToken),
+			APITokenSource: normalizeTokenSource(profile.APITokenSource),
 		}
 	}
 	profiles[activeProfile] = Profile{
-		BaseURL:  normalizeBaseURL(cfg.BaseURL),
-		Email:    strings.TrimSpace(cfg.Email),
-		APIToken: strings.TrimSpace(cfg.APIToken),
+		BaseURL:        normalizeBaseURL(cfg.BaseURL),
+		Email:          strings.TrimSpace(cfg.Email),
+		APIToken:       strings.TrimSpace(cfg.APIToken),
+		APITokenSource: normalizeTokenSource(cfg.APITokenSource),
 	}
 	return profiles
 }
 
-func profileConfigs(profiles map[string]Profile) map[string]profileConfig {
+func profileConfigsForSave(ctx context.Context, store secretstore.Store, profiles map[string]Profile) (map[string]profileConfig, error) {
 	if len(profiles) == 0 {
-		return nil
+		return nil, nil
 	}
 	configs := make(map[string]profileConfig, len(profiles))
 	for name, profile := range profiles {
@@ -679,13 +714,94 @@ func profileConfigs(profiles map[string]Profile) map[string]profileConfig {
 		if name == "" {
 			continue
 		}
+		tokenSource := normalizeTokenSource(profile.APITokenSource)
+		apiToken := strings.TrimSpace(profile.APIToken)
+		if tokenSource != tokenSourcePlaintext && apiToken != "" {
+			account := secretstore.AccountKey(name, normalizeBaseURL(profile.BaseURL), profile.Email)
+			if err := store.Set(ctx, account, apiToken); err != nil {
+				return nil, fmt.Errorf("store Jira API token for profile %q in OS keychain: %w", name, err)
+			}
+			tokenSource = tokenSourceKeyring
+			apiToken = ""
+		}
 		configs[name] = profileConfig{
-			BaseURL:  normalizeBaseURL(profile.BaseURL),
-			Email:    strings.TrimSpace(profile.Email),
-			APIToken: strings.TrimSpace(profile.APIToken),
+			BaseURL:        normalizeBaseURL(profile.BaseURL),
+			Email:          strings.TrimSpace(profile.Email),
+			APIToken:       apiToken,
+			APITokenSource: tokenSource,
 		}
 	}
-	return configs
+	return configs, nil
+}
+
+func resolveProfileSecrets(ctx context.Context, profiles map[string]Profile, store secretstore.Store) error {
+	if len(profiles) == 0 {
+		return nil
+	}
+	for name, profile := range profiles {
+		if normalizeTokenSource(profile.APITokenSource) != tokenSourceKeyring {
+			continue
+		}
+		account := secretstore.AccountKey(name, profile.BaseURL, profile.Email)
+		token, err := store.Get(ctx, account)
+		if errors.Is(err, secretstore.ErrNotFound) {
+			profile.APIToken = ""
+			profiles[name] = profile
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("load Jira API token for profile %q from OS keychain: %w", name, err)
+		}
+		profile.APIToken = token
+		profiles[name] = profile
+	}
+	return nil
+}
+
+func secretStoreOrDefault(store secretstore.Store) secretstore.Store {
+	if store != nil {
+		return store
+	}
+	defaultSecretStore.Lock()
+	defer defaultSecretStore.Unlock()
+	return defaultSecretStore.new()
+}
+
+func SetDefaultSecretStoreForTest(store secretstore.Store) func() {
+	defaultSecretStore.Lock()
+	previous := defaultSecretStore.new
+	defaultSecretStore.new = func() secretstore.Store { return store }
+	defaultSecretStore.Unlock()
+	return func() {
+		defaultSecretStore.Lock()
+		defaultSecretStore.new = previous
+		defaultSecretStore.Unlock()
+	}
+}
+
+func normalizeTokenSource(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	switch value {
+	case tokenSourcePlaintext:
+		return tokenSourcePlaintext
+	default:
+		return tokenSourceKeyring
+	}
+}
+
+func normalizeLoadedTokenSource(value string, token string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	switch value {
+	case tokenSourceKeyring:
+		return tokenSourceKeyring
+	case tokenSourcePlaintext:
+		return tokenSourcePlaintext
+	default:
+		if strings.TrimSpace(token) != "" {
+			return tokenSourcePlaintext
+		}
+		return tokenSourceKeyring
+	}
 }
 
 func parsePositiveInt(name string, value string) (int, error) {

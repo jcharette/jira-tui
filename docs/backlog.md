@@ -19,6 +19,9 @@ index in the same change. When an item lands, close or update the issue and add 
 - [#2 Add Jira OAuth or device authorization](https://github.com/jcharette/jira-tui/issues/2)
 - [#3 Store Jira credentials in the OS keychain](https://github.com/jcharette/jira-tui/issues/3)
 
+Issue #3 is implemented on the `feat/keychain-credentials` branch and should remain open until that
+branch is merged to `main`.
+
 ### Git And AI Workflows
 
 - [#6 Expand AI workflows behind provider-neutral ai.task events](https://github.com/jcharette/jira-tui/issues/6)

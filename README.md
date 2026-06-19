@@ -86,8 +86,12 @@ Required settings:
 
 - Jira base URL, for example `https://your-domain.atlassian.net`
 - Jira account email
-- Jira API token
+- Jira API token, stored in the OS keychain when config is saved
 - Default Jira project key
+
+The config file keeps account metadata and settings in TOML, but saved API tokens are moved into the
+OS secret store: macOS Keychain, Windows Credential Manager, or Linux Secret Service. Existing
+plaintext `api_token` values still load and are migrated the next time `jira config` saves.
 
 The config editor also includes saved views, profiles, runtime settings, appearance colors, display
 symbol mode, and the default Git branch template used by Start Work.

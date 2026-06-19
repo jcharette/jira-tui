@@ -10,6 +10,7 @@ import (
 	"github.com/jcharette/jira-tui/internal/config"
 	"github.com/jcharette/jira-tui/internal/gitworkflow"
 	"github.com/jcharette/jira-tui/internal/jira"
+	"github.com/jcharette/jira-tui/internal/secretstore"
 	"github.com/jcharette/jira-tui/internal/startworkflow"
 )
 
@@ -63,6 +64,8 @@ func TestNewRootCommandExposesProfileFlag(t *testing.T) {
 }
 
 func TestSavedViewWriterPersistsViewToConfig(t *testing.T) {
+	restoreSecrets := config.SetDefaultSecretStoreForTest(secretstore.NewMemoryStore())
+	defer restoreSecrets()
 	path := filepath.Join(t.TempDir(), "config.toml")
 	cfg := config.Defaults()
 	cfg.BaseURL = "https://example.atlassian.net"
