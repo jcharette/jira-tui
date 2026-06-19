@@ -237,10 +237,10 @@ func TestBooleanFieldsToggleWithoutTextEditing(t *testing.T) {
 		t.Fatalf("Enabled = %q", value)
 	}
 
-	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "left", Code: tea.KeyLeft}))
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
 	next = updated.(Model)
 	if value := fieldValueForTest(next, "Enabled"); value != "false" {
-		t.Fatalf("Enabled after left = %q", value)
+		t.Fatalf("Enabled after second enter = %q", value)
 	}
 
 	view := next.render()
@@ -266,10 +266,50 @@ func TestSymbolModeFieldCyclesOptionsWithoutTextEditing(t *testing.T) {
 		t.Fatalf("Symbol Mode after enter = %q, want symbols", value)
 	}
 
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next = updated.(Model)
+	if value := fieldValueForTest(next, "Symbol Mode"); value != "emoji" {
+		t.Fatalf("Symbol Mode after second enter = %q, want emoji", value)
+	}
+}
+
+func TestPickerFieldsDoNotTrapSectionNavigation(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Display.SymbolMode = "auto"
+	model := NewModel("/tmp/jira.toml", cfg, nil)
+	model.section = sectionDisplay
+	model.selected = fieldIndexForTest(model, sectionDisplay, "Symbol Mode")
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "right", Code: tea.KeyRight}))
+	next := updated.(Model)
+	if next.section != sectionRuntime {
+		t.Fatalf("section after right = %d, want Runtime", next.section)
+	}
+	if value := fieldValueForTest(next, "Symbol Mode"); value != "auto" {
+		t.Fatalf("Symbol Mode after right = %q, want unchanged auto", value)
+	}
+
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "right", Code: tea.KeyRight}))
+	next = updated.(Model)
+	if next.section != sectionGit {
+		t.Fatalf("section after second right = %d, want Git", next.section)
+	}
+
 	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "left", Code: tea.KeyLeft}))
 	next = updated.(Model)
-	if value := fieldValueForTest(next, "Symbol Mode"); value != "auto" {
-		t.Fatalf("Symbol Mode after left = %q, want auto", value)
+	if next.section != sectionRuntime {
+		t.Fatalf("section after left = %d, want Runtime", next.section)
+	}
+
+	model.section = sectionClaude
+	model.selected = fieldIndexForTest(model, sectionClaude, "Enabled")
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "tab", Code: tea.KeyTab}))
+	next = updated.(Model)
+	if next.section != sectionTest {
+		t.Fatalf("section after tab from boolean field = %d, want Test Connection", next.section)
+	}
+	if value := fieldValueForTest(next, "Enabled"); value != "false" {
+		t.Fatalf("Enabled after tab = %q, want unchanged false", value)
 	}
 }
 

@@ -211,26 +211,10 @@ func (m Model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "down", "j":
 		m.moveField(1)
 	case "left", "shift+tab", "backtab", "h":
-		if m.currentField().boolean {
-			m.setCurrentValue("false")
-			return m, nil
-		}
-		if len(m.currentField().options) > 0 {
-			m.cycleCurrentOption(-1)
-			return m, nil
-		}
 		m.switchSection(-1)
 	case "right", "tab", "l":
-		if m.currentField().boolean {
-			m.setCurrentValue("true")
-			return m, nil
-		}
-		if len(m.currentField().options) > 0 {
-			m.cycleCurrentOption(1)
-			return m, nil
-		}
 		m.switchSection(1)
-	case " ":
+	case " ", "space":
 		if m.currentField().boolean {
 			m.toggleCurrentBool()
 			return m, nil

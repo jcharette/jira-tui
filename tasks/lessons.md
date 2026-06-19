@@ -218,6 +218,9 @@
 - When a UI bug survives multiple code/test iterations, stop recompiling similar renderer changes.
   Gather runtime evidence first from persistent logs, config, cache, and actual rendered state so
   the next change targets the observed failure instead of another guessed path.
+- In config menus, advertised navigation keys must only navigate. Do not reuse `left/right`, `tab`,
+  or `shift+tab` for picker mutation, because a one-field section can trap users before later
+  sections like Runtime or Git.
 - For unclear runtime UI bugs, do not lead with more Go tests after the user says tests are not
   helping. Gather evidence, solve the observed behavior, manually inspect the rendered result, then
   add tests around the confirmed fix.

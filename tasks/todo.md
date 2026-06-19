@@ -1,5 +1,28 @@
 # Task Plan
 
+## Config Section Navigation Regression
+
+- [x] Add focused config UI regression coverage for option-field and boolean-field section navigation.
+- [x] Make advertised section navigation keys move between sections even when a picker field is selected.
+- [x] Keep picker value changes on explicit field action keys.
+- [x] Update lessons and run focused/full verification.
+
+### Config Section Navigation Regression Scope
+
+Fix the config UX trap introduced by field pickers. The footer advertises `left/right` and `tab` as
+section navigation, but picker fields can currently consume those keys and prevent users from moving
+past Display or boolean-heavy sections. Preserve picker behavior through explicit field actions
+without changing the TOML schema or the broader config layout.
+
+### Config Section Navigation Regression Review
+
+- Added regression coverage for moving from Display to Runtime/Git while `Symbol Mode` is selected.
+- Added coverage that `tab` moves out of boolean-heavy config sections without changing the boolean
+  value.
+- Kept picker value changes on explicit field actions: `enter` and space.
+- Verification passed: focused config UI tests, `go test ./... -count=1`, `make docs-status`,
+  `make check`, `make install-user`, and `git diff --check`.
+
 ## Keychain Credential Storage
 
 - [x] Add an internal secret-store adapter backed by `github.com/zalando/go-keyring` with memory tests.
