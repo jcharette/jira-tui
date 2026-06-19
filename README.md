@@ -20,15 +20,15 @@ binary somewhere on your `PATH`.
 Example for Apple Silicon:
 
 ```bash
-curl -LO https://github.com/jcharette/jira-tui/releases/download/v0.2.1/jira-tui_0.2.1_darwin_arm64.tar.gz
-tar -xzf jira-tui_0.2.1_darwin_arm64.tar.gz
+curl -LO https://github.com/jcharette/jira-tui/releases/download/v0.2.2/jira-tui_0.2.2_darwin_arm64.tar.gz
+tar -xzf jira-tui_0.2.2_darwin_arm64.tar.gz
 install -m 0755 jira ~/bin/jira
 ```
 
 Or install with Go:
 
 ```bash
-go install github.com/jcharette/jira-tui/cmd/jira@v0.2.1
+go install github.com/jcharette/jira-tui/cmd/jira@v0.2.2
 ```
 
 Go installs the binary as `jira`.
