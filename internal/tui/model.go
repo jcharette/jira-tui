@@ -161,6 +161,9 @@ type Model struct {
 	genericFieldDraft                  string
 	genericFieldEditor                 textarea.Model
 	genericFieldEditorReady            bool
+	genericFieldOptionsLoading         bool
+	genericFieldOptionsErr             error
+	genericFieldOptionsQuery           string
 	selectedGenericFieldOption         int
 	selectedGenericFieldOptions        map[string]bool
 	genericFieldDirty                  bool
@@ -191,6 +194,10 @@ type Model struct {
 	selectedIssueLinkRelation          int
 	issueLinkSubmitting                bool
 	issueLinkSubmitRequest             jira.CreateIssueLinkRequest
+	issueLinkDeleteConfirm             bool
+	issueLinkDeleteSubmitting          bool
+	issueLinkDeleteID                  string
+	issueLinkDeleteTarget              string
 	userSearchCache                    *ttlcache.Cache[string, []jira.User]
 	summaryFocus                       bool
 	summaryEditing                     bool
@@ -259,6 +266,15 @@ type Model struct {
 	helpOffset                         int
 	diagnosticsOpen                    bool
 	diagnosticsEvents                  []diagnosticEvent
+	bugReportOpen                      bool
+	bugReportFieldFocus                int
+	bugReportTitleDraft                string
+	bugReportTitleEditor               textinput.Model
+	bugReportTitleEditorReady          bool
+	bugReportBodyDraft                 string
+	bugReportBodyEditor                textarea.Model
+	bugReportBodyEditorReady           bool
+	bugReportIncludeDiagnostics        bool
 	workerRequestStartedAt             map[int]time.Time
 	eventStream                        eventStream
 	eventInbox                         <-chan events.Event
@@ -353,6 +369,12 @@ type Model struct {
 	worklogsLoading                   bool
 	worklogsErr                       error
 	worklogsRequestKey                string
+	worklogListFocus                  bool
+	selectedWorklog                   int
+	worklogEditing                    bool
+	worklogDeleteConfirm              bool
+	worklogDeleteSubmitting           bool
+	worklogDeleteID                   string
 	worklogFocus                      bool
 	worklogFieldFocus                 int
 	worklogTimeDraft                  string
@@ -364,6 +386,7 @@ type Model struct {
 	worklogSubmitting                 bool
 	worklogSubmitKey                  string
 	worklogSubmitRequest              jira.AddWorklogRequest
+	worklogUpdateRequest              jira.UpdateWorklogRequest
 	commentDraft                      string
 	commentEditor                     textarea.Model
 	commentEditorReady                bool
@@ -403,10 +426,14 @@ type Model struct {
 	activeComponentsMetadataReqID     int
 	activeComponentsReqID             int
 	activeGenericFieldMetadataReqID   int
+	activeGenericFieldOptionsReqID    int
 	activeGenericFieldReqID           int
 	activeAssigneeReqID               int
 	activeIssueLinkTypesReqID         int
 	activeCreateIssueLinkReqID        int
+	activeDeleteIssueLinkReqID        int
+	activeUpdateWorklogReqID          int
+	activeDeleteWorklogReqID          int
 	activeCreateIssueTypesReqID       int
 	activeCreateFieldsReqID           int
 	activeCreateFieldOptionsReqID     int
@@ -497,6 +524,7 @@ const (
 	issueLayoutTable issueLayoutMode = iota
 	issueLayoutWorkbench
 	issueLayoutLanes
+	issueLayoutPlanning
 )
 
 const (
@@ -847,6 +875,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.diagnosticsOpen = true
 			return m, nil
 		}
+		if m.bugReportOpen {
+			return m.updateBugReport(msg)
+		}
 		if m.queryOpen {
 			return m.updateQueryModal(msg)
 		}
@@ -919,8 +950,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == modeDetail && m.issueLinkFocus {
 			return m.updateIssueLinkEditor(msg)
 		}
+		if m.mode == modeDetail && m.issueLinkDeleteConfirm {
+			switch msg.String() {
+			case "esc":
+				m.cancelIssueLinkDelete()
+				return m, nil
+			case "enter", "d":
+				return m.submitIssueLinkDelete()
+			}
+			return m, nil
+		}
 		if m.mode == modeDetail && m.worklogFocus {
 			return m.updateWorklogEditor(msg)
+		}
+		if m.mode == modeDetail && m.worklogDeleteConfirm {
+			switch msg.String() {
+			case "esc":
+				m.cancelWorklogDelete()
+				return m, nil
+			case "enter", "d":
+				return m.submitSelectedWorklogDelete()
+			}
+			return m, nil
 		}
 		if m.mode == modeDetail && m.summaryEditing {
 			return m.updateSummaryEditor(msg)
@@ -932,6 +983,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c", "q":
 			m.workers.Stop()
 			return m, tea.Quit
+		case "B":
+			m = m.startBugReport()
+			return m, nil
 		case "esc":
 			if m.mode == modeDetail {
 				if m.summaryFocus {
@@ -979,8 +1033,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.closeIssueLinkEditor()
 					return m, nil
 				}
+				if m.issueLinkDeleteConfirm {
+					m.cancelIssueLinkDelete()
+					return m, nil
+				}
 				if m.worklogFocus {
 					m.closeWorklogEditor()
+					return m, nil
+				}
+				if m.worklogDeleteConfirm {
+					m.cancelWorklogDelete()
+					return m, nil
+				}
+				if m.worklogListFocus {
+					m.worklogListFocus = false
+					m.detailNotice = ""
 					return m, nil
 				}
 				if m.hierarchyFocus {
@@ -1039,6 +1106,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "e":
 			if m.mode == modeDetail && m.commentFocus {
 				return m.startSelectedCommentEditor()
+			}
+			if m.mode == modeDetail && m.worklogListFocus {
+				return m.startSelectedWorklogEditor()
+			}
+		case "d":
+			if m.mode == modeDetail && m.linkFocus {
+				return m.startIssueLinkDelete()
+			}
+			if m.mode == modeDetail && m.worklogListFocus {
+				return m.startSelectedWorklogDelete()
 			}
 		case "x":
 			if m.mode == modeTable {
@@ -1186,6 +1263,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.moveSelectedIssueLinkRelation(-1)
 					return m, nil
 				}
+				if m.worklogListFocus {
+					m.moveSelectedWorklog(-1)
+					return m, nil
+				}
 				if m.genericFieldFocus {
 					m.moveSelectedGenericFieldOption(-1)
 					return m, nil
@@ -1243,6 +1324,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				if m.issueLinkFocus {
 					m.moveSelectedIssueLinkRelation(1)
+					return m, nil
+				}
+				if m.worklogListFocus {
+					m.moveSelectedWorklog(1)
 					return m, nil
 				}
 				if m.genericFieldFocus {
@@ -1344,17 +1429,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.focusDetailLinks()
 				return m, nil
 			}
-		case "d":
-			if m.mode == modeDetail {
-				m.linkFocus = false
-				m.hierarchyFocus = false
-				m.actionFocus = false
-				m.transitionFocus = false
-				m.priorityFocus = false
-				m.assigneeFocus = false
-				m.jumpDetailSection("Description")
-				return m, nil
-			}
 		case "h":
 			if m.mode == modeDetail {
 				m.linkFocus = false
@@ -1430,6 +1504,13 @@ func (m Model) render() string {
 
 	if m.queryOpen {
 		b.WriteString(m.renderQueryModal(layout))
+		b.WriteString("\n\n")
+		b.WriteString(m.renderModelFooterHelp(layout))
+		return b.String()
+	}
+
+	if m.bugReportOpen {
+		b.WriteString(m.renderBugReport(layout))
 		b.WriteString("\n\n")
 		b.WriteString(m.renderModelFooterHelp(layout))
 		return b.String()

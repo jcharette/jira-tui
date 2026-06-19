@@ -97,6 +97,10 @@ Diagnostics overlay shows the active log path. The log is intended for bug repor
 worker/API/cache/state breadcrumbs without raw JQL, tokens, request/response bodies, comments, or
 descriptions.
 
+Pressing `B` opens an in-app bug report composer. The user provides a short title and description,
+can opt into the bounded sanitized Diagnostics excerpt, and `jira-tui` opens a prefilled GitHub issue
+URL in the browser. The app does not store GitHub credentials or upload raw local log files.
+
 ## Current Configuration
 
 Config is stored at `~/.config/jira/config.toml` by default. The application creates the
@@ -223,7 +227,8 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
 - Pressing `ctrl+d` opens a read-only Diagnostics overlay with recent background worker and
   detail-cache activity from a bounded in-memory buffer. The overlay includes summary counts,
   simple activity bars, active worker request counts, and labeled event rows for visibility and
-  troubleshooting only; it does not make Jira calls, persist logs, or block the TUI. Create
+  troubleshooting only; it does not make Jira calls or block the TUI. The same sanitized event stream
+  is mirrored to the persistent Diagnostics log when logging is available. Create
   metadata results include sanitized result counts such as issue type and field counts, supported
   create-field counts, unsupported required counts, and short field ID/name/schema samples so empty
   or filtered Jira metadata responses can be diagnosed without logging raw response bodies or

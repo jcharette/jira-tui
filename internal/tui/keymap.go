@@ -30,6 +30,7 @@ const (
 	keyContextCommentConfirm keyContext = "Review Comment"
 	keyContextHelp           keyContext = "Help"
 	keyContextDiagnostics    keyContext = "Diagnostics"
+	keyContextBugReport      keyContext = "Report Bug"
 	keyContextCreate         keyContext = "Create Ticket"
 	keyContextQuery          keyContext = "Query"
 )
@@ -80,6 +81,8 @@ func activeKeyContext(m Model) keyContext {
 		return keyContextCommentConfirm
 	case m.queryOpen:
 		return keyContextQuery
+	case m.bugReportOpen:
+		return keyContextBugReport
 	case m.createOpen:
 		return keyContextCreate
 	case m.mode == modeComment:
@@ -104,7 +107,7 @@ func activeKeyContext(m Model) keyContext {
 		return keyContextAssignee
 	case m.mode == modeDetail && m.issueLinkFocus:
 		return keyContextIssueLink
-	case m.mode == modeDetail && m.worklogFocus:
+	case m.mode == modeDetail && (m.worklogFocus || m.worklogListFocus || m.worklogDeleteConfirm):
 		return keyContextWorklog
 	case m.mode == modeDetail && m.summaryFocus:
 		return keyContextSummary
@@ -174,6 +177,8 @@ func keyBindings(context keyContext) []keyBinding {
 		bindings = append(bindings, helpBindings()...)
 	case keyContextDiagnostics:
 		bindings = append(bindings, diagnosticsBindings()...)
+	case keyContextBugReport:
+		bindings = append(bindings, bugReportBindings()...)
 	case keyContextCreate:
 		bindings = append(bindings, createBindings()...)
 	case keyContextQuery:
@@ -198,6 +203,12 @@ func globalBindings(context keyContext) []keyBinding {
 			{Keys: []string{"ctrl+c"}, Label: "quit", Description: "Quit Jira.", Group: "Global"},
 		}
 	}
+	if context == keyContextBugReport {
+		return []keyBinding{
+			{Keys: []string{"?"}, Label: "help", Description: "Open the keyboard help screen.", Group: "Global", Footer: true},
+			{Keys: []string{"ctrl+c"}, Label: "quit", Description: "Quit Jira.", Group: "Global"},
+		}
+	}
 	if context == keyContextComment || context == keyContextMentionPicker || context == keyContextCommentConfirm || context == keyContextActionPalette || context == keyContextLabels || context == keyContextComponents || context == keyContextGenericField {
 		return []keyBinding{
 			{Keys: []string{"?"}, Label: "help", Description: "Open the keyboard help screen.", Group: "Global", Footer: true},
@@ -206,6 +217,7 @@ func globalBindings(context keyContext) []keyBinding {
 	}
 	return []keyBinding{
 		{Keys: []string{"?"}, Label: "help", Description: "Open the keyboard help screen.", Group: "Global", Footer: true},
+		{Keys: []string{"B"}, Label: "report", Description: "Open a GitHub bug report with optional sanitized diagnostics.", Group: "Global"},
 		{Keys: []string{"ctrl+d"}, Label: "diagnostics", Description: "Open recent background worker and cache activity.", Group: "Global"},
 		{Keys: []string{"q", "ctrl+c"}, FooterKey: "q", Label: "quit", Description: "Quit Jira.", Group: "Global"},
 	}
@@ -274,6 +286,7 @@ func linkBindings() []keyBinding {
 		{Keys: []string{"j", "k", "up", "down"}, FooterKey: "j/k", Label: "link", Description: "Select a discovered link.", Group: "Links", Footer: true},
 		{Keys: []string{"o", "enter"}, FooterKey: "o/enter", Label: "open", Description: "Open the selected link.", Group: "Links", Footer: true},
 		{Keys: []string{"y"}, Label: "copy", Description: "Copy the selected link or email address.", Group: "Links", Footer: true},
+		{Keys: []string{"d"}, Label: "unlink", Description: "Remove the selected Jira issue link after confirmation.", Group: "Links", Footer: true},
 		{Keys: []string{"1-9"}, Label: "select", Description: "Select a link by number.", Group: "Links"},
 		{Keys: []string{"r"}, Label: "refresh", Description: "Refresh the active issue view.", Group: "Global"},
 	}
@@ -417,6 +430,16 @@ func helpBindings() []keyBinding {
 func diagnosticsBindings() []keyBinding {
 	return []keyBinding{
 		{Keys: []string{"esc", "ctrl+d"}, FooterKey: "esc", Label: "close", Description: "Close the diagnostics overlay.", Group: "Diagnostics", Footer: true},
+	}
+}
+
+func bugReportBindings() []keyBinding {
+	return []keyBinding{
+		{Keys: []string{"type"}, Label: "edit", Description: "Edit bug report text.", Group: "Report", Footer: true},
+		{Keys: []string{"tab", "up", "down"}, FooterKey: "tab", Label: "field", Description: "Move between bug report fields.", Group: "Report", Footer: true},
+		{Keys: []string{"space"}, Label: "diagnostics", Description: "Toggle sanitized Diagnostics excerpt when the checkbox is focused.", Group: "Report", Footer: true},
+		{Keys: []string{"ctrl+s"}, Label: "open", Description: "Open the prefilled GitHub issue composer.", Group: "Report", Footer: true},
+		{Keys: []string{"esc"}, Label: "cancel", Description: "Close bug reporting without opening GitHub.", Group: "Report", Footer: true},
 	}
 }
 

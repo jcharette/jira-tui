@@ -32,6 +32,10 @@ func (m Model) handleWorkerResult(result worker.Result) (Model, tea.Cmd) {
 		return m.handleGetWorklogsResult(result), nil
 	case worker.KindAddWorklog:
 		return m.handleAddWorklogResult(result)
+	case worker.KindUpdateWorklog:
+		return m.handleUpdateWorklogResult(result)
+	case worker.KindDeleteWorklog:
+		return m.handleDeleteWorklogResult(result)
 	case worker.KindSearchUsers:
 		return m.handleUserSearchResult(result), nil
 	case worker.KindExpandIssues:
@@ -67,6 +71,9 @@ func (m Model) handleWorkerResult(result worker.Result) (Model, tea.Cmd) {
 		if result.ID == m.activeTransitionFieldOptionsReqID {
 			return m.handleTransitionFieldOptionsResult(result), nil
 		}
+		if result.ID == m.activeGenericFieldOptionsReqID {
+			return m.handleGenericFieldOptionsResult(result), nil
+		}
 		return m.handleSearchFieldOptionsResult(result), nil
 	case worker.KindGetBoards:
 		return m.handlePlanningBoardsResult(result)
@@ -76,6 +83,8 @@ func (m Model) handleWorkerResult(result worker.Result) (Model, tea.Cmd) {
 		return m.handleGetIssueLinkTypesResult(result), nil
 	case worker.KindCreateIssueLink:
 		return m.handleCreateIssueLinkResult(result)
+	case worker.KindDeleteIssueLink:
+		return m.handleDeleteIssueLinkResult(result)
 	case worker.KindCreateIssue:
 		return m.handleCreateIssueResult(result), nil
 	default:
@@ -125,6 +134,35 @@ func (m Model) handleCreateIssueLinkResult(result worker.Result) (Model, tea.Cmd
 		delete(m.details, sourceKey)
 		if m.detailCache != nil {
 			m.detailCache.Delete(sourceKey)
+		}
+	}
+	return m.startDetailRequestForSelected()
+}
+
+func (m Model) handleDeleteIssueLinkResult(result worker.Result) (Model, tea.Cmd) {
+	if result.ID != m.activeDeleteIssueLinkReqID {
+		return m, nil
+	}
+	m.issueLinkDeleteSubmitting = false
+	if result.Err != nil {
+		m.detailNotice = "Issue link removal failed: " + result.Err.Error()
+		return m, nil
+	}
+	if result.DeleteIssueLink == nil {
+		m.detailNotice = "Issue link removal failed: " + worker.ErrInvalidRequest.Error()
+		return m, nil
+	}
+	issueKey := strings.TrimSpace(result.DeleteIssueLink.IssueKey)
+	target := strings.TrimSpace(result.DeleteIssueLink.Target)
+	m.issueLinkDeleteConfirm = false
+	m.issueLinkDeleteID = ""
+	m.issueLinkDeleteTarget = ""
+	m.linkFocus = false
+	m.detailNotice = "Removed issue link " + displayValue(target, result.DeleteIssueLink.LinkID) + "."
+	if issueKey != "" {
+		delete(m.details, issueKey)
+		if m.detailCache != nil {
+			m.detailCache.Delete(issueKey)
 		}
 	}
 	return m.startDetailRequestForSelected()
@@ -882,6 +920,62 @@ func (m Model) handleAddWorklogResult(result worker.Result) (Model, tea.Cmd) {
 	key := result.AddWorklog.Key
 	m.closeWorklogEditor()
 	m.detailNotice = "Work logged."
+	if m.worklogs != nil {
+		delete(m.worklogs, key)
+	}
+	m.nextRequestID++
+	m.activeWorklogsReqID = m.nextRequestID
+	m.worklogsRequestKey = key
+	m.worklogsLoading = true
+	m.worklogsErr = nil
+	return m, m.submitIssueWorklogs(m.activeWorklogsReqID, key)
+}
+
+func (m Model) handleUpdateWorklogResult(result worker.Result) (Model, tea.Cmd) {
+	if result.ID != m.activeUpdateWorklogReqID {
+		return m, nil
+	}
+	m.worklogSubmitting = false
+	if result.Err != nil {
+		m.detailNotice = "Worklog update failed: " + result.Err.Error()
+		return m, nil
+	}
+	if result.UpdateWorklog == nil {
+		m.detailNotice = "Worklog update failed: " + worker.ErrInvalidRequest.Error()
+		return m, nil
+	}
+	key := result.UpdateWorklog.Key
+	m.closeWorklogEditor()
+	m.detailNotice = "Worklog updated."
+	if m.worklogs != nil {
+		delete(m.worklogs, key)
+	}
+	m.nextRequestID++
+	m.activeWorklogsReqID = m.nextRequestID
+	m.worklogsRequestKey = key
+	m.worklogsLoading = true
+	m.worklogsErr = nil
+	return m, m.submitIssueWorklogs(m.activeWorklogsReqID, key)
+}
+
+func (m Model) handleDeleteWorklogResult(result worker.Result) (Model, tea.Cmd) {
+	if result.ID != m.activeDeleteWorklogReqID {
+		return m, nil
+	}
+	m.worklogDeleteSubmitting = false
+	if result.Err != nil {
+		m.detailNotice = "Worklog delete failed: " + result.Err.Error()
+		return m, nil
+	}
+	if result.DeleteWorklog == nil {
+		m.detailNotice = "Worklog delete failed: " + worker.ErrInvalidRequest.Error()
+		return m, nil
+	}
+	key := result.DeleteWorklog.Key
+	m.worklogDeleteConfirm = false
+	m.worklogDeleteID = ""
+	m.worklogListFocus = false
+	m.detailNotice = "Worklog deleted."
 	if m.worklogs != nil {
 		delete(m.worklogs, key)
 	}

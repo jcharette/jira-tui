@@ -7,6 +7,12 @@ a Bubble Tea table with a selected-issue detail pane.
 
 ## Install
 
+Homebrew:
+
+```bash
+brew install --formula https://raw.githubusercontent.com/jcharette/jira-tui/main/Formula/jira-tui.rb
+```
+
 Download a release archive from
 [GitHub Releases](https://github.com/jcharette/jira-tui/releases), unpack it, and move the `jira`
 binary somewhere on your `PATH`.
@@ -95,10 +101,16 @@ those fields.
 | `enter` | Open ticket detail |
 | `x` | Load open child issues for the selected parent |
 | `X` | Load all child issues for the selected parent |
+| `B` | Report a bug on GitHub with optional sanitized Diagnostics |
+| `ctrl+d` | Open Diagnostics |
 | `j`, `k`, `pgup`, `pgdn`, `g`, `G` in detail | Scroll ticket detail |
 | `esc` | Return to table from detail |
 | `r` | Refresh issues |
 | `q`, `ctrl+c` | Quit |
+
+Bug reports open a prefilled GitHub issue in your browser. If you opt in, the report includes a
+bounded sanitized Diagnostics excerpt; it never includes Jira tokens, raw request/response bodies,
+comments, descriptions, or full JQL.
 
 ## Commands
 
@@ -126,6 +138,8 @@ make install-user
 ```
 
 Both build targets produce a binary named `jira`.
+
+More install options are documented in [docs/install.md](docs/install.md).
 
 ## Development
 

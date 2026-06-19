@@ -6,17 +6,11 @@ changelog when it lands.
 Docs are part of done. When an item here is completed, remove or move it and add a matching entry
 to [releases/CHANGELOG.md](releases/CHANGELOG.md).
 
-## Next: Creation And Editing
+## Later: Creation And Editing
 
-- Add remaining metadata-backed implementations beyond Labels and Components through the Ticket
-  Actions palette only as their underlying workflows land.
-- Extend generic edit issue support beyond safe custom text/number/date and inline option fields:
-  add field-specific workflows for users, versions, sprints, autocomplete-only options, and other
-  complex Jira schemas as real usage demands them.
-- Add issue link removal/editing after parsed issue-link detail retains Jira link IDs.
-- Worklog edit/delete support after add/list usage has proven the right terminal UX.
-- Sprint/board views.
-- Homebrew tap/formula after the release binary and `go install` paths are stable.
+- Add more metadata-backed Ticket Actions only when Jira workflows expose a concrete supported
+  field or operation that is not already covered by generic edit, comments, status, links, worklogs,
+  create, assignee, labels, components, summary, or priority.
 
 ## Later: Security And Auth
 

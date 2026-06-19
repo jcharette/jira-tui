@@ -44,8 +44,11 @@ const (
 	KindGetBoardSprints     Kind = "get_board_sprints"
 	KindGetIssueLinkTypes   Kind = "get_issue_link_types"
 	KindCreateIssueLink     Kind = "create_issue_link"
+	KindDeleteIssueLink     Kind = "delete_issue_link"
 	KindGetWorklogs         Kind = "get_worklogs"
 	KindAddWorklog          Kind = "add_worklog"
+	KindUpdateWorklog       Kind = "update_worklog"
+	KindDeleteWorklog       Kind = "delete_worklog"
 	KindUpdateSummary       Kind = "update_summary"
 	KindUpdateDescription   Kind = "update_description"
 	KindUpdatePriority      Kind = "update_priority"
@@ -85,8 +88,11 @@ type JiraClient interface {
 	GetBoardSprints(ctx context.Context, boardID int, states []string, startAt, maxResults int) (jira.SprintPage, error)
 	GetIssueLinkTypes(ctx context.Context) ([]jira.IssueLinkType, error)
 	CreateIssueLink(ctx context.Context, request jira.CreateIssueLinkRequest) error
+	DeleteIssueLink(ctx context.Context, linkID string) error
 	GetWorklogs(ctx context.Context, key string, maxResults int) ([]jira.Worklog, error)
 	AddWorklog(ctx context.Context, key string, request jira.AddWorklogRequest) (jira.Worklog, error)
+	UpdateWorklog(ctx context.Context, key string, request jira.UpdateWorklogRequest) (jira.Worklog, error)
+	DeleteWorklog(ctx context.Context, key string, worklogID string) error
 	CreateIssue(ctx context.Context, request jira.CreateIssueRequest) (jira.Issue, error)
 	UpdateSummary(ctx context.Context, key string, summary string) error
 	UpdateDescription(ctx context.Context, key string, description string) error
@@ -121,8 +127,11 @@ type Request struct {
 	GetBoardSprints     *GetBoardSprintsRequest
 	GetIssueLinkTypes   *GetIssueLinkTypesRequest
 	CreateIssueLink     *CreateIssueLinkRequest
+	DeleteIssueLink     *DeleteIssueLinkRequest
 	GetWorklogs         *GetWorklogsRequest
 	AddWorklog          *AddWorklogRequest
+	UpdateWorklog       *UpdateWorklogRequest
+	DeleteWorklog       *DeleteWorklogRequest
 	UpdateSummary       *UpdateSummaryRequest
 	UpdateDescription   *UpdateDescriptionRequest
 	UpdatePriority      *UpdatePriorityRequest
@@ -230,6 +239,12 @@ type CreateIssueLinkRequest struct {
 	Request jira.CreateIssueLinkRequest
 }
 
+type DeleteIssueLinkRequest struct {
+	IssueKey string
+	LinkID   string
+	Target   string
+}
+
 type GetWorklogsRequest struct {
 	Key        string
 	MaxResults int
@@ -238,6 +253,16 @@ type GetWorklogsRequest struct {
 type AddWorklogRequest struct {
 	Key     string
 	Request jira.AddWorklogRequest
+}
+
+type UpdateWorklogRequest struct {
+	Key     string
+	Request jira.UpdateWorklogRequest
+}
+
+type DeleteWorklogRequest struct {
+	Key       string
+	WorklogID string
 }
 
 type UpdateSummaryRequest struct {
@@ -307,8 +332,11 @@ type Result struct {
 	GetBoardSprints     *GetBoardSprintsResult
 	GetIssueLinkTypes   *GetIssueLinkTypesResult
 	CreateIssueLink     *CreateIssueLinkResult
+	DeleteIssueLink     *DeleteIssueLinkResult
 	GetWorklogs         *GetWorklogsResult
 	AddWorklog          *AddWorklogResult
+	UpdateWorklog       *UpdateWorklogResult
+	DeleteWorklog       *DeleteWorklogResult
 	UpdateSummary       *UpdateSummaryResult
 	UpdateDescription   *UpdateDescriptionResult
 	UpdatePriority      *UpdatePriorityResult
@@ -422,6 +450,13 @@ type CreateIssueLinkResult struct {
 	SyncedAt time.Time
 }
 
+type DeleteIssueLinkResult struct {
+	IssueKey string
+	LinkID   string
+	Target   string
+	SyncedAt time.Time
+}
+
 type GetWorklogsResult struct {
 	Key      string
 	Worklogs []jira.Worklog
@@ -433,6 +468,19 @@ type AddWorklogResult struct {
 	Worklog  jira.Worklog
 	Request  jira.AddWorklogRequest
 	SyncedAt time.Time
+}
+
+type UpdateWorklogResult struct {
+	Key      string
+	Worklog  jira.Worklog
+	Request  jira.UpdateWorklogRequest
+	SyncedAt time.Time
+}
+
+type DeleteWorklogResult struct {
+	Key       string
+	WorklogID string
+	SyncedAt  time.Time
 }
 
 type UpdateSummaryResult struct {
@@ -816,10 +864,16 @@ func (p *Pool) handle(request Request) Result {
 		return p.handleGetIssueLinkTypes(request)
 	case KindCreateIssueLink:
 		return p.handleCreateIssueLink(request)
+	case KindDeleteIssueLink:
+		return p.handleDeleteIssueLink(request)
 	case KindGetWorklogs:
 		return p.handleGetWorklogs(request)
 	case KindAddWorklog:
 		return p.handleAddWorklog(request)
+	case KindUpdateWorklog:
+		return p.handleUpdateWorklog(request)
+	case KindDeleteWorklog:
+		return p.handleDeleteWorklog(request)
 	case KindUpdateSummary:
 		return p.handleUpdateSummary(request)
 	case KindUpdateDescription:
@@ -895,6 +949,34 @@ func (p *Pool) handleCreateIssueLink(request Request) Result {
 	}
 }
 
+func (p *Pool) handleDeleteIssueLink(request Request) Result {
+	if request.DeleteIssueLink == nil || request.DeleteIssueLink.LinkID == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	if err := p.client.DeleteIssueLink(ctx, request.DeleteIssueLink.LinkID); err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		DeleteIssueLink: &DeleteIssueLinkResult{
+			IssueKey: request.DeleteIssueLink.IssueKey,
+			LinkID:   request.DeleteIssueLink.LinkID,
+			Target:   request.DeleteIssueLink.Target,
+			SyncedAt: time.Now(),
+		},
+	}
+}
+
 func (p *Pool) handleGetWorklogs(request Request) Result {
 	if request.GetWorklogs == nil || request.GetWorklogs.Key == "" {
 		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
@@ -948,6 +1030,63 @@ func (p *Pool) handleAddWorklog(request Request) Result {
 			Worklog:  worklog,
 			Request:  request.AddWorklog.Request,
 			SyncedAt: time.Now(),
+		},
+	}
+}
+
+func (p *Pool) handleUpdateWorklog(request Request) Result {
+	if request.UpdateWorklog == nil || request.UpdateWorklog.Key == "" || request.UpdateWorklog.Request.ID == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	updateRequest := request.UpdateWorklog.Request
+	worklog, err := p.client.UpdateWorklog(ctx, request.UpdateWorklog.Key, updateRequest)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		UpdateWorklog: &UpdateWorklogResult{
+			Key:      request.UpdateWorklog.Key,
+			Worklog:  worklog,
+			Request:  updateRequest,
+			SyncedAt: time.Now(),
+		},
+	}
+}
+
+func (p *Pool) handleDeleteWorklog(request Request) Result {
+	if request.DeleteWorklog == nil || request.DeleteWorklog.Key == "" || request.DeleteWorklog.WorklogID == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	if err := p.client.DeleteWorklog(ctx, request.DeleteWorklog.Key, request.DeleteWorklog.WorklogID); err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		DeleteWorklog: &DeleteWorklogResult{
+			Key:       request.DeleteWorklog.Key,
+			WorklogID: request.DeleteWorklog.WorklogID,
+			SyncedAt:  time.Now(),
 		},
 	}
 }

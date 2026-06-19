@@ -12,7 +12,11 @@ import (
 )
 
 func (m Model) renderWorklogs(issueKey string, width int) string {
-	lines := []string{m.detailSectionHeader("worklog", "Worklog", "", width)}
+	help := ""
+	if m.worklogListFocus {
+		help = "j/k select  e edit  d delete"
+	}
+	lines := []string{m.detailSectionHeader("worklog", "Worklog", help, width)}
 	if m.worklogsLoading && m.worklogsRequestKey == issueKey {
 		lines = append(lines, m.detailStatusBlock("Loading worklogs...", width, false))
 	}
@@ -27,20 +31,81 @@ func (m Model) renderWorklogs(issueKey string, width int) string {
 		return strings.Join(lines, "\n")
 	}
 	rows := make([][]string, 0, len(worklogs))
-	for _, worklog := range worklogs {
+	cursor := clamp(m.selectedWorklog, 0, len(worklogs)-1)
+	for index, worklog := range worklogs {
 		comment := strings.TrimSpace(worklog.Comment)
 		if comment == "" {
 			comment = "-"
 		}
+		marker := " "
+		timeStyle := m.theme.Key
+		textStyle := m.theme.Text
+		if m.worklogListFocus && index == cursor {
+			marker = ">"
+			timeStyle = m.theme.Selected
+			textStyle = m.theme.Selected
+		}
 		rows = append(rows, []string{
-			m.theme.Key.Render(displayValue(worklog.TimeSpent, fmt.Sprintf("%ds", worklog.TimeSpentSeconds))),
-			m.theme.Text.Render(truncate(displayValue(worklog.Author, "Unknown"), 18)),
+			m.theme.Muted.Render(marker),
+			timeStyle.Render(displayValue(worklog.TimeSpent, fmt.Sprintf("%ds", worklog.TimeSpentSeconds))),
+			textStyle.Render(truncate(displayValue(worklog.Author, "Unknown"), 18)),
 			m.theme.Muted.Render(formatWorklogTime(worklog.Started)),
-			m.theme.Text.Render(truncate(firstLine(comment), max(12, width-46))),
+			textStyle.Render(truncate(firstLine(comment), max(12, width-48))),
 		})
 	}
-	lines = append(lines, m.detailTable(0, []string{"TIME", "AUTHOR", "STARTED", "NOTE"}, rows, nil))
+	lines = append(lines, m.detailTable(0, []string{"", "TIME", "AUTHOR", "STARTED", "NOTE"}, rows, nil))
 	return strings.Join(lines, "\n")
+}
+
+func (m *Model) focusWorklogs() {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return
+	}
+	worklogs := m.worklogs[selected.Key]
+	if len(worklogs) == 0 {
+		m.worklogListFocus = false
+		m.detailNotice = "No worklogs are loaded for this ticket."
+		return
+	}
+	m.linkFocus = false
+	m.hierarchyFocus = false
+	m.actionFocus = false
+	m.transitionFocus = false
+	m.priorityFocus = false
+	m.assigneeFocus = false
+	m.summaryFocus = false
+	m.commentFocus = false
+	m.worklogListFocus = true
+	m.selectedWorklog = clamp(m.selectedWorklog, 0, len(worklogs)-1)
+	m.detailNotice = ""
+	m.jumpDetailSection("Worklog")
+}
+
+func (m *Model) moveSelectedWorklog(delta int) {
+	worklogs := m.currentIssueWorklogs()
+	if len(worklogs) == 0 {
+		m.selectedWorklog = 0
+		m.worklogListFocus = false
+		return
+	}
+	m.selectedWorklog = clamp(m.selectedWorklog+delta, 0, len(worklogs)-1)
+}
+
+func (m Model) selectedWorklogEntry() (jira.Worklog, bool) {
+	worklogs := m.currentIssueWorklogs()
+	if len(worklogs) == 0 {
+		return jira.Worklog{}, false
+	}
+	return worklogs[clamp(m.selectedWorklog, 0, len(worklogs)-1)], true
+}
+
+func (m Model) currentIssueWorklogs() []jira.Worklog {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		return nil
+	}
+	return m.worklogs[selected.Key]
 }
 
 func (m Model) startWorklogEditor() (Model, tea.Cmd) {
@@ -61,6 +126,7 @@ func (m Model) startWorklogEditor() (Model, tea.Cmd) {
 	m.assigneeFocus = false
 	m.issueLinkFocus = false
 	m.worklogFocus = true
+	m.worklogEditing = false
 	m.worklogFieldFocus = 0
 	m.worklogTimeDraft = ""
 	m.worklogCommentDraft = ""
@@ -72,8 +138,45 @@ func (m Model) startWorklogEditor() (Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) startSelectedWorklogEditor() (Model, tea.Cmd) {
+	worklog, ok := m.selectedWorklogEntry()
+	if !ok || strings.TrimSpace(worklog.ID) == "" {
+		m.detailNotice = "Select a Jira worklog before editing."
+		return m, nil
+	}
+	m.linkFocus = false
+	m.hierarchyFocus = false
+	m.actionFocus = false
+	m.transitionFocus = false
+	m.summaryFocus = false
+	m.priorityFocus = false
+	m.labelsFocus = false
+	m.componentsFocus = false
+	m.genericFieldFocus = false
+	m.assigneeFocus = false
+	m.issueLinkFocus = false
+	m.worklogFocus = true
+	m.worklogEditing = true
+	m.worklogFieldFocus = 0
+	m.worklogTimeDraft = strings.TrimSpace(worklog.TimeSpent)
+	m.worklogCommentDraft = strings.TrimSpace(worklog.Comment)
+	m.worklogTimeEditor = newWorklogTimeInput(m.worklogTimeDraft)
+	m.worklogTimeEditorReady = true
+	m.worklogCommentEditor = newWorklogCommentEditor(m.worklogCommentDraft)
+	m.worklogCommentEditorReady = true
+	m.worklogUpdateRequest = jira.UpdateWorklogRequest{
+		ID:        worklog.ID,
+		TimeSpent: worklog.TimeSpent,
+		Started:   worklog.Started,
+		Comment:   worklog.Comment,
+	}
+	m.detailNotice = ""
+	return m, nil
+}
+
 func (m *Model) closeWorklogEditor() {
 	m.worklogFocus = false
+	m.worklogEditing = false
 	m.worklogFieldFocus = 0
 	m.worklogTimeDraft = ""
 	m.worklogCommentDraft = ""
@@ -84,6 +187,7 @@ func (m *Model) closeWorklogEditor() {
 	m.worklogSubmitting = false
 	m.worklogSubmitKey = ""
 	m.worklogSubmitRequest = jira.AddWorklogRequest{}
+	m.worklogUpdateRequest = jira.UpdateWorklogRequest{}
 }
 
 func (m Model) renderWorklogDialog(width int) string {
@@ -91,7 +195,11 @@ func (m Model) renderWorklogDialog(width int) string {
 	bodyWidth := max(36, width-6)
 	lines := []string{}
 	if m.worklogSubmitting {
-		lines = append(lines, m.theme.Muted.Render("Logging work."))
+		action := "Logging work."
+		if m.worklogEditing {
+			action = "Updating worklog."
+		}
+		lines = append(lines, m.theme.Muted.Render(action))
 	}
 	timeLabel := m.theme.Muted.Render("Duration")
 	noteLabel := m.theme.Muted.Render("Note")
@@ -112,7 +220,11 @@ func (m Model) renderWorklogDialog(width int) string {
 		noteLabel,
 		m.configuredWorklogCommentEditor(bodyWidth, 4).View(),
 	)
-	return m.renderDetailDialog(width, "Log Work", selected.Key, strings.Join(lines, "\n"), "ctrl+s save  tab field  esc cancel")
+	title := "Log Work"
+	if m.worklogEditing {
+		title = "Edit Worklog"
+	}
+	return m.renderDetailDialog(width, title, selected.Key, strings.Join(lines, "\n"), "ctrl+s save  tab field  esc cancel")
 }
 
 func (m Model) updateWorklogEditor(msg tea.KeyMsg) (Model, tea.Cmd) {
@@ -169,6 +281,24 @@ func (m Model) submitWorklog() (Model, tea.Cmd) {
 		Started:   m.currentTime(),
 		Comment:   comment,
 	}
+	if m.worklogEditing {
+		updateRequest := jira.UpdateWorklogRequest{
+			ID:        strings.TrimSpace(m.worklogUpdateRequest.ID),
+			TimeSpent: timeSpent,
+			Started:   m.worklogUpdateRequest.Started,
+			Comment:   comment,
+		}
+		if updateRequest.Started.IsZero() {
+			updateRequest.Started = m.currentTime()
+		}
+		m.nextRequestID++
+		m.activeUpdateWorklogReqID = m.nextRequestID
+		m.worklogSubmitting = true
+		m.worklogSubmitKey = selected.Key
+		m.worklogUpdateRequest = updateRequest
+		m.detailNotice = "Updating worklog."
+		return m, m.submitUpdateWorklog(m.activeUpdateWorklogReqID, selected.Key, updateRequest)
+	}
 	m.nextRequestID++
 	m.activeAddWorklogReqID = m.nextRequestID
 	m.worklogSubmitting = true
@@ -176,6 +306,67 @@ func (m Model) submitWorklog() (Model, tea.Cmd) {
 	m.worklogSubmitRequest = request
 	m.detailNotice = "Logging work."
 	return m, m.submitAddWorklog(m.activeAddWorklogReqID, selected.Key, request)
+}
+
+func (m Model) startSelectedWorklogDelete() (Model, tea.Cmd) {
+	worklog, ok := m.selectedWorklogEntry()
+	if !ok || strings.TrimSpace(worklog.ID) == "" {
+		m.detailNotice = "Select a Jira worklog before deleting."
+		return m, nil
+	}
+	m.worklogDeleteConfirm = true
+	m.worklogDeleteSubmitting = false
+	m.worklogDeleteID = strings.TrimSpace(worklog.ID)
+	m.detailNotice = ""
+	return m, nil
+}
+
+func (m Model) submitSelectedWorklogDelete() (Model, tea.Cmd) {
+	selected, ok := m.selectedIssue()
+	if !ok || strings.TrimSpace(selected.Key) == "" {
+		return m, nil
+	}
+	if m.worklogDeleteSubmitting {
+		return m, nil
+	}
+	worklogID := strings.TrimSpace(m.worklogDeleteID)
+	if worklogID == "" {
+		m.worklogDeleteConfirm = false
+		m.detailNotice = "Worklog delete failed: missing worklog ID."
+		return m, nil
+	}
+	m.nextRequestID++
+	m.activeDeleteWorklogReqID = m.nextRequestID
+	m.worklogDeleteSubmitting = true
+	m.detailNotice = "Deleting worklog."
+	return m, m.submitDeleteWorklog(m.activeDeleteWorklogReqID, selected.Key, worklogID)
+}
+
+func (m *Model) cancelWorklogDelete() {
+	m.worklogDeleteConfirm = false
+	m.worklogDeleteSubmitting = false
+	m.worklogDeleteID = ""
+	m.detailNotice = ""
+}
+
+func (m Model) renderWorklogDeleteDialog(width int) string {
+	selected, _ := m.selectedIssue()
+	bodyWidth := max(36, width-6)
+	worklog, _ := m.selectedWorklogEntry()
+	target := displayValue(worklog.TimeSpent, worklog.ID)
+	lines := []string{
+		m.theme.Muted.Render("Issue") + " " + m.theme.Key.Render(displayValue(selected.Key, "selected")),
+		m.theme.Muted.Render("Worklog") + " " + m.theme.Text.Render(target),
+		"",
+		m.theme.Error.Render("Delete this Jira worklog?"),
+	}
+	if m.worklogDeleteSubmitting {
+		lines = append(lines, "", m.theme.Muted.Render("Deleting worklog."))
+	}
+	if m.detailNotice != "" {
+		lines = append(lines, "", m.renderDetailNotice(m.detailNotice, bodyWidth))
+	}
+	return m.renderDetailDialog(width, "Delete Worklog", selected.Key, strings.Join(lines, "\n"), "enter delete  esc cancel")
 }
 
 func (m Model) configuredWorklogTimeInput(width int) textinput.Model {
@@ -267,6 +458,9 @@ func firstLine(value string) string {
 func worklogBindings() []keyBinding {
 	return []keyBinding{
 		{Keys: []string{"type"}, Label: "edit", Description: "Edit the active worklog field.", Group: "Worklog", Footer: true},
+		{Keys: []string{"j", "k"}, FooterKey: "j/k", Label: "select", Description: "Select a worklog when the Worklog section is focused.", Group: "Worklog"},
+		{Keys: []string{"e"}, Label: "edit-row", Description: "Edit the selected Jira worklog.", Group: "Worklog"},
+		{Keys: []string{"d"}, Label: "delete-row", Description: "Delete the selected Jira worklog after confirmation.", Group: "Worklog"},
 		{Keys: []string{"tab"}, Label: "field", Description: "Switch between duration and note.", Group: "Worklog", Footer: true},
 		{Keys: []string{"ctrl+s"}, Label: "save", Description: "Log work through Jira.", Group: "Worklog", Footer: true},
 		{Keys: []string{"esc"}, Label: "cancel", Description: "Cancel work logging.", Group: "Worklog", Footer: true},

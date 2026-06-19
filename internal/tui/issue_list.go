@@ -94,6 +94,9 @@ func (m Model) renderIssueWorkspace(layout browserLayout) string {
 	if m.issueLayout == issueLayoutLanes {
 		return m.renderIssueLanes(layout)
 	}
+	if m.issueLayout == issueLayoutPlanning {
+		return m.renderPlanningWorkspace(layout)
+	}
 	return m.renderIssueList(layout)
 }
 
@@ -386,6 +389,8 @@ func (m *Model) cycleIssueLayoutMode() {
 		m.issueLayout = issueLayoutWorkbench
 	case issueLayoutWorkbench:
 		m.issueLayout = issueLayoutLanes
+	case issueLayoutLanes:
+		m.issueLayout = issueLayoutPlanning
 	default:
 		m.issueLayout = issueLayoutTable
 	}
@@ -406,9 +411,99 @@ func (m Model) issueLayoutModeLabel() string {
 		return "Workbench"
 	case issueLayoutLanes:
 		return "Lanes"
+	case issueLayoutPlanning:
+		return "Planning"
 	default:
 		return "Table"
 	}
+}
+
+func (m Model) renderPlanningWorkspace(layout browserLayout) string {
+	planning := m.renderPlanningPanel(layout)
+	panelRows := lipgloss.Height(planning)
+	listLayout := layout
+	listLayout.rows = max(minUsefulIssueRows, layout.rows-panelRows-1)
+	list := m.renderIssueList(listLayout)
+	if strings.TrimSpace(planning) == "" {
+		return list
+	}
+	return planning + "\n" + list
+}
+
+func (m Model) renderPlanningPanel(layout browserLayout) string {
+	width := layout.listWidth
+	bodyWidth := max(24, width-4)
+	lines := []string{m.detailSectionHeader("planning", "Planning", "boards and sprints", bodyWidth)}
+	switch {
+	case m.planningBoardsLoading:
+		lines = append(lines, m.detailStatusBlock("Loading Jira boards...", bodyWidth, false))
+	case m.planningBoardsErr != nil:
+		lines = append(lines, m.detailStatusBlock("Boards failed: "+m.planningBoardsErr.Error(), bodyWidth, true))
+	case len(m.planningBoards) == 0:
+		lines = append(lines, m.detailEmptyState("No Jira boards loaded for this project.", bodyWidth))
+	default:
+		lines = append(lines, m.renderPlanningBoardRows(bodyWidth)...)
+	}
+	if m.planningSprintsLoading {
+		lines = append(lines, m.theme.Muted.Render("Loading sprints."))
+	}
+	if m.planningSprintsErr != nil {
+		lines = append(lines, m.theme.Error.Render("Sprints failed: "+m.planningSprintsErr.Error()))
+	}
+	return m.theme.Panel.Render(strings.Join(lines, "\n"))
+}
+
+func (m Model) renderPlanningBoardRows(width int) []string {
+	rows := make([][]string, 0, len(m.planningBoards))
+	for _, board := range m.planningBoards {
+		sprints := m.planningSprints[board.ID]
+		active, future := sprintStateCounts(sprints)
+		current := sprintNamesByState(sprints, "active", 2)
+		if len(current) == 0 {
+			current = sprintNamesByState(sprints, "future", 2)
+		}
+		rows = append(rows, []string{
+			m.theme.Key.Render(fmt.Sprintf("%d", board.ID)),
+			m.theme.Text.Render(truncate(displayValue(board.Name, "Board"), 28)),
+			m.theme.Muted.Render(displayValue(board.Type, "-")),
+			m.theme.Selected.Render(fmt.Sprintf("%d active", active)),
+			m.theme.Muted.Render(fmt.Sprintf("%d future", future)),
+			m.theme.Text.Render(truncate(strings.Join(current, ", "), max(12, width-74))),
+		})
+	}
+	return []string{m.detailTable(0, []string{"ID", "BOARD", "TYPE", "ACTIVE", "FUTURE", "SPRINTS"}, rows, nil)}
+}
+
+func sprintStateCounts(sprints []jira.Sprint) (int, int) {
+	active := 0
+	future := 0
+	for _, sprint := range sprints {
+		switch strings.ToLower(strings.TrimSpace(sprint.State)) {
+		case "active":
+			active++
+		case "future":
+			future++
+		}
+	}
+	return active, future
+}
+
+func sprintNamesByState(sprints []jira.Sprint, state string, limit int) []string {
+	var names []string
+	for _, sprint := range sprints {
+		if !strings.EqualFold(strings.TrimSpace(sprint.State), state) {
+			continue
+		}
+		name := strings.TrimSpace(sprint.Name)
+		if name == "" {
+			continue
+		}
+		names = append(names, name)
+		if limit > 0 && len(names) >= limit {
+			break
+		}
+	}
+	return names
 }
 
 func (m Model) issueListTitle(rowTotal int, rowCount int, start int, end int) string {

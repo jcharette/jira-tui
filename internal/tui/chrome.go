@@ -422,6 +422,8 @@ func (m Model) issueLayoutContextLabel() string {
 		return "Issue Workbench"
 	case issueLayoutTable:
 		return "Issue Table"
+	case issueLayoutPlanning:
+		return "Issue Planning"
 	default:
 		return "Issue Lanes"
 	}

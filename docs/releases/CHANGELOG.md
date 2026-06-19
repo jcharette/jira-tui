@@ -4,6 +4,15 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+## 0.2.2 - 2026-06-19
+
+- Completed the remaining Creation/Editing backlog batch: Jira issue links now retain link IDs,
+  selected Jira issue links can be removed after confirmation, worklogs can be selected/edited/deleted
+  from the Worklog section, generic edit supports metadata-backed user/version/sprint/autocomplete
+  fields, sprint/board metadata has a Planning layout, and Homebrew install assets are documented.
+- Added in-app bug reporting with `B`: users can describe what they found, opt into a bounded
+  sanitized Diagnostics excerpt, and open a prefilled GitHub issue without storing GitHub
+  credentials.
 - Clarified issue-list hierarchy glyphs: expanded parents now use a distinct expanded marker, while
   subtasks use their own type glyph instead of a tree-connector-shaped icon.
 - Added worklog support in ticket detail: recent worklogs load through the worker pool, the detail

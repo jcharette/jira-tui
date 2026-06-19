@@ -7,6 +7,7 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"github.com/jcharette/jira-tui/internal/jira"
+	"github.com/jcharette/jira-tui/internal/worker"
 )
 
 func (m Model) genericEditFieldActions() []detailAction {
@@ -49,20 +50,26 @@ func genericEditFieldSupported(field jira.EditField) bool {
 	if !field.Editable || !strings.HasPrefix(strings.TrimSpace(field.ID), "customfield_") {
 		return false
 	}
-	if strings.TrimSpace(field.AutoCompleteURL) != "" {
-		return false
-	}
 	schemaType := strings.ToLower(strings.TrimSpace(field.SchemaType))
 	schemaItems := strings.ToLower(strings.TrimSpace(field.SchemaItems))
+	schemaCustom := strings.ToLower(strings.TrimSpace(field.SchemaCustom))
+	hasOptions := len(field.AllowedValues) > 0 || strings.TrimSpace(field.AutoCompleteURL) != ""
 	switch schemaType {
 	case "string", "text", "textarea", "number", "date", "datetime":
 		return true
-	case "option":
-		return len(field.AllowedValues) > 0
+	case "option", "user", "version":
+		return hasOptions
 	case "array":
-		return schemaItems == "option" && len(field.AllowedValues) > 0
+		switch {
+		case strings.Contains(schemaCustom, "gh-sprint") || schemaItems == "sprint":
+			return hasOptions
+		case schemaItems == "option" || schemaItems == "user" || schemaItems == "version":
+			return hasOptions
+		default:
+			return false
+		}
 	default:
-		return false
+		return strings.Contains(schemaCustom, "gh-sprint") && hasOptions
 	}
 }
 
@@ -76,8 +83,15 @@ func genericEditFieldUsesText(field jira.EditField) bool {
 }
 
 func genericEditFieldUsesMultiSelect(field jira.EditField) bool {
-	return strings.EqualFold(strings.TrimSpace(field.SchemaType), "array") &&
-		strings.EqualFold(strings.TrimSpace(field.SchemaItems), "option")
+	return strings.EqualFold(strings.TrimSpace(field.SchemaType), "array")
+}
+
+func genericEditFieldUsesPicker(field jira.EditField) bool {
+	return !genericEditFieldUsesText(field)
+}
+
+func genericEditFieldUsesAutocomplete(field jira.EditField) bool {
+	return strings.TrimSpace(field.AutoCompleteURL) != ""
 }
 
 func genericEditFieldDescription(field jira.EditField, enabled bool) string {
@@ -149,6 +163,9 @@ func (m Model) beginGenericFieldEditing(metadata jira.EditMetadata) Model {
 	m.genericFieldDirty = false
 	m.selectedGenericFieldOption = 0
 	m.selectedGenericFieldOptions = map[string]bool{}
+	m.genericFieldOptionsLoading = false
+	m.genericFieldOptionsErr = nil
+	m.genericFieldOptionsQuery = ""
 	m.genericFieldEditor = newGenericFieldTextEditor("")
 	m.genericFieldEditorReady = true
 	m.detailNotice = ""
@@ -176,6 +193,9 @@ func (m *Model) closeGenericFieldEditor() {
 	m.genericFieldEditorReady = false
 	m.selectedGenericFieldOption = 0
 	m.selectedGenericFieldOptions = nil
+	m.genericFieldOptionsLoading = false
+	m.genericFieldOptionsErr = nil
+	m.genericFieldOptionsQuery = ""
 	m.genericFieldDirty = false
 	m.genericFieldSubmitting = false
 	m.genericFieldSubmitKey = ""
@@ -211,6 +231,16 @@ func (m Model) renderGenericFieldDialog(width int) string {
 	} else if genericEditFieldUsesText(field) {
 		lines = append(lines, "", m.configuredGenericFieldEditor(bodyWidth, genericFieldEditorRows(field)).View())
 	} else {
+		if genericEditFieldUsesAutocomplete(field) {
+			filter := displayValue(m.genericFieldDraft, "")
+			lines = append(lines, "", m.theme.Muted.Render("Filter: ")+m.theme.Text.Render(displayValue(filter, "type to search")))
+			if m.genericFieldOptionsLoading {
+				lines = append(lines, m.theme.Muted.Render("Searching Jira options."))
+			}
+			if m.genericFieldOptionsErr != nil {
+				lines = append(lines, m.theme.Error.Render("Options failed: "+m.genericFieldOptionsErr.Error()))
+			}
+		}
 		lines = append(lines, "")
 		lines = append(lines, m.renderGenericFieldOptions(bodyWidth)...)
 	}
@@ -219,7 +249,7 @@ func (m Model) renderGenericFieldDialog(width int) string {
 	}
 	footer := "enter save  esc cancel"
 	if !genericEditFieldUsesText(field) {
-		footer = "j/k select  space toggle  enter save  esc cancel"
+		footer = "type filter  j/k select  space toggle  enter save  esc cancel"
 	}
 	return m.renderDetailDialog(width, "Edit "+fieldName, selected.Key, strings.Join(lines, "\n"), footer)
 }
@@ -227,6 +257,9 @@ func (m Model) renderGenericFieldDialog(width int) string {
 func (m Model) renderGenericFieldOptions(width int) []string {
 	field := m.genericField
 	if len(field.AllowedValues) == 0 {
+		if genericEditFieldUsesAutocomplete(field) {
+			return []string{m.detailEmptyState("Type to search Jira values.", width)}
+		}
 		return []string{m.detailEmptyState("No Jira values are available.", width)}
 	}
 	cursor := clamp(m.selectedGenericFieldOption, 0, len(field.AllowedValues)-1)
@@ -263,6 +296,23 @@ func (m Model) updateGenericFieldEditor(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, nil
 	}
 	if !genericEditFieldUsesText(m.genericField) {
+		if genericEditFieldUsesAutocomplete(m.genericField) {
+			switch msg.String() {
+			case "backspace", "ctrl+h":
+				query := []rune(m.genericFieldDraft)
+				if len(query) > 0 {
+					m.genericFieldDraft = string(query[:len(query)-1])
+					m.genericFieldDirty = false
+					return m, m.requestGenericFieldOptions()
+				}
+				return m, nil
+			}
+			if len(msg.String()) == 1 {
+				m.genericFieldDraft += msg.String()
+				m.genericFieldDirty = false
+				return m, m.requestGenericFieldOptions()
+			}
+		}
 		return m, nil
 	}
 	m.ensureGenericFieldEditor()
@@ -315,7 +365,7 @@ func (m Model) submitGenericField() (Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	if !m.genericFieldDirty {
+	if genericEditFieldUsesText(m.genericField) && !m.genericFieldDirty {
 		m.detailNotice = "Edit field before saving."
 		return m, nil
 	}
@@ -341,6 +391,7 @@ func (m Model) genericFieldValue() (jira.EditFieldValue, bool) {
 		SchemaType:   field.SchemaType,
 		SchemaSystem: field.SchemaSystem,
 		SchemaItems:  field.SchemaItems,
+		SchemaCustom: field.SchemaCustom,
 	}
 	if genericEditFieldUsesText(field) {
 		value.Text = strings.TrimSpace(m.genericFieldEditorValue())
@@ -359,6 +410,55 @@ func (m Model) genericFieldValue() (jira.EditFieldValue, bool) {
 	}
 	value.Option = field.AllowedValues[clamp(m.selectedGenericFieldOption, 0, len(field.AllowedValues)-1)]
 	return value, value.Option.ID != "" || value.Option.Name != ""
+}
+
+func (m *Model) replaceGenericFieldOptions(options []jira.FieldOption) {
+	m.genericField.AllowedValues = append([]jira.FieldOption(nil), options...)
+	if len(options) > 0 {
+		m.selectedGenericFieldOption = 0
+	} else {
+		m.selectedGenericFieldOption = 0
+	}
+	m.selectedGenericFieldOptions = map[string]bool{}
+}
+
+func (m *Model) requestGenericFieldOptions() tea.Cmd {
+	field := m.genericField
+	fieldID := strings.TrimSpace(field.ID)
+	query := strings.TrimSpace(m.genericFieldDraft)
+	if fieldID == "" || strings.TrimSpace(field.AutoCompleteURL) == "" {
+		return nil
+	}
+	if m.genericFieldOptionsLoading && m.genericFieldOptionsQuery == query {
+		return nil
+	}
+	m.nextRequestID++
+	m.activeGenericFieldOptionsReqID = m.nextRequestID
+	m.genericFieldOptionsLoading = true
+	m.genericFieldOptionsErr = nil
+	m.genericFieldOptionsQuery = query
+	return m.submitGenericFieldOptions(m.activeGenericFieldOptionsReqID, field, query)
+}
+
+func (m Model) handleGenericFieldOptionsResult(result worker.Result) Model {
+	if result.ID != m.activeGenericFieldOptionsReqID {
+		return m
+	}
+	m.genericFieldOptionsLoading = false
+	if result.SearchFieldOptions == nil {
+		m.genericFieldOptionsErr = worker.ErrInvalidRequest
+		return m
+	}
+	if result.SearchFieldOptions.Query != m.genericFieldOptionsQuery {
+		return m
+	}
+	if result.Err != nil {
+		m.genericFieldOptionsErr = result.Err
+		return m
+	}
+	m.genericFieldOptionsErr = nil
+	m.replaceGenericFieldOptions(result.SearchFieldOptions.Options)
+	return m
 }
 
 func fieldOptionSelectionKey(option jira.FieldOption) string {

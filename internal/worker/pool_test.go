@@ -1318,6 +1318,39 @@ func TestPoolCreateIssueLinkSuccess(t *testing.T) {
 	}
 }
 
+func TestPoolDeleteIssueLinkSuccess(t *testing.T) {
+	searcher := &fakeIssueSearcher{}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:   35,
+		Kind: KindDeleteIssueLink,
+		DeleteIssueLink: &DeleteIssueLinkRequest{
+			IssueKey: "ABC-1",
+			LinkID:   "20001",
+			Target:   "ABC-2",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.ID != 35 || result.Kind != KindDeleteIssueLink {
+		t.Fatalf("result = %#v", result)
+	}
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if searcher.deleteIssueLinkID != "20001" {
+		t.Fatalf("deleteIssueLinkID = %q", searcher.deleteIssueLinkID)
+	}
+	if result.DeleteIssueLink.IssueKey != "ABC-1" || result.DeleteIssueLink.Target != "ABC-2" {
+		t.Fatalf("DeleteIssueLink = %#v", result.DeleteIssueLink)
+	}
+}
+
 func TestPoolGetWorklogsSuccess(t *testing.T) {
 	searcher := &fakeIssueSearcher{
 		worklogs: []jira.Worklog{{ID: "10001", Author: "Jane Doe", TimeSpent: "1h"}},
@@ -1349,6 +1382,58 @@ func TestPoolGetWorklogsSuccess(t *testing.T) {
 	}
 	if len(result.GetWorklogs.Worklogs) != 1 || result.GetWorklogs.Worklogs[0].ID != "10001" {
 		t.Fatalf("GetWorklogs = %#v", result.GetWorklogs)
+	}
+}
+
+func TestPoolUpdateAndDeleteWorklogSuccess(t *testing.T) {
+	searcher := &fakeIssueSearcher{}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(2))
+	defer pool.Stop()
+
+	started := time.Date(2026, 6, 19, 10, 0, 0, 0, time.UTC)
+	updateRequest := jira.UpdateWorklogRequest{ID: "10001", TimeSpent: "2h", Started: started, Comment: "Reviewed implementation"}
+	if err := pool.Submit(Request{
+		ID:   36,
+		Kind: KindUpdateWorklog,
+		UpdateWorklog: &UpdateWorklogRequest{
+			Key:     "ABC-1",
+			Request: updateRequest,
+		},
+	}); err != nil {
+		t.Fatalf("Submit update error = %v", err)
+	}
+
+	updateResult := readResult(t, pool)
+	if updateResult.Err != nil {
+		t.Fatalf("update Err = %v", updateResult.Err)
+	}
+	if searcher.updateWorklogKey != "ABC-1" || searcher.updateWorklogRequest.TimeSpent != "2h" {
+		t.Fatalf("update worklog = %s/%#v", searcher.updateWorklogKey, searcher.updateWorklogRequest)
+	}
+	if updateResult.UpdateWorklog.Worklog.ID != "10001" || updateResult.UpdateWorklog.Worklog.TimeSpent != "2h" {
+		t.Fatalf("UpdateWorklog = %#v", updateResult.UpdateWorklog)
+	}
+
+	if err := pool.Submit(Request{
+		ID:   37,
+		Kind: KindDeleteWorklog,
+		DeleteWorklog: &DeleteWorklogRequest{
+			Key:       "ABC-1",
+			WorklogID: "10001",
+		},
+	}); err != nil {
+		t.Fatalf("Submit delete error = %v", err)
+	}
+
+	deleteResult := readResult(t, pool)
+	if deleteResult.Err != nil {
+		t.Fatalf("delete Err = %v", deleteResult.Err)
+	}
+	if searcher.deleteWorklogKey != "ABC-1" || searcher.deleteWorklogID != "10001" {
+		t.Fatalf("delete worklog = %s/%s", searcher.deleteWorklogKey, searcher.deleteWorklogID)
+	}
+	if deleteResult.DeleteWorklog.Key != "ABC-1" || deleteResult.DeleteWorklog.WorklogID != "10001" {
+		t.Fatalf("DeleteWorklog = %#v", deleteResult.DeleteWorklog)
 	}
 }
 
@@ -1825,6 +1910,7 @@ type fakeIssueSearcher struct {
 	fieldOptionMaxResults  int
 	issueLinkTypes         []jira.IssueLinkType
 	issueLinkRequest       jira.CreateIssueLinkRequest
+	deleteIssueLinkID      string
 	issueLinkErr           error
 	worklogs               []jira.Worklog
 	worklogKey             string
@@ -1834,6 +1920,13 @@ type fakeIssueSearcher struct {
 	addWorklogRequest      jira.AddWorklogRequest
 	addedWorklog           jira.Worklog
 	addWorklogErr          error
+	updateWorklogKey       string
+	updateWorklogRequest   jira.UpdateWorklogRequest
+	updatedWorklog         jira.Worklog
+	updateWorklogErr       error
+	deleteWorklogKey       string
+	deleteWorklogID        string
+	deleteWorklogErr       error
 	createIssueRequest     jira.CreateIssueRequest
 	createdIssue           jira.Issue
 	boardPage              jira.BoardPage
@@ -2029,6 +2122,17 @@ func (f *fakeIssueSearcher) CreateIssueLink(_ context.Context, request jira.Crea
 	return nil
 }
 
+func (f *fakeIssueSearcher) DeleteIssueLink(_ context.Context, linkID string) error {
+	if f.issueLinkErr != nil {
+		return f.issueLinkErr
+	}
+	if f.err != nil {
+		return f.err
+	}
+	f.deleteIssueLinkID = linkID
+	return nil
+}
+
 func (f *fakeIssueSearcher) GetWorklogs(_ context.Context, key string, maxResults int) ([]jira.Worklog, error) {
 	if f.worklogErr != nil {
 		return nil, f.worklogErr
@@ -2054,6 +2158,33 @@ func (f *fakeIssueSearcher) AddWorklog(_ context.Context, key string, request ji
 		return f.addedWorklog, nil
 	}
 	return jira.Worklog{ID: "10001", Author: "Current User", TimeSpent: request.TimeSpent, Comment: request.Comment, Started: request.Started}, nil
+}
+
+func (f *fakeIssueSearcher) UpdateWorklog(_ context.Context, key string, request jira.UpdateWorklogRequest) (jira.Worklog, error) {
+	if f.updateWorklogErr != nil {
+		return jira.Worklog{}, f.updateWorklogErr
+	}
+	if f.err != nil {
+		return jira.Worklog{}, f.err
+	}
+	f.updateWorklogKey = key
+	f.updateWorklogRequest = request
+	if f.updatedWorklog.ID != "" {
+		return f.updatedWorklog, nil
+	}
+	return jira.Worklog{ID: request.ID, Author: "Current User", TimeSpent: request.TimeSpent, Comment: request.Comment, Started: request.Started}, nil
+}
+
+func (f *fakeIssueSearcher) DeleteWorklog(_ context.Context, key string, worklogID string) error {
+	if f.deleteWorklogErr != nil {
+		return f.deleteWorklogErr
+	}
+	if f.err != nil {
+		return f.err
+	}
+	f.deleteWorklogKey = key
+	f.deleteWorklogID = worklogID
+	return nil
 }
 
 func (f *fakeIssueSearcher) CreateIssue(_ context.Context, request jira.CreateIssueRequest) (jira.Issue, error) {
@@ -2372,6 +2503,19 @@ func (b *blockingIssueSearcher) CreateIssueLink(ctx context.Context, _ jira.Crea
 	}
 }
 
+func (b *blockingIssueSearcher) DeleteIssueLink(ctx context.Context, _ string) error {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (b *blockingIssueSearcher) GetWorklogs(ctx context.Context, _ string, _ int) ([]jira.Worklog, error) {
 	if b.started != nil {
 		close(b.started)
@@ -2395,6 +2539,32 @@ func (b *blockingIssueSearcher) AddWorklog(ctx context.Context, _ string, _ jira
 		return jira.Worklog{}, nil
 	case <-ctx.Done():
 		return jira.Worklog{}, ctx.Err()
+	}
+}
+
+func (b *blockingIssueSearcher) UpdateWorklog(ctx context.Context, _ string, _ jira.UpdateWorklogRequest) (jira.Worklog, error) {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return jira.Worklog{}, nil
+	case <-ctx.Done():
+		return jira.Worklog{}, ctx.Err()
+	}
+}
+
+func (b *blockingIssueSearcher) DeleteWorklog(ctx context.Context, _ string, _ string) error {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 

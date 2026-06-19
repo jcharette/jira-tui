@@ -63,6 +63,76 @@ func (m *Model) closeIssueLinkEditor() {
 	m.issueLinkSubmitRequest = jira.CreateIssueLinkRequest{}
 }
 
+func (m Model) startIssueLinkDelete() (Model, tea.Cmd) {
+	selected, ok := m.selectedIssue()
+	if !ok || strings.TrimSpace(selected.Key) == "" {
+		return m, nil
+	}
+	link, ok := m.selectedDetailLink()
+	if !ok {
+		m.detailNotice = "Select an issue link before removing it."
+		return m, nil
+	}
+	if strings.TrimSpace(link.LinkID) == "" {
+		m.detailNotice = "Only Jira issue links can be removed here."
+		return m, nil
+	}
+	m.issueLinkDeleteConfirm = true
+	m.issueLinkDeleteSubmitting = false
+	m.issueLinkDeleteID = strings.TrimSpace(link.LinkID)
+	m.issueLinkDeleteTarget = displayValue(link.CopyText, linkDisplayText(link))
+	m.detailNotice = ""
+	return m, nil
+}
+
+func (m Model) submitIssueLinkDelete() (Model, tea.Cmd) {
+	selected, ok := m.selectedIssue()
+	if !ok || strings.TrimSpace(selected.Key) == "" {
+		return m, nil
+	}
+	if m.issueLinkDeleteSubmitting {
+		return m, nil
+	}
+	linkID := strings.TrimSpace(m.issueLinkDeleteID)
+	if linkID == "" {
+		m.issueLinkDeleteConfirm = false
+		m.detailNotice = "Issue link removal failed: missing link ID."
+		return m, nil
+	}
+	m.nextRequestID++
+	m.activeDeleteIssueLinkReqID = m.nextRequestID
+	m.issueLinkDeleteSubmitting = true
+	m.detailNotice = "Removing issue link."
+	return m, m.submitDeleteIssueLink(m.activeDeleteIssueLinkReqID, selected.Key, linkID, m.issueLinkDeleteTarget)
+}
+
+func (m *Model) cancelIssueLinkDelete() {
+	m.issueLinkDeleteConfirm = false
+	m.issueLinkDeleteSubmitting = false
+	m.issueLinkDeleteID = ""
+	m.issueLinkDeleteTarget = ""
+	m.detailNotice = ""
+}
+
+func (m Model) renderIssueLinkDeleteDialog(width int) string {
+	selected, _ := m.selectedIssue()
+	bodyWidth := max(36, width-6)
+	target := displayValue(m.issueLinkDeleteTarget, "selected link")
+	lines := []string{
+		m.theme.Muted.Render("Issue") + " " + m.theme.Key.Render(displayValue(selected.Key, "selected")),
+		m.theme.Muted.Render("Link") + " " + m.theme.Text.Render(target),
+		"",
+		m.theme.Error.Render("Remove this Jira issue link?"),
+	}
+	if m.issueLinkDeleteSubmitting {
+		lines = append(lines, "", m.theme.Muted.Render("Removing link."))
+	}
+	if m.detailNotice != "" {
+		lines = append(lines, "", m.renderDetailNotice(m.detailNotice, bodyWidth))
+	}
+	return m.renderDetailDialog(width, "Remove Link", selected.Key, strings.Join(lines, "\n"), "enter remove  esc cancel")
+}
+
 func (m Model) renderIssueLinkDialog(width int) string {
 	selected, _ := m.selectedIssue()
 	bodyWidth := max(36, width-6)

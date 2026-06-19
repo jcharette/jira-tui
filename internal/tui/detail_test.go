@@ -1188,6 +1188,49 @@ func TestDetailIssueLinksOpenURLAndCopyKey(t *testing.T) {
 	}
 }
 
+func TestDetailIssueLinkDeleteRequiresConfirmation(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 60
+	model.issues = []jira.Issue{{Key: "ABC-1"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {
+			Issue: jira.Issue{Key: "ABC-1"},
+			IssueLinks: []jira.IssueLink{{
+				LinkID:       "20001",
+				Relationship: "blocks",
+				Key:          "ABC-2",
+				URL:          "https://example.atlassian.net/browse/ABC-2",
+			}},
+		},
+	}
+	model.focusDetailLinks()
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "d", Code: 'd'}))
+	next := updated.(Model)
+	if cmd != nil {
+		t.Fatal("delete confirmation should open locally")
+	}
+	if !next.issueLinkDeleteConfirm || next.issueLinkDeleteID != "20001" {
+		t.Fatalf("delete confirm = %v id=%q", next.issueLinkDeleteConfirm, next.issueLinkDeleteID)
+	}
+	if !strings.Contains(next.render(), "Remove Link") {
+		t.Fatalf("missing remove dialog:\n%s", next.render())
+	}
+
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next = updated.(Model)
+	if cmd == nil {
+		t.Fatal("confirming delete should enqueue worker request")
+	}
+	if !next.issueLinkDeleteSubmitting || next.activeDeleteIssueLinkReqID == 0 {
+		t.Fatalf("delete submit state submitting=%v req=%d", next.issueLinkDeleteSubmitting, next.activeDeleteIssueLinkReqID)
+	}
+}
+
 func TestFullDetailContentRendersCommentsSection(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()
@@ -1868,7 +1911,7 @@ func TestActionPaletteFindsUnsupportedEditFieldWithoutSubmitting(t *testing.T) {
 				Name:            "Story Points",
 				Editable:        true,
 				SchemaType:      "array",
-				SchemaItems:     "option",
+				SchemaItems:     "group",
 				AutoCompleteURL: "https://example.atlassian.net/rest/api/3/customFieldOption/suggest",
 			}},
 		},
@@ -1962,6 +2005,70 @@ func TestDetailActionsMenuStartsGenericEditFieldEditor(t *testing.T) {
 	}
 	if next.genericFieldSubmitKey != "ABC-1" || next.genericFieldSubmitValue.FieldID != "customfield_10016" || next.genericFieldSubmitValue.Text != "8" {
 		t.Fatalf("generic submit = %s/%#v", next.genericFieldSubmitKey, next.genericFieldSubmitValue)
+	}
+}
+
+func TestGenericEditAutocompleteUserFieldSearchesAndSubmitsSelection(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do"}}
+	model.details = map[string]jira.IssueDetail{"ABC-1": {Issue: model.issues[0]}}
+	model.editMetadata = map[string]jira.EditMetadata{
+		"ABC-1": {
+			Fields: []jira.EditField{{
+				ID:              "customfield_10030",
+				Name:            "Reviewer",
+				Editable:        true,
+				SchemaType:      "user",
+				AutoCompleteURL: "https://example.atlassian.net/rest/api/3/user/picker",
+			}},
+		},
+	}
+	model.actionFocus = true
+	model.selectedAction = detailActionIndexForTest(t, model.detailActions(), "field:customfield_10030")
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+	if cmd != nil {
+		t.Fatal("cached generic metadata should open locally")
+	}
+	if !next.genericFieldFocus || !genericEditFieldUsesAutocomplete(next.genericField) {
+		t.Fatalf("generic field focus=%v field=%#v", next.genericFieldFocus, next.genericField)
+	}
+
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "a", Code: 'a'}))
+	next = updated.(Model)
+	if cmd == nil {
+		t.Fatal("typing in autocomplete field should request options")
+	}
+	if !next.genericFieldOptionsLoading || next.genericFieldOptionsQuery != "a" {
+		t.Fatalf("options state loading=%v query=%q", next.genericFieldOptionsLoading, next.genericFieldOptionsQuery)
+	}
+
+	updated, _ = next.Update(workerResultMsg{result: worker.Result{
+		ID:   next.activeGenericFieldOptionsReqID,
+		Kind: worker.KindSearchFieldOptions,
+		SearchFieldOptions: &worker.SearchFieldOptionsResult{
+			FieldID: "customfield_10030",
+			Query:   "a",
+			Options: []jira.FieldOption{{ID: "account-1", Name: "A Developer"}},
+		},
+	}})
+	next = updated.(Model)
+	if next.genericFieldOptionsLoading || len(next.genericField.AllowedValues) != 1 {
+		t.Fatalf("options result loading=%v values=%#v", next.genericFieldOptionsLoading, next.genericField.AllowedValues)
+	}
+
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next = updated.(Model)
+	if cmd == nil {
+		t.Fatal("saving selected autocomplete value should enqueue update")
+	}
+	if !next.genericFieldSubmitting || next.genericFieldSubmitValue.Option.ID != "account-1" || next.genericFieldSubmitValue.SchemaType != "user" {
+		t.Fatalf("generic submit = submitting=%v value=%#v", next.genericFieldSubmitting, next.genericFieldSubmitValue)
 	}
 }
 
@@ -2247,6 +2354,76 @@ func TestDetailActionsMenuStartsWorklogEditor(t *testing.T) {
 	}
 	if !next.worklogSubmitRequest.Started.Equal(now) {
 		t.Fatalf("Started = %v", next.worklogSubmitRequest.Started)
+	}
+}
+
+func TestWorklogSectionSelectsEditsAndDeletesRows(t *testing.T) {
+	started := time.Date(2026, 6, 19, 8, 0, 0, 0, time.UTC)
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do"}}
+	model.details = map[string]jira.IssueDetail{"ABC-1": {Issue: model.issues[0]}}
+	model.worklogs = map[string][]jira.Worklog{
+		"ABC-1": {
+			{ID: "10001", TimeSpent: "30m", Comment: "Read context", Started: started},
+			{ID: "10002", TimeSpent: "1h", Comment: "Implemented change", Started: started.Add(time.Hour)},
+		},
+	}
+	focusDetailSectionForTest(t, &model, "Worklog")
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+	if cmd != nil {
+		t.Fatal("worklog row focus should be local")
+	}
+	if !next.worklogListFocus {
+		t.Fatal("worklogListFocus should be true")
+	}
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
+	next = updated.(Model)
+	if next.selectedWorklog != 1 {
+		t.Fatalf("selectedWorklog = %d", next.selectedWorklog)
+	}
+
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "e", Code: 'e'}))
+	next = updated.(Model)
+	if cmd != nil {
+		t.Fatal("worklog edit dialog should open locally")
+	}
+	if !next.worklogFocus || !next.worklogEditing || next.worklogUpdateRequest.ID != "10002" {
+		t.Fatalf("edit state focus=%v editing=%v request=%#v", next.worklogFocus, next.worklogEditing, next.worklogUpdateRequest)
+	}
+	next.worklogTimeDraft = "2h"
+	next.worklogCommentDraft = "Updated implementation"
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next = updated.(Model)
+	if cmd == nil {
+		t.Fatal("worklog update should enqueue worker request")
+	}
+	if !next.worklogSubmitting || next.activeUpdateWorklogReqID == 0 || next.worklogUpdateRequest.TimeSpent != "2h" {
+		t.Fatalf("update state submitting=%v req=%d request=%#v", next.worklogSubmitting, next.activeUpdateWorklogReqID, next.worklogUpdateRequest)
+	}
+
+	model.worklogListFocus = true
+	model.selectedWorklog = 1
+	updated, cmd = model.Update(tea.KeyPressMsg(tea.Key{Text: "d", Code: 'd'}))
+	next = updated.(Model)
+	if cmd != nil {
+		t.Fatal("worklog delete confirmation should open locally")
+	}
+	if !next.worklogDeleteConfirm || next.worklogDeleteID != "10002" {
+		t.Fatalf("delete state confirm=%v id=%q", next.worklogDeleteConfirm, next.worklogDeleteID)
+	}
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next = updated.(Model)
+	if cmd == nil {
+		t.Fatal("worklog delete should enqueue worker request")
+	}
+	if !next.worklogDeleteSubmitting || next.activeDeleteWorklogReqID == 0 {
+		t.Fatalf("delete submit state submitting=%v req=%d", next.worklogDeleteSubmitting, next.activeDeleteWorklogReqID)
 	}
 }
 

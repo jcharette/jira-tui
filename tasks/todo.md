@@ -1,5 +1,72 @@
 # Task Plan
 
+## In-App Bug Reporting
+
+- [x] Add a compact bug report composer that asks what the user found.
+- [x] Let users opt into a bounded sanitized Diagnostics excerpt.
+- [x] Open a prefilled GitHub issue URL without storing GitHub credentials.
+- [x] Update release notes and user-facing keyboard help.
+- [x] Compile, run focused TUI checks, run full verification, and install before release.
+
+### In-App Bug Reporting Scope
+
+Add a release-blocking bug report flow inside the TUI. The app should ask for a short title and
+description, default to including a sanitized Diagnostics excerpt when diagnostics exist, and open a
+prefilled GitHub issue in the user's browser. This should not upload raw local files, require GitHub
+authentication inside the app, log request/response bodies, or change Jira query behavior.
+
+### In-App Bug Reporting Design
+
+- Use a global `B` shortcut from normal app screens to open a modal composer.
+- Keep the composer local-only until submit: title, multi-line "what happened" field, and an
+  opt-in sanitized Diagnostics toggle.
+- Build the GitHub issue body from user text, current app context, selected issue key when present,
+  persistent log path when available, and the most recent sanitized in-memory diagnostics.
+- Submit with `ctrl+s`; the app opens GitHub's issue composer in the browser and never stores GitHub
+  credentials.
+
+### In-App Bug Reporting Review
+
+- Added a global `B` bug report composer with title, multi-line "what happened" text, and a focused
+  sanitized Diagnostics toggle.
+- Submit opens GitHub's issue composer with title, `bug` label, current app context, selected issue
+  key, local diagnostics path, and a bounded sanitized Diagnostics excerpt when the user opts in.
+- The app does not store GitHub credentials and does not upload raw local log files.
+- Added focused TUI coverage for the opened URL, empty-submit guard, and diagnostics toggle.
+- Updated README controls, project state, and the `0.2.2` changelog.
+- Verification passed: focused bug-report/Diagnostics tests, `go test ./... -count=1`,
+  `make check`, `make install-user`, `ruby -c Formula/jira-tui.rb`, and `git diff --check`.
+
+## Creation And Editing Backlog Completion
+
+- [x] Retain Jira issue-link IDs in parsed ticket detail links.
+- [x] Add issue-link removal UX with confirmation and worker-backed Jira delete.
+- [x] Add worklog edit/delete UX with selection, confirmation, and worker-backed Jira update/delete.
+- [x] Extend generic edit fields to metadata-backed users, versions, sprints, and autocomplete options where Jira metadata supplies safe IDs.
+- [x] Surface sprint/board metadata as an actual planning view instead of header-only context.
+- [x] Add repo-managed Homebrew formula/tap documentation.
+- [x] Update backlog, changelog, and lessons as needed.
+- [x] Compile, run focused checks, run full verification, and install for runtime validation.
+
+### Creation And Editing Completion Scope
+
+Finish the remaining Creation And Editing backlog without changing Jira query semantics. All Jira
+reads and writes stay on the worker pool. Destructive actions must require explicit confirmation.
+Generic edit support only enables complex schemas when metadata or autocomplete results provide
+stable Jira IDs; unsafe unknown schemas remain visible but disabled.
+
+### Creation And Editing Completion Review
+
+- Jira issue links now retain Jira link IDs in issue detail, and focused issue-link rows can be
+  removed after an explicit confirmation dialog through a worker-backed delete request.
+- The Worklog section is selectable; users can edit or delete a selected worklog with confirmation,
+  and successful writes reload the issue worklog list.
+- Generic edit now supports metadata-backed user, version, sprint, autocomplete option, and
+  multi-value schemas when Jira supplies stable IDs; unknown/unsafe schemas remain disabled.
+- A new Planning issue-list layout renders loaded Jira boards, active/future sprint counts, and
+  sprint names above the current issue list without changing saved views or JQL.
+- Added a Homebrew formula at `Formula/jira-tui.rb` with release checksums plus install docs.
+
 ## Worklog Support
 
 - [x] Add Jira client and worker support for loading and adding issue worklogs.

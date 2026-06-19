@@ -91,6 +91,7 @@ type Issue struct {
 }
 
 type IssueLink struct {
+	LinkID       string
 	Direction    string
 	Relationship string
 	Key          string
@@ -151,6 +152,13 @@ type AddWorklogRequest struct {
 	Comment   string
 }
 
+type UpdateWorklogRequest struct {
+	ID        string
+	TimeSpent string
+	Started   time.Time
+	Comment   string
+}
+
 type User struct {
 	AccountID   string
 	DisplayName string
@@ -192,6 +200,7 @@ type EditFieldValue struct {
 	SchemaType   string
 	SchemaSystem string
 	SchemaItems  string
+	SchemaCustom string
 	Text         string
 	Option       FieldOption
 	Options      []FieldOption
@@ -726,6 +735,29 @@ func (c *Client) CreateIssueLink(ctx context.Context, request CreateIssueLinkReq
 	return nil
 }
 
+func (c *Client) DeleteIssueLink(ctx context.Context, linkID string) error {
+	linkID = strings.TrimSpace(linkID)
+	if linkID == "" {
+		return fmt.Errorf("delete jira issue link: empty link ID")
+	}
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+	if c.rest == nil {
+		return fmt.Errorf("delete jira issue link %s: REST service unavailable", linkID)
+	}
+	restRequest, err := c.rest.NewRequest(ctx, http.MethodDelete, "rest/api/3/issueLink/"+url.PathEscape(linkID), "", nil)
+	if err != nil {
+		return fmt.Errorf("delete jira issue link %s: %w", linkID, err)
+	}
+	if _, err := c.rest.Call(restRequest, nil); err != nil {
+		return fmt.Errorf("delete jira issue link %s: %w", linkID, err)
+	}
+	return nil
+}
+
 func (c *Client) GetWorklogs(ctx context.Context, key string, maxResults int) ([]Worklog, error) {
 	key = strings.TrimSpace(key)
 	if key == "" {
@@ -791,6 +823,78 @@ func (c *Client) AddWorklog(ctx context.Context, key string, request AddWorklogR
 		return Worklog{}, fmt.Errorf("add jira worklog %s: %w", key, err)
 	}
 	return parseWorklog(&raw), nil
+}
+
+func (c *Client) UpdateWorklog(ctx context.Context, key string, request UpdateWorklogRequest) (Worklog, error) {
+	key = strings.TrimSpace(key)
+	request.ID = strings.TrimSpace(request.ID)
+	if key == "" {
+		return Worklog{}, fmt.Errorf("update jira worklog: empty issue key")
+	}
+	if request.ID == "" {
+		return Worklog{}, fmt.Errorf("update jira worklog %s: empty worklog ID", key)
+	}
+	timeSpent := strings.TrimSpace(request.TimeSpent)
+	if timeSpent == "" {
+		return Worklog{}, fmt.Errorf("update jira worklog %s: empty time spent", key)
+	}
+	started := request.Started
+	if started.IsZero() {
+		started = time.Now()
+	}
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+	if c.rest == nil {
+		return Worklog{}, fmt.Errorf("update jira worklog %s: REST service unavailable", key)
+	}
+	payload := &model.WorklogADFPayloadScheme{
+		TimeSpent: timeSpent,
+		Started:   formatJiraWorklogTime(started),
+	}
+	if strings.TrimSpace(request.Comment) != "" {
+		payload.Comment = plainTextADF(request.Comment, nil)
+	}
+	endpoint := fmt.Sprintf("rest/api/3/issue/%s/worklog/%s", url.PathEscape(key), url.PathEscape(request.ID))
+	restRequest, err := c.rest.NewRequest(ctx, http.MethodPut, endpoint, "", payload)
+	if err != nil {
+		return Worklog{}, fmt.Errorf("update jira worklog %s: %w", key, err)
+	}
+	var raw model.IssueWorklogADFScheme
+	if _, err := c.rest.Call(restRequest, &raw); err != nil {
+		return Worklog{}, fmt.Errorf("update jira worklog %s: %w", key, err)
+	}
+	return parseWorklog(&raw), nil
+}
+
+func (c *Client) DeleteWorklog(ctx context.Context, key string, worklogID string) error {
+	key = strings.TrimSpace(key)
+	worklogID = strings.TrimSpace(worklogID)
+	if key == "" {
+		return fmt.Errorf("delete jira worklog: empty issue key")
+	}
+	if worklogID == "" {
+		return fmt.Errorf("delete jira worklog %s: empty worklog ID", key)
+	}
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+	if c.rest == nil {
+		return fmt.Errorf("delete jira worklog %s: REST service unavailable", key)
+	}
+	endpoint := fmt.Sprintf("rest/api/3/issue/%s/worklog/%s", url.PathEscape(key), url.PathEscape(worklogID))
+	restRequest, err := c.rest.NewRequest(ctx, http.MethodDelete, endpoint, "", nil)
+	if err != nil {
+		return fmt.Errorf("delete jira worklog %s: %w", key, err)
+	}
+	if _, err := c.rest.Call(restRequest, nil); err != nil {
+		return fmt.Errorf("delete jira worklog %s: %w", key, err)
+	}
+	return nil
 }
 
 func formatJiraWorklogTime(value time.Time) string {
@@ -1130,6 +1234,7 @@ func editCustomFieldPayload(value EditFieldValue) (interface{}, bool) {
 	text := strings.TrimSpace(value.Text)
 	schemaType := strings.ToLower(strings.TrimSpace(value.SchemaType))
 	schemaItems := strings.ToLower(strings.TrimSpace(value.SchemaItems))
+	schemaCustom := strings.ToLower(strings.TrimSpace(value.SchemaCustom))
 	switch schemaType {
 	case "number":
 		if text == "" {
@@ -1151,28 +1256,121 @@ func editCustomFieldPayload(value EditFieldValue) (interface{}, bool) {
 			return nil, false
 		}
 		return option, true
+	case "user":
+		return userFieldPayload(value.Option)
+	case "version":
+		return versionFieldPayload(value.Option)
 	case "array":
-		if schemaItems != "option" {
-			return nil, false
-		}
 		options := normalizeFieldOptions(value.Options)
 		if len(options) == 0 && (value.Option.ID != "" || value.Option.Name != "") {
 			options = []FieldOption{value.Option}
 		}
-		items := make([]map[string]interface{}, 0, len(options))
-		for _, option := range options {
-			item := createFieldOptionPayload(option)
-			if len(item) > 0 {
-				items = append(items, item)
-			}
-		}
-		if len(items) == 0 {
+		switch {
+		case strings.Contains(schemaCustom, "gh-sprint") || schemaItems == "sprint":
+			return sprintFieldPayloads(options)
+		case schemaItems == "option":
+			return optionFieldPayloads(options)
+		case schemaItems == "user":
+			return userFieldPayloads(options)
+		case schemaItems == "version":
+			return versionFieldPayloads(options)
+		default:
 			return nil, false
 		}
-		return items, true
 	default:
+		if strings.Contains(schemaCustom, "gh-sprint") {
+			return sprintFieldPayload(value.Option)
+		}
 		return nil, false
 	}
+}
+
+func optionFieldPayloads(options []FieldOption) ([]map[string]interface{}, bool) {
+	items := make([]map[string]interface{}, 0, len(options))
+	for _, option := range options {
+		item := createFieldOptionPayload(option)
+		if len(item) > 0 {
+			items = append(items, item)
+		}
+	}
+	return items, len(items) > 0
+}
+
+func userFieldPayload(option FieldOption) (interface{}, bool) {
+	accountID := strings.TrimSpace(option.ID)
+	if accountID == "" {
+		return nil, false
+	}
+	return map[string]interface{}{"accountId": accountID}, true
+}
+
+func userFieldPayloads(options []FieldOption) ([]map[string]interface{}, bool) {
+	items := make([]map[string]interface{}, 0, len(options))
+	for _, option := range options {
+		accountID := strings.TrimSpace(option.ID)
+		if accountID != "" {
+			items = append(items, map[string]interface{}{"accountId": accountID})
+		}
+	}
+	return items, len(items) > 0
+}
+
+func versionFieldPayload(option FieldOption) (interface{}, bool) {
+	id := strings.TrimSpace(option.ID)
+	if id == "" {
+		return nil, false
+	}
+	return map[string]interface{}{"id": id}, true
+}
+
+func versionFieldPayloads(options []FieldOption) ([]map[string]interface{}, bool) {
+	items := make([]map[string]interface{}, 0, len(options))
+	for _, option := range options {
+		id := strings.TrimSpace(option.ID)
+		if id != "" {
+			items = append(items, map[string]interface{}{"id": id})
+		}
+	}
+	return items, len(items) > 0
+}
+
+func sprintFieldPayload(option FieldOption) (interface{}, bool) {
+	id := strings.TrimSpace(option.ID)
+	if id == "" {
+		return nil, false
+	}
+	number, err := strconv.Atoi(id)
+	if err == nil {
+		return number, true
+	}
+	return map[string]interface{}{"id": id}, true
+}
+
+func sprintFieldPayloads(options []FieldOption) (interface{}, bool) {
+	numbers := make([]int, 0, len(options))
+	fallback := make([]map[string]interface{}, 0, len(options))
+	allNumeric := true
+	for _, option := range options {
+		id := strings.TrimSpace(option.ID)
+		if id == "" {
+			continue
+		}
+		number, err := strconv.Atoi(id)
+		if err != nil {
+			allNumeric = false
+			fallback = append(fallback, map[string]interface{}{"id": id})
+			continue
+		}
+		numbers = append(numbers, number)
+		fallback = append(fallback, map[string]interface{}{"id": id})
+	}
+	if len(fallback) == 0 {
+		return nil, false
+	}
+	if allNumeric {
+		return numbers, true
+	}
+	return fallback, true
 }
 
 func (c *Client) UpdateAssignee(ctx context.Context, key string, assignee User) error {
@@ -1492,21 +1690,22 @@ func (c *Client) parseIssueLinks(rawLinks []*model.IssueLinkScheme) []IssueLink 
 		if raw == nil {
 			continue
 		}
-		if link, ok := c.parseIssueLink("outward", relationshipText(raw.Type, "outward"), raw.OutwardIssue); ok {
+		if link, ok := c.parseIssueLink(raw.ID, "outward", relationshipText(raw.Type, "outward"), raw.OutwardIssue); ok {
 			links = append(links, link)
 		}
-		if link, ok := c.parseIssueLink("inward", relationshipText(raw.Type, "inward"), raw.InwardIssue); ok {
+		if link, ok := c.parseIssueLink(raw.ID, "inward", relationshipText(raw.Type, "inward"), raw.InwardIssue); ok {
 			links = append(links, link)
 		}
 	}
 	return links
 }
 
-func (c *Client) parseIssueLink(direction string, relationship string, raw *model.LinkedIssueScheme) (IssueLink, bool) {
+func (c *Client) parseIssueLink(linkID string, direction string, relationship string, raw *model.LinkedIssueScheme) (IssueLink, bool) {
 	if raw == nil || strings.TrimSpace(raw.Key) == "" {
 		return IssueLink{}, false
 	}
 	link := IssueLink{
+		LinkID:       strings.TrimSpace(linkID),
 		Direction:    direction,
 		Relationship: relationship,
 		Key:          raw.Key,

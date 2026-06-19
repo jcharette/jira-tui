@@ -18,6 +18,7 @@ type detailLink struct {
 	Label    string
 	Target   string
 	CopyText string
+	LinkID   string
 	Start    int
 	End      int
 }
@@ -140,8 +141,14 @@ func (m Model) renderDetailOverlay(layout browserLayout) string {
 	if m.assigneeFocus || m.assigneeSubmitting {
 		return m.renderAssigneeDialog(width)
 	}
+	if m.issueLinkDeleteConfirm || m.issueLinkDeleteSubmitting {
+		return m.renderIssueLinkDeleteDialog(width)
+	}
 	if m.issueLinkFocus || m.issueLinkSubmitting {
 		return m.renderIssueLinkDialog(width)
+	}
+	if m.worklogDeleteConfirm || m.worklogDeleteSubmitting {
+		return m.renderWorklogDeleteDialog(width)
 	}
 	if m.worklogFocus || m.worklogSubmitting {
 		return m.renderWorklogDialog(width)
@@ -1060,6 +1067,7 @@ func (m *Model) moveDetailFocus(delta int) {
 	m.priorityFocus = false
 	m.assigneeFocus = false
 	m.summaryFocus = false
+	m.worklogListFocus = false
 	m.restoreDetailSectionOffset()
 }
 
@@ -1085,6 +1093,7 @@ func (m *Model) moveDetailSectionFocus(delta int) {
 	m.priorityFocus = false
 	m.assigneeFocus = false
 	m.summaryFocus = false
+	m.worklogListFocus = false
 	m.restoreDetailSectionOffset()
 }
 
@@ -1120,6 +1129,8 @@ func (m Model) activateFocusedDetailTarget() (Model, tea.Cmd) {
 		m.focusDetailLinks()
 	case "comments":
 		return m.activateCommentsSection()
+	case "worklog":
+		m.focusWorklogs()
 	default:
 		m.linkFocus = false
 		m.hierarchyFocus = false
@@ -1127,6 +1138,7 @@ func (m Model) activateFocusedDetailTarget() (Model, tea.Cmd) {
 		m.transitionFocus = false
 		m.priorityFocus = false
 		m.assigneeFocus = false
+		m.worklogListFocus = false
 		m.jumpDetailSection(section.Label)
 	}
 	return m, nil
@@ -2772,7 +2784,11 @@ func isSubtaskIssue(issue jira.Issue) bool {
 
 func (m Model) renderLinksSection(links []detailLink, width int) string {
 	lines := make([]string, 0, len(links)+1)
-	lines = append(lines, m.detailSectionHeader("links", "Links", "", width))
+	help := ""
+	if m.linkFocus {
+		help = "enter open  y copy  d unlink"
+	}
+	lines = append(lines, m.detailSectionHeader("links", "Links", help, width))
 	rows := make([][]string, 0, len(links))
 	for index, link := range links {
 		display := linkDisplayText(link)
@@ -2863,6 +2879,7 @@ func issueDetailLink(link jira.IssueLink) detailLink {
 		Label:    strings.Join(parts, "  "),
 		Target:   link.URL,
 		CopyText: link.Key,
+		LinkID:   link.LinkID,
 	}
 }
 

@@ -761,6 +761,45 @@ func (m Model) submitUpdateEditField(requestID int, key string, field jira.EditF
 	}
 }
 
+func (m Model) submitGenericFieldOptions(requestID int, field jira.EditField, query string) tea.Cmd {
+	return func() tea.Msg {
+		fieldID := strings.TrimSpace(field.ID)
+		autocompleteURL := strings.TrimSpace(field.AutoCompleteURL)
+		if fieldID == "" || autocompleteURL == "" {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindSearchFieldOptions,
+					Err:  worker.ErrInvalidRequest,
+				},
+			}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:          requestID,
+			Kind:        worker.KindSearchFieldOptions,
+			Timeout:     m.requestTimeout,
+			Priority:    worker.PriorityForeground,
+			CoalesceKey: "generic-field-options:" + fieldID + ":" + strings.TrimSpace(query),
+			SearchFieldOptions: &worker.SearchFieldOptionsRequest{
+				FieldID:         fieldID,
+				AutoCompleteURL: autocompleteURL,
+				Query:           strings.TrimSpace(query),
+				MaxResults:      createFieldOptionMaxResults,
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindSearchFieldOptions,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindSearchFieldOptions, id: requestID, key: fieldID}
+	}
+}
+
 func (m Model) submitIssueLinkTypes(requestID int) tea.Cmd {
 	return func() tea.Msg {
 		err := m.workers.Submit(worker.Request{
@@ -807,6 +846,35 @@ func (m Model) submitCreateIssueLink(requestID int, request jira.CreateIssueLink
 			}
 		}
 		return workSubmittedMsg{kind: worker.KindCreateIssueLink, id: requestID, key: request.SourceKey}
+	}
+}
+
+func (m Model) submitDeleteIssueLink(requestID int, issueKey string, linkID string, target string) tea.Cmd {
+	return func() tea.Msg {
+		if strings.TrimSpace(linkID) == "" {
+			return noDetailRequestMsg{}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:       requestID,
+			Kind:     worker.KindDeleteIssueLink,
+			Timeout:  m.requestTimeout,
+			Priority: worker.PriorityWrite,
+			DeleteIssueLink: &worker.DeleteIssueLinkRequest{
+				IssueKey: issueKey,
+				LinkID:   linkID,
+				Target:   target,
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindDeleteIssueLink,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindDeleteIssueLink, id: requestID, key: issueKey}
 	}
 }
 
@@ -863,6 +931,62 @@ func (m Model) submitAddWorklog(requestID int, key string, request jira.AddWorkl
 			}
 		}
 		return workSubmittedMsg{kind: worker.KindAddWorklog, id: requestID, key: key}
+	}
+}
+
+func (m Model) submitUpdateWorklog(requestID int, key string, request jira.UpdateWorklogRequest) tea.Cmd {
+	return func() tea.Msg {
+		if strings.TrimSpace(key) == "" || strings.TrimSpace(request.ID) == "" || strings.TrimSpace(request.TimeSpent) == "" {
+			return noDetailRequestMsg{}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:       requestID,
+			Kind:     worker.KindUpdateWorklog,
+			Timeout:  m.requestTimeout,
+			Priority: worker.PriorityWrite,
+			UpdateWorklog: &worker.UpdateWorklogRequest{
+				Key:     key,
+				Request: request,
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindUpdateWorklog,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindUpdateWorklog, id: requestID, key: key}
+	}
+}
+
+func (m Model) submitDeleteWorklog(requestID int, key string, worklogID string) tea.Cmd {
+	return func() tea.Msg {
+		if strings.TrimSpace(key) == "" || strings.TrimSpace(worklogID) == "" {
+			return noDetailRequestMsg{}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:       requestID,
+			Kind:     worker.KindDeleteWorklog,
+			Timeout:  m.requestTimeout,
+			Priority: worker.PriorityWrite,
+			DeleteWorklog: &worker.DeleteWorklogRequest{
+				Key:       key,
+				WorklogID: worklogID,
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindDeleteWorklog,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindDeleteWorklog, id: requestID, key: key}
 	}
 }
 

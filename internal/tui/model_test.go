@@ -833,12 +833,18 @@ type fakeIssueSearcher struct {
 	fieldOptionMaxResults  int
 	issueLinkTypes         []jira.IssueLinkType
 	issueLinkRequest       jira.CreateIssueLinkRequest
+	deleteIssueLinkID      string
 	worklogs               []jira.Worklog
 	worklogKey             string
 	worklogMaxResults      int
 	addWorklogKey          string
 	addWorklogRequest      jira.AddWorklogRequest
 	addedWorklog           jira.Worklog
+	updateWorklogKey       string
+	updateWorklogRequest   jira.UpdateWorklogRequest
+	updatedWorklog         jira.Worklog
+	deleteWorklogKey       string
+	deleteWorklogID        string
 	createIssueRequest     jira.CreateIssueRequest
 	createdIssue           jira.Issue
 	boardPage              jira.BoardPage
@@ -1033,6 +1039,14 @@ func (f *fakeIssueSearcher) CreateIssueLink(_ context.Context, request jira.Crea
 	return nil
 }
 
+func (f *fakeIssueSearcher) DeleteIssueLink(_ context.Context, linkID string) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.deleteIssueLinkID = linkID
+	return nil
+}
+
 func (f *fakeIssueSearcher) GetWorklogs(_ context.Context, key string, maxResults int) ([]jira.Worklog, error) {
 	if f.err != nil {
 		return nil, f.err
@@ -1052,6 +1066,27 @@ func (f *fakeIssueSearcher) AddWorklog(_ context.Context, key string, request ji
 		return f.addedWorklog, nil
 	}
 	return jira.Worklog{ID: "10001", Author: "Current User", TimeSpent: request.TimeSpent, Comment: request.Comment, Started: request.Started}, nil
+}
+
+func (f *fakeIssueSearcher) UpdateWorklog(_ context.Context, key string, request jira.UpdateWorklogRequest) (jira.Worklog, error) {
+	if f.err != nil {
+		return jira.Worklog{}, f.err
+	}
+	f.updateWorklogKey = key
+	f.updateWorklogRequest = request
+	if f.updatedWorklog.ID != "" {
+		return f.updatedWorklog, nil
+	}
+	return jira.Worklog{ID: request.ID, Author: "Current User", TimeSpent: request.TimeSpent, Comment: request.Comment, Started: request.Started}, nil
+}
+
+func (f *fakeIssueSearcher) DeleteWorklog(_ context.Context, key string, worklogID string) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.deleteWorklogKey = key
+	f.deleteWorklogID = worklogID
+	return nil
 }
 
 func (f *fakeIssueSearcher) CreateIssue(_ context.Context, request jira.CreateIssueRequest) (jira.Issue, error) {

@@ -150,7 +150,7 @@ func TestIssueLayoutModeCyclesWithoutChangingIssueScope(t *testing.T) {
 	originalView := model.view
 	originalFilter := model.statusFilter
 
-	for _, want := range []issueLayoutMode{issueLayoutTable, issueLayoutWorkbench, issueLayoutLanes} {
+	for _, want := range []issueLayoutMode{issueLayoutPlanning, issueLayoutTable, issueLayoutWorkbench, issueLayoutLanes} {
 		updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "L", Code: 'L'}))
 		model = updated.(Model)
 		if want == issueLayoutWorkbench {
@@ -2447,6 +2447,30 @@ func TestSprintViewStartsPlanningMetadataLoad(t *testing.T) {
 	}
 	if submitted.kind != worker.KindGetBoards {
 		t.Fatalf("kind = %s", submitted.kind)
+	}
+}
+
+func TestPlanningLayoutRendersBoardsAndSprints(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithPlanningProject("ABC"))
+	defer model.workers.Stop()
+	model.width = 120
+	model.height = 30
+	model.issueLayout = issueLayoutPlanning
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Sprint task", Status: "To Do", Priority: "P3"}}
+	model.planningBoards = []jira.Board{{ID: 100, Name: "ABC Scrum", Type: "scrum"}}
+	model.planningSprints = map[int][]jira.Sprint{
+		100: {
+			{ID: 300, BoardID: 100, Name: "Sprint 42", State: "active"},
+			{ID: 301, BoardID: 100, Name: "Sprint 43", State: "future"},
+		},
+	}
+
+	rendered := model.renderIssueWorkspace(model.browserLayout(model.width))
+
+	for _, want := range []string{"Planning", "ABC Scrum", "1 active", "1 future", "Sprint 42", "ABC-1"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("planning layout missing %q:\n%s", want, rendered)
+		}
 	}
 }
 

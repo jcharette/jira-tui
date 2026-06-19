@@ -40,7 +40,7 @@ func apiEndpointFamily(kind worker.Kind) string {
 	switch kind {
 	case worker.KindSearchIssues:
 		return "search"
-	case worker.KindGetIssue, worker.KindUpdateSummary, worker.KindUpdateDescription, worker.KindUpdatePriority, worker.KindUpdateLabels, worker.KindUpdateAssignee, worker.KindUpdateComponents:
+	case worker.KindGetIssue, worker.KindUpdateSummary, worker.KindUpdateDescription, worker.KindUpdatePriority, worker.KindUpdateLabels, worker.KindUpdateAssignee, worker.KindUpdateComponents, worker.KindUpdateEditField:
 		return "issue"
 	case worker.KindGetComments, worker.KindAddComment, worker.KindUpdateComment:
 		return "comment"
@@ -56,6 +56,10 @@ func apiEndpointFamily(kind worker.Kind) string {
 		return "create"
 	case worker.KindGetBoards, worker.KindGetBoardSprints:
 		return "agile"
+	case worker.KindGetIssueLinkTypes, worker.KindCreateIssueLink, worker.KindDeleteIssueLink:
+		return "issue_link"
+	case worker.KindGetWorklogs, worker.KindAddWorklog, worker.KindUpdateWorklog, worker.KindDeleteWorklog:
+		return "worklog"
 	default:
 		return "unknown"
 	}
