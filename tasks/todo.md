@@ -208,7 +208,7 @@ cache/Diagnostics infrastructure, and the current security model.
 - [x] Audit docs for metadata-backed Ticket Actions before shipping.
 - [x] Move release notes from Unreleased to v1.0.4.
 - [x] Run docs and full project checks.
-- [ ] Push release prep to GitHub.
-- [ ] Create GitHub release v1.0.4.
-- [ ] Update Homebrew formula checksums from published assets.
-- [ ] Update GitHub issue #12 with shipped first-slice scope.
+- [x] Push release prep to GitHub.
+- [x] Create GitHub release v1.0.4.
+- [x] Update Homebrew formula checksums from published assets.
+- [x] Update GitHub issue #12 with shipped first-slice scope.
