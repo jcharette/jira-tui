@@ -424,6 +424,11 @@ func resultDiagnosticKey(result worker.Result) string {
 		return result.GetBoards.ProjectKey
 	case result.GetBoardSprints != nil:
 		return fmt.Sprintf("%d", result.GetBoardSprints.BoardID)
+	case result.MoveIssuesToSprint != nil:
+		if len(result.MoveIssuesToSprint.IssueKeys) > 0 {
+			return result.MoveIssuesToSprint.IssueKeys[0]
+		}
+		return fmt.Sprintf("%d", result.MoveIssuesToSprint.Sprint.ID)
 	case result.CreateIssue != nil:
 		return result.CreateIssue.Issue.Key
 	case result.UpdateSummary != nil:
@@ -458,6 +463,8 @@ func resultDiagnosticMetrics(result worker.Result) string {
 		return fmt.Sprintf("boards=%d is_last=%t", len(result.GetBoards.Page.Boards), result.GetBoards.Page.IsLast)
 	case result.GetBoardSprints != nil:
 		return fmt.Sprintf("sprints=%d is_last=%t", len(result.GetBoardSprints.Page.Sprints), result.GetBoardSprints.Page.IsLast)
+	case result.MoveIssuesToSprint != nil:
+		return fmt.Sprintf("issues=%d sprint=%d", len(result.MoveIssuesToSprint.IssueKeys), result.MoveIssuesToSprint.Sprint.ID)
 	default:
 		return ""
 	}

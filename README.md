@@ -21,8 +21,9 @@ data loads.
   summary, status, assignee, priority, and actions organized around the work you are likely to do
   next.
 - **Real Jira edits:** create tickets and subtasks, edit summary/priority/assignee/labels/components,
-  apply status transitions with required fields, add/edit comments, create/remove issue links, and
-  add/edit/delete worklogs through worker-backed Jira requests.
+  apply status transitions with required fields, add/edit comments, create/remove issue links,
+  add tickets to active/future sprints, and add/edit/delete worklogs through worker-backed Jira
+  requests.
 - **Ticket-to-branch start flow:** run `jira start ABC-123` or use Ticket Actions -> Start Work to
   choose a repo, edit the branch name, and explicitly confirm branch, assignee, status, and comment
   updates.
@@ -64,15 +65,15 @@ binary somewhere on your `PATH`.
 Apple Silicon example:
 
 ```bash
-curl -LO https://github.com/jcharette/jira-tui/releases/download/v1.0.2/jira-tui_1.0.2_darwin_arm64.tar.gz
-tar -xzf jira-tui_1.0.2_darwin_arm64.tar.gz
+curl -LO https://github.com/jcharette/jira-tui/releases/download/v1.0.3/jira-tui_1.0.3_darwin_arm64.tar.gz
+tar -xzf jira-tui_1.0.3_darwin_arm64.tar.gz
 install -m 0755 jira ~/bin/jira
 ```
 
 Or install with Go:
 
 ```bash
-go install github.com/jcharette/jira-tui/cmd/jira@v1.0.2
+go install github.com/jcharette/jira-tui/cmd/jira@v1.0.3
 ```
 
 Go installs the binary as `jira`.
@@ -110,7 +111,8 @@ The config file keeps account metadata and settings in TOML, but saved API token
 OS secret store: macOS Keychain, Windows Credential Manager, or Linux Secret Service. Existing
 plaintext `api_token` values still load and are migrated the next time `jira config` saves.
 
-The config editor also includes saved views, profiles, runtime settings, appearance skins,
+The config editor also includes saved views, profiles, runtime settings, Agile board selection for
+Sprint Actions, appearance skins,
 appearance colors, display symbol mode, persistent notifications, optional system notifications,
 and the default Git branch template used by Start Work. Built-in skins are `default`, `focus`,
 `ops`, and `high-contrast`; each skin carries matching colors, status/priority emphasis, and issue
@@ -285,7 +287,7 @@ make build
 make build-local
 make docs-status
 make milestone-complete M=M1
-make release VERSION=1.0.2
+make release VERSION=1.0.3
 ```
 
 Planning, backlog, release notes, and decisions live in [docs/README.md](docs/README.md). The project

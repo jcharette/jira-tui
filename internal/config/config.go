@@ -41,6 +41,7 @@ type Config struct {
 	ActiveProfile   string
 	Profiles        map[string]Profile
 	DefaultProject  string
+	DefaultBoardID  int
 	DefaultJQL      string
 	ActiveView      string
 	Views           []IssueView
@@ -393,6 +394,7 @@ func SaveWithSecretStore(path string, cfg Config, store secretstore.Store) error
 		Profiles:      profileConfigs,
 		Queries: queriesConfig{
 			DefaultProject: cfg.DefaultProject,
+			DefaultBoardID: cfg.DefaultBoardID,
 			DefaultJQL:     cfg.DefaultJQL,
 		},
 		Views: viewsConfig{
@@ -530,6 +532,9 @@ func Validate(cfg Config) error {
 	if strings.TrimSpace(cfg.DefaultProject) == "" {
 		problems = append(problems, "default Jira project is required")
 	}
+	if cfg.DefaultBoardID < 0 {
+		problems = append(problems, "default Jira board ID must be zero or greater")
+	}
 	if cfg.RefreshInterval < 0 {
 		problems = append(problems, "refresh interval cannot be negative")
 	}
@@ -604,6 +609,7 @@ type profileConfig struct {
 
 type queriesConfig struct {
 	DefaultProject string `toml:"default_project"`
+	DefaultBoardID int    `toml:"default_board_id"`
 	DefaultJQL     string `toml:"default_jql"`
 }
 
@@ -730,6 +736,9 @@ func applyFile(cfg *Config, fileCfg fileConfig, requestedProfile string, store s
 		if fileCfg.Queries.DefaultJQL == "" {
 			cfg.DefaultJQL = DefaultJQLForProject(cfg.DefaultProject)
 		}
+	}
+	if fileCfg.Queries.DefaultBoardID > 0 {
+		cfg.DefaultBoardID = fileCfg.Queries.DefaultBoardID
 	}
 	if strings.TrimSpace(fileCfg.Views.Active) != "" {
 		cfg.ActiveView = strings.TrimSpace(fileCfg.Views.Active)

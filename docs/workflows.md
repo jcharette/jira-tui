@@ -51,6 +51,18 @@ This does not rewrite your JQL. It loads hierarchy around the selected issue.
 Jira writes use Jira metadata before submitting, so required transition fields and supported edit
 fields are discovered from the configured site/project/issue.
 
+## Add A Ticket To A Sprint
+
+1. Open ticket detail.
+2. Press `.` for Ticket Actions.
+3. Choose Sprint.
+4. Select the active sprint or one of the future sprints.
+5. Press `enter` to add the ticket.
+
+Sprint Actions use Jira Agile APIs instead of editing the raw Sprint custom field. The active sprint
+is listed first, future sprints follow, and closed sprints are hidden. Set `Default Board ID` in
+`jira config` when a project has multiple boards and you want sprint actions scoped to one board.
+
 ## Comment On A Ticket
 
 1. Open ticket detail.

@@ -20,6 +20,7 @@ const (
 	keyContextPriority       keyContext = "Priority"
 	keyContextLabels         keyContext = "Labels"
 	keyContextComponents     keyContext = "Components"
+	keyContextSprint         keyContext = "Sprint"
 	keyContextGenericField   keyContext = "Field"
 	keyContextAssignee       keyContext = "Assignee"
 	keyContextIssueLink      keyContext = "Issue Link"
@@ -102,6 +103,8 @@ func activeKeyContext(m Model) keyContext {
 		return keyContextLabels
 	case m.mode == modeDetail && m.componentsFocus:
 		return keyContextComponents
+	case m.mode == modeDetail && m.sprintFocus:
+		return keyContextSprint
 	case m.mode == modeDetail && m.genericFieldFocus:
 		return keyContextGenericField
 	case m.mode == modeDetail && m.assigneeFocus:
@@ -158,6 +161,8 @@ func keyBindings(context keyContext) []keyBinding {
 		bindings = append(bindings, labelsBindings()...)
 	case keyContextComponents:
 		bindings = append(bindings, componentsBindings()...)
+	case keyContextSprint:
+		bindings = append(bindings, sprintBindings()...)
 	case keyContextGenericField:
 		bindings = append(bindings, genericFieldBindings()...)
 	case keyContextAssignee:
@@ -212,7 +217,7 @@ func globalBindings(context keyContext) []keyBinding {
 			{Keys: []string{"ctrl+c"}, Label: "quit", Description: "Quit Jira.", Group: "Global"},
 		}
 	}
-	if context == keyContextComment || context == keyContextMentionPicker || context == keyContextCommentConfirm || context == keyContextActionPalette || context == keyContextLabels || context == keyContextComponents || context == keyContextGenericField {
+	if context == keyContextComment || context == keyContextMentionPicker || context == keyContextCommentConfirm || context == keyContextActionPalette || context == keyContextLabels || context == keyContextComponents || context == keyContextSprint || context == keyContextGenericField {
 		return []keyBinding{
 			{Keys: []string{"?"}, Label: "help", Description: "Open the keyboard help screen.", Group: "Global", Footer: true},
 			{Keys: []string{"ctrl+c"}, Label: "quit", Description: "Quit Jira.", Group: "Global"},
@@ -360,6 +365,14 @@ func componentsBindings() []keyBinding {
 		{Keys: []string{"space"}, Label: "toggle", Description: "Toggle the selected component.", Group: "Components", Footer: true},
 		{Keys: []string{"enter"}, Label: "save", Description: "Save Components through Jira.", Group: "Components", Footer: true},
 		{Keys: []string{"type"}, Label: "filter", Description: "Filter Jira component options.", Group: "Components", Footer: true},
+	}
+}
+
+func sprintBindings() []keyBinding {
+	return []keyBinding{
+		{Keys: []string{"esc"}, Label: "cancel", Description: "Cancel sprint selection.", Group: "Sprint", Footer: true},
+		{Keys: []string{"j", "k", "up", "down"}, FooterKey: "j/k", Label: "sprint", Description: "Select an active or future Jira sprint.", Group: "Sprint", Footer: true},
+		{Keys: []string{"enter"}, Label: "add", Description: "Add the selected ticket to the selected sprint.", Group: "Sprint", Footer: true},
 	}
 }
 

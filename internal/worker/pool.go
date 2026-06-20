@@ -45,6 +45,7 @@ const (
 	KindSearchFieldOptions  Kind = "search_field_options"
 	KindGetBoards           Kind = "get_boards"
 	KindGetBoardSprints     Kind = "get_board_sprints"
+	KindMoveIssuesToSprint  Kind = "move_issues_to_sprint"
 	KindGetIssueLinkTypes   Kind = "get_issue_link_types"
 	KindCreateIssueLink     Kind = "create_issue_link"
 	KindDeleteIssueLink     Kind = "delete_issue_link"
@@ -90,6 +91,7 @@ type JiraClient interface {
 	SearchFieldOptions(ctx context.Context, autocompleteURL string, query string, maxResults int) ([]jira.FieldOption, error)
 	GetBoards(ctx context.Context, projectKey string, startAt, maxResults int) (jira.BoardPage, error)
 	GetBoardSprints(ctx context.Context, boardID int, states []string, startAt, maxResults int) (jira.SprintPage, error)
+	MoveIssuesToSprint(ctx context.Context, sprintID int, issueKeys []string) error
 	GetIssueLinkTypes(ctx context.Context) ([]jira.IssueLinkType, error)
 	CreateIssueLink(ctx context.Context, request jira.CreateIssueLinkRequest) error
 	DeleteIssueLink(ctx context.Context, linkID string) error
@@ -131,6 +133,7 @@ type Request struct {
 	SearchFieldOptions  *SearchFieldOptionsRequest
 	GetBoards           *GetBoardsRequest
 	GetBoardSprints     *GetBoardSprintsRequest
+	MoveIssuesToSprint  *MoveIssuesToSprintRequest
 	GetIssueLinkTypes   *GetIssueLinkTypesRequest
 	CreateIssueLink     *CreateIssueLinkRequest
 	DeleteIssueLink     *DeleteIssueLinkRequest
@@ -246,6 +249,11 @@ type GetBoardSprintsRequest struct {
 	MaxResults int
 }
 
+type MoveIssuesToSprintRequest struct {
+	Sprint    jira.Sprint
+	IssueKeys []string
+}
+
 type GetIssueLinkTypesRequest struct{}
 
 type CreateIssueLinkRequest struct {
@@ -345,6 +353,7 @@ type Result struct {
 	SearchFieldOptions  *SearchFieldOptionsResult
 	GetBoards           *GetBoardsResult
 	GetBoardSprints     *GetBoardSprintsResult
+	MoveIssuesToSprint  *MoveIssuesToSprintResult
 	GetIssueLinkTypes   *GetIssueLinkTypesResult
 	CreateIssueLink     *CreateIssueLinkResult
 	DeleteIssueLink     *DeleteIssueLinkResult
@@ -464,6 +473,12 @@ type GetBoardSprintsResult struct {
 	BoardID  int
 	Page     jira.SprintPage
 	SyncedAt time.Time
+}
+
+type MoveIssuesToSprintResult struct {
+	Sprint    jira.Sprint
+	IssueKeys []string
+	SyncedAt  time.Time
 }
 
 type GetIssueLinkTypesResult struct {
@@ -890,6 +905,8 @@ func (p *Pool) handle(request Request) Result {
 		return p.handleGetBoards(request)
 	case KindGetBoardSprints:
 		return p.handleGetBoardSprints(request)
+	case KindMoveIssuesToSprint:
+		return p.handleMoveIssuesToSprint(request)
 	case KindGetIssueLinkTypes:
 		return p.handleGetIssueLinkTypes(request)
 	case KindCreateIssueLink:
@@ -1224,6 +1241,35 @@ func (p *Pool) handleGetBoardSprints(request Request) Result {
 			BoardID:  request.GetBoardSprints.BoardID,
 			Page:     page,
 			SyncedAt: time.Now(),
+		},
+	}
+}
+
+func (p *Pool) handleMoveIssuesToSprint(request Request) Result {
+	if request.MoveIssuesToSprint == nil || request.MoveIssuesToSprint.Sprint.ID <= 0 || len(request.MoveIssuesToSprint.IssueKeys) == 0 {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	issueKeys := append([]string{}, request.MoveIssuesToSprint.IssueKeys...)
+	err := p.client.MoveIssuesToSprint(ctx, request.MoveIssuesToSprint.Sprint.ID, issueKeys)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		MoveIssuesToSprint: &MoveIssuesToSprintResult{
+			Sprint:    request.MoveIssuesToSprint.Sprint,
+			IssueKeys: issueKeys,
+			SyncedAt:  time.Now(),
 		},
 	}
 }

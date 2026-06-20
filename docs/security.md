@@ -40,8 +40,9 @@ Security controls:
 
 - The config directory is created with `0700` permissions.
 - The config file is written with `0600` permissions.
-- The config file contains non-secret settings such as Jira base URL, email, default project, saved
-  views, runtime settings, notification settings, and keyring token-source metadata.
+- The config file contains non-secret settings such as Jira base URL, email, default project,
+  default Agile board ID, saved views, runtime settings, notification settings, and keyring
+  token-source metadata.
 - API tokens are not written to config after keyring migration.
 
 ## Cache Storage

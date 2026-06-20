@@ -459,6 +459,7 @@ type Model struct {
 	activeCreateFieldsReqID           int
 	activeCreateFieldOptionsReqID     int
 	activeCreateIssueReqID            int
+	activeSprintReqID                 int
 	expandLoading                     bool
 	expandRequestKey                  string
 	expandMode                        worker.ExpandMode
@@ -497,6 +498,12 @@ type Model struct {
 	componentsSubmitting              bool
 	componentsSubmitKey               string
 	componentsSubmitValue             []jira.FieldOption
+	sprintFocus                       bool
+	selectedSprint                    int
+	sprintSubmitting                  bool
+	sprintSubmitKey                   string
+	sprintSubmit                      jira.Sprint
+	defaultBoardID                    int
 
 	refreshInterval   time.Duration
 	requestTimeout    time.Duration
@@ -674,6 +681,15 @@ func WithActiveViewStore(store activeViewStore, namespace string) Option {
 func WithPlanningProject(projectKey string) Option {
 	return func(m *Model) {
 		m.planningProjectKey = strings.TrimSpace(projectKey)
+	}
+}
+
+func WithDefaultBoardID(boardID int) Option {
+	return func(m *Model) {
+		if boardID > 0 {
+			m.defaultBoardID = boardID
+			m.planningBoardID = boardID
+		}
 	}
 }
 
@@ -1018,6 +1034,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == modeDetail && m.componentsFocus {
 			return m.updateComponentsEditor(msg)
 		}
+		if m.mode == modeDetail && m.sprintFocus {
+			switch msg.String() {
+			case "esc":
+				m.sprintFocus = false
+				m.detailNotice = ""
+				return m, nil
+			case "enter":
+				return m.submitSelectedSprint()
+			case "j", "down":
+				m.moveSelectedSprint(1)
+				return m, nil
+			case "k", "up":
+				m.moveSelectedSprint(-1)
+				return m, nil
+			}
+			return m, nil
+		}
 		if m.mode == modeDetail && m.genericFieldFocus {
 			return m.updateGenericFieldEditor(msg)
 		}
@@ -1095,6 +1128,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.componentsFocus {
 					m.componentsFocus = false
 					m.componentsDirty = false
+					m.detailNotice = ""
+					return m, nil
+				}
+				if m.sprintFocus {
+					m.sprintFocus = false
 					m.detailNotice = ""
 					return m, nil
 				}
@@ -1284,6 +1322,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.mode == modeDetail && m.componentsFocus {
 				return m.submitSelectedComponents()
 			}
+			if m.mode == modeDetail && m.sprintFocus {
+				return m.submitSelectedSprint()
+			}
 			if m.mode == modeDetail && m.genericFieldFocus {
 				return m.submitGenericField()
 			}
@@ -1349,6 +1390,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.moveSelectedGenericFieldOption(-1)
 					return m, nil
 				}
+				if m.sprintFocus {
+					m.moveSelectedSprint(-1)
+					return m, nil
+				}
 				if m.hierarchyFocus {
 					m.moveSelectedHierarchyIssue(-1)
 					return m, nil
@@ -1410,6 +1455,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				if m.genericFieldFocus {
 					m.moveSelectedGenericFieldOption(1)
+					return m, nil
+				}
+				if m.sprintFocus {
+					m.moveSelectedSprint(1)
 					return m, nil
 				}
 				if m.hierarchyFocus {

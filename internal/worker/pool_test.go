@@ -2032,6 +2032,9 @@ type fakeIssueSearcher struct {
 	sprintStates           []string
 	sprintStartAt          int
 	sprintMaxResults       int
+	moveSprintID           int
+	moveIssueKeys          []string
+	moveSprintErr          error
 	updateSummaryKey       string
 	updateSummaryValue     string
 	updateSummaryErr       error
@@ -2322,6 +2325,18 @@ func (f *fakeIssueSearcher) GetBoardSprints(_ context.Context, boardID int, stat
 	f.sprintStartAt = startAt
 	f.sprintMaxResults = maxResults
 	return f.sprintPage, nil
+}
+
+func (f *fakeIssueSearcher) MoveIssuesToSprint(_ context.Context, sprintID int, issueKeys []string) error {
+	if f.moveSprintErr != nil {
+		return f.moveSprintErr
+	}
+	if f.err != nil {
+		return f.err
+	}
+	f.moveSprintID = sprintID
+	f.moveIssueKeys = append([]string{}, issueKeys...)
+	return nil
 }
 
 func (f *fakeIssueSearcher) UpdateSummary(_ context.Context, key string, summary string) error {
@@ -2725,6 +2740,19 @@ func (b *blockingIssueSearcher) GetBoardSprints(ctx context.Context, _ int, _ []
 	}
 }
 
+func (b *blockingIssueSearcher) MoveIssuesToSprint(ctx context.Context, _ int, _ []string) error {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (b *blockingIssueSearcher) UpdateSummary(ctx context.Context, _ string, _ string) error {
 	if b.started != nil {
 		close(b.started)
@@ -2813,5 +2841,37 @@ func (b *blockingIssueSearcher) UpdateAssignee(ctx context.Context, _ string, _ 
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
+	}
+}
+
+func TestPoolMoveIssuesToSprintSuccess(t *testing.T) {
+	searcher := &fakeIssueSearcher{}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:   41,
+		Kind: KindMoveIssuesToSprint,
+		MoveIssuesToSprint: &MoveIssuesToSprintRequest{
+			Sprint:    jira.Sprint{ID: 300, Name: "Platform Sprint 24", State: "active"},
+			IssueKeys: []string{"ABC-1"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.ID != 41 || result.Kind != KindMoveIssuesToSprint {
+		t.Fatalf("result = %#v", result)
+	}
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if searcher.moveSprintID != 300 || !reflect.DeepEqual(searcher.moveIssueKeys, []string{"ABC-1"}) {
+		t.Fatalf("move request = %d/%#v", searcher.moveSprintID, searcher.moveIssueKeys)
+	}
+	if result.MoveIssuesToSprint == nil || result.MoveIssuesToSprint.Sprint.Name != "Platform Sprint 24" || !reflect.DeepEqual(result.MoveIssuesToSprint.IssueKeys, []string{"ABC-1"}) {
+		t.Fatalf("MoveIssuesToSprint = %#v", result.MoveIssuesToSprint)
 	}
 }

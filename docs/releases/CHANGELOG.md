@@ -4,6 +4,10 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+## 1.0.3 - 2026-06-20
+
+- Added Sprint ticket actions for adding the selected issue to active or future Jira Agile sprints.
+
 ## 1.0.2 - 2026-06-20
 
 - Added curated appearance themes with matching issue-list symbol styles.

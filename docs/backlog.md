@@ -18,7 +18,7 @@ engineering context that should stay close to the codebase.
 
 - Add more metadata-backed Ticket Actions only when Jira workflows expose a concrete supported field
   or operation that is not already covered by generic edit, comments, status, links, worklogs,
-  create, assignee, labels, components, summary, or priority.
+  create, assignee, labels, components, summary, priority, or Sprint Actions.
 - Multi-site Jira profiles stay Maybe Later unless real usage shows people regularly need to switch
   between unrelated Jira tenants from the same install.
 - Jira OAuth/device authorization is intentionally not planned. API-token auth remains the supported

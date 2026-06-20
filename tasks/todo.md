@@ -167,3 +167,30 @@ cache/Diagnostics infrastructure, and the current security model.
 - [x] Create GitHub release v1.0.2.
 - [x] Update Homebrew formula checksums from published assets.
 
+
+## Sprint Actions - 2026-06-20
+
+- [x] Add Jira Agile API support for discovering boards/sprints and moving issues into a sprint.
+- [x] Add config support for a default Agile board used by sprint actions.
+- [x] Add Ticket Actions flow for Sprint -> Add to active sprint / Choose sprint / Configure board.
+- [x] Keep sprint writes worker-backed and report clear success/failure status.
+- [x] Update docs/backlog and user docs for sprint actions before shipping.
+- [x] Verify with focused tests, make check, and make install-user.
+
+
+### Sprint Actions Review
+
+- Implemented: `queries.default_board_id`, config UI field, Jira Agile sprint move API, worker request/result, Ticket Actions Sprint picker, Diagnostics classification, and user docs.
+- Verified: focused package tests, `make docs-check`, `make check`, and `make install-user` passed on 2026-06-20.
+
+
+## Release v1.0.3 - 2026-06-20
+
+- [x] Audit docs for Sprint Actions before shipping.
+- [x] Move release notes from Unreleased to v1.0.3.
+- [x] Run docs and full project checks.
+- [ ] Push release prep to GitHub.
+- [ ] Create GitHub release v1.0.3.
+- [ ] Update Homebrew formula checksums from published assets.
+- [ ] Capture the next metadata-backed Ticket Actions backlog slice.
+

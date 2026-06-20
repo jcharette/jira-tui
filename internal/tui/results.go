@@ -81,6 +81,8 @@ func (m Model) handleWorkerResult(result worker.Result) (Model, tea.Cmd) {
 		return m.handlePlanningBoardsResult(result)
 	case worker.KindGetBoardSprints:
 		return m.handlePlanningSprintsResult(result)
+	case worker.KindMoveIssuesToSprint:
+		return m.handleMoveIssuesToSprintResult(result)
 	case worker.KindGetIssueLinkTypes:
 		return m.handleGetIssueLinkTypesResult(result), nil
 	case worker.KindCreateIssueLink:
@@ -233,6 +235,37 @@ func (m Model) handlePlanningSprintsResult(result worker.Result) (Model, tea.Cmd
 	m.planningSprintPages[boardID] = result.GetBoardSprints.Page
 	m.planningSprints[boardID] = result.GetBoardSprints.Page.Sprints
 	return m.startQueuedPlanningSprintLoads()
+}
+
+func (m Model) handleMoveIssuesToSprintResult(result worker.Result) (Model, tea.Cmd) {
+	if result.ID != m.activeSprintReqID {
+		return m, nil
+	}
+	m.sprintSubmitting = false
+	if result.Err != nil {
+		m.detailNotice = "Sprint update failed: " + result.Err.Error()
+		return m, nil
+	}
+	if result.MoveIssuesToSprint == nil {
+		m.detailNotice = "Sprint update failed: " + worker.ErrInvalidRequest.Error()
+		return m, nil
+	}
+	if len(result.MoveIssuesToSprint.IssueKeys) == 0 || result.MoveIssuesToSprint.IssueKeys[0] != m.sprintSubmitKey {
+		return m, nil
+	}
+	issueKey := m.sprintSubmitKey
+	sprintName := displayValue(result.MoveIssuesToSprint.Sprint.Name, fmt.Sprintf("Sprint %d", result.MoveIssuesToSprint.Sprint.ID))
+	m.sprintFocus = false
+	m.sprintSubmitKey = ""
+	m.sprintSubmit = jira.Sprint{}
+	m.detailNotice = issueKey + " added to " + sprintName + "."
+	if issueKey != "" {
+		delete(m.details, issueKey)
+		if m.detailCache != nil {
+			m.detailCache.Delete(issueKey)
+		}
+	}
+	return m.startDetailRequestForSelected()
 }
 
 func (m Model) boardIDsForPlanningSprints(boards []jira.Board) []int {

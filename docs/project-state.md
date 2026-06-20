@@ -33,12 +33,12 @@ support.
 Install a tagged release with Go:
 
 ```bash
-go install github.com/jcharette/jira-tui/cmd/jira@v1.0.2
+go install github.com/jcharette/jira-tui/cmd/jira@v1.0.3
 ```
 
 Release archives are published at
 [GitHub Releases](https://github.com/jcharette/jira-tui/releases) with names such as
-`jira-tui_1.0.2_darwin_arm64.tar.gz` and include a `jira` binary.
+`jira-tui_1.0.3_darwin_arm64.tar.gz` and include a `jira` binary.
 
 Run from the project root:
 
@@ -96,7 +96,9 @@ Sprint-oriented saved views now load Jira Agile metadata in the background throu
 boards are discovered for the configured default project, then active/future sprints are loaded for
 returned boards through a bounded scheduler with at most two active sprint reads. This does not
 alter issue JQL; the header shows compact sprint loading, error, or aggregate count state, and
-Diagnostics records the Agile read family.
+Diagnostics records the Agile read family. Sprint ticket actions reuse this Agile metadata and can
+add the selected issue to an active or future sprint through Jira Agile APIs. Set
+`queries.default_board_id` to scope Sprint Actions when a project has multiple boards.
 
 Diagnostics also mirrors sanitized background activity to a bounded persistent JSONL log in the OS
 user cache directory, for example `~/Library/Caches/jira-tui/diagnostics.jsonl` on macOS. The
@@ -136,6 +138,7 @@ api_token_source = "keyring"
 
 [queries]
 default_project = "ABC"
+default_board_id = 0
 default_jql = "project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY updated DESC"
 
 [views]

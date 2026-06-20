@@ -132,6 +132,9 @@ func (m Model) renderDetailOverlay(layout browserLayout) string {
 	if m.componentsFocus || m.componentsSubmitting {
 		return m.renderComponentsDialog(width)
 	}
+	if m.sprintFocus || m.sprintSubmitting {
+		return m.renderSprintDialog(width)
+	}
 	if m.genericFieldMetadataLoading {
 		return m.renderGenericFieldLoadingDialog(width)
 	}
@@ -1513,6 +1516,7 @@ func (m Model) detailActions() []detailAction {
 		{ID: "priority", Label: "Change Priority", Description: "Load Jira priority options and update priority.", Enabled: true},
 		{ID: "labels", Label: "Edit Labels", Description: "Edit comma-separated Jira labels.", Enabled: true},
 		{ID: "components", Label: "Edit Components", Description: "Select Jira components from edit metadata.", Enabled: true},
+		{ID: "sprint", Label: "Sprint", Description: "Add this ticket to an active or future Jira sprint.", Enabled: true},
 		{ID: "transition", Label: "Transition Status", Description: "Load available Jira transitions and change status.", Enabled: true},
 		{ID: "assign", Label: "Assign", Description: "Search assignable Jira users and change assignee.", Enabled: true},
 		{ID: "link-issue", Label: "Link Issue", Description: "Create a Jira issue link to another ticket.", Enabled: true},
@@ -1653,6 +1657,8 @@ func (m Model) runSelectedDetailAction() (Model, tea.Cmd) {
 		return m.startLabelsEditor()
 	case "components":
 		return m.startComponentsEditor()
+	case "sprint":
+		return m.startSprintPicker()
 	case "transition":
 		return m.startStatusTransitionPicker()
 	case "assign":

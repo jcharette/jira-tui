@@ -4302,3 +4302,62 @@ func hasDetailSection(model Model, id string) bool {
 	}
 	return false
 }
+
+func TestSprintActionListsActiveAndFutureSprints(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDefaultBoardID(100))
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do", Priority: "Medium"}}
+	model.details = map[string]jira.IssueDetail{"ABC-1": {Issue: model.issues[0]}}
+	model.planningBoards = []jira.Board{{ID: 100, Name: "ABC Scrum", Type: "scrum"}}
+	model.planningBoardID = 100
+	model.planningSprints = map[int][]jira.Sprint{
+		100: {
+			{ID: 300, BoardID: 100, Name: "Platform Sprint 24", State: "active"},
+			{ID: 301, BoardID: 100, Name: "Platform Sprint 25", State: "future"},
+		},
+	}
+	model.actionFocus = true
+	model.selectedAction = detailActionIndexForTest(t, model.detailActions(), "sprint")
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+	if cmd != nil {
+		t.Fatal("opening sprint picker should not submit work")
+	}
+	if !next.sprintFocus {
+		t.Fatal("expected sprint picker focus")
+	}
+	view := next.render()
+	for _, want := range []string{"Sprint", "Platform Sprint 24", "active", "Platform Sprint 25", "future"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in:\n%s", want, view)
+		}
+	}
+	if activeKeyContext(next) != keyContextSprint {
+		t.Fatalf("activeKeyContext = %q", activeKeyContext(next))
+	}
+}
+
+func TestSprintActionSubmitsSelectedSprintMove(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithDefaultBoardID(100))
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story"}}
+	model.planningBoardID = 100
+	model.planningSprints = map[int][]jira.Sprint{
+		100: {{ID: 300, BoardID: 100, Name: "Platform Sprint 24", State: "active"}},
+	}
+	model.sprintFocus = true
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected sprint move worker command")
+	}
+	if !next.sprintSubmitting || next.sprintSubmitKey != "ABC-1" || next.sprintSubmit.ID != 300 {
+		t.Fatalf("sprint submit state submitting=%v key=%q sprint=%#v", next.sprintSubmitting, next.sprintSubmitKey, next.sprintSubmit)
+	}
+}

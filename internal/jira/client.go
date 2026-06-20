@@ -467,6 +467,54 @@ func (c *Client) GetBoardSprints(ctx context.Context, boardID int, states []stri
 	return page, nil
 }
 
+func (c *Client) MoveIssuesToSprint(ctx context.Context, sprintID int, issueKeys []string) error {
+	if sprintID <= 0 {
+		return fmt.Errorf("move jira issues to sprint: missing sprint ID")
+	}
+	keys := normalizedIssueKeys(issueKeys)
+	if len(keys) == 0 {
+		return fmt.Errorf("move jira issues to sprint %d: no issue keys", sprintID)
+	}
+	if len(keys) > 50 {
+		return fmt.Errorf("move jira issues to sprint %d: Jira allows at most 50 issues per request", sprintID)
+	}
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+	if c.rest == nil {
+		return fmt.Errorf("move jira issues to sprint %d: REST service unavailable", sprintID)
+	}
+	endpoint := fmt.Sprintf("rest/agile/1.0/sprint/%d/issue", sprintID)
+	payload := map[string][]string{"issues": keys}
+	restRequest, err := c.rest.NewRequest(ctx, http.MethodPost, endpoint, "", payload)
+	if err != nil {
+		return fmt.Errorf("move jira issues to sprint %d: %w", sprintID, err)
+	}
+	if _, err := c.rest.Call(restRequest, nil); err != nil {
+		return fmt.Errorf("move jira issues to sprint %d: %w", sprintID, err)
+	}
+	return nil
+}
+
+func normalizedIssueKeys(keys []string) []string {
+	normalized := make([]string, 0, len(keys))
+	seen := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		key = strings.ToUpper(strings.TrimSpace(key))
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		normalized = append(normalized, key)
+	}
+	return normalized
+}
+
 func (c *Client) GetIssue(ctx context.Context, key string) (IssueDetail, error) {
 	if c.requestTimeout > 0 {
 		var cancel context.CancelFunc

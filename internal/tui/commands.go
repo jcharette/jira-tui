@@ -112,6 +112,40 @@ func (m Model) submitPlanningSprints(requestID int, boardID int) tea.Cmd {
 	}
 }
 
+func (m Model) submitMoveIssuesToSprint(requestID int, sprint jira.Sprint, issueKeys []string) tea.Cmd {
+	return func() tea.Msg {
+		if sprint.ID <= 0 || len(issueKeys) == 0 {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindMoveIssuesToSprint,
+					Err:  worker.ErrInvalidRequest,
+				},
+			}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:       requestID,
+			Kind:     worker.KindMoveIssuesToSprint,
+			Timeout:  m.requestTimeout,
+			Priority: worker.PriorityWrite,
+			MoveIssuesToSprint: &worker.MoveIssuesToSprintRequest{
+				Sprint:    sprint,
+				IssueKeys: append([]string{}, issueKeys...),
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindMoveIssuesToSprint,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindMoveIssuesToSprint, id: requestID, key: sprint.Name}
+	}
+}
+
 func (m Model) submitExpandIssues(requestID int, parentKey string, mode worker.ExpandMode) tea.Cmd {
 	return func() tea.Msg {
 		if parentKey == "" {

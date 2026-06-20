@@ -108,6 +108,7 @@ func NewModel(path string, cfg config.Config, problems []string) Model {
 			{section: sectionAccount, label: "Email", value: cfg.Email},
 			{section: sectionAccount, label: "API Token", value: cfg.APIToken, secret: true, help: "Saved tokens are stored in the OS keychain: macOS Keychain, Windows Credential Manager, or Linux Secret Service. The config file keeps only a keyring reference."},
 			{section: sectionQueries, label: "Default Project", value: cfg.DefaultProject},
+			{section: sectionQueries, label: "Default Board ID", value: strconv.Itoa(cfg.DefaultBoardID), help: "Optional Jira Agile board ID used by Sprint ticket actions. Leave 0 to use the first discovered project board."},
 			{section: sectionQueries, label: "Default JQL", value: cfg.DefaultJQL},
 			{section: sectionAppearance, label: "Theme", value: themeNameOrDefault(cfg.Theme.Name), options: config.BuiltInThemeNames(), help: "Choose a complete visual system: colors, status emphasis, priority emphasis, and issue icons."},
 			{section: sectionAdvancedColors, label: "Primary", value: cfg.Theme.Primary},
@@ -707,6 +708,12 @@ func (m Model) configFromFields() (config.Config, error) {
 			cfg.APIToken = value
 		case "Default Project":
 			cfg.DefaultProject = value
+		case "Default Board ID":
+			parsed, err := strconv.Atoi(value)
+			if err != nil {
+				return config.Config{}, config.ValidationError{Problems: []string{"default board ID must be an integer"}}
+			}
+			cfg.DefaultBoardID = parsed
 		case "Default JQL":
 			cfg.DefaultJQL = value
 		case "Theme":

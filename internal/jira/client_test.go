@@ -235,6 +235,31 @@ func TestGetBoardSprintsParsesIncrementalSprintPage(t *testing.T) {
 	}
 }
 
+func TestMoveIssuesToSprintPostsIssueKeys(t *testing.T) {
+	rest := &fakeRESTConnector{}
+	client := &Client{rest: rest}
+
+	err := client.MoveIssuesToSprint(context.Background(), 300, []string{" abc-1 ", "ABC-2"})
+	if err != nil {
+		t.Fatalf("MoveIssuesToSprint() error = %v", err)
+	}
+
+	if rest.method != http.MethodPost {
+		t.Fatalf("method = %q", rest.method)
+	}
+	if rest.endpoint != "rest/agile/1.0/sprint/300/issue" {
+		t.Fatalf("endpoint = %q", rest.endpoint)
+	}
+	body, ok := rest.body.(map[string][]string)
+	if !ok {
+		t.Fatalf("body type = %T", rest.body)
+	}
+	want := []string{"ABC-1", "ABC-2"}
+	if !reflect.DeepEqual(body["issues"], want) {
+		t.Fatalf("issues = %#v, want %#v", body["issues"], want)
+	}
+}
+
 func TestGetIssueFetchesAndParsesDetail(t *testing.T) {
 	created := model.DateTimeScheme(time.Date(2026, 6, 1, 10, 30, 0, 0, time.UTC))
 	updated := model.DateTimeScheme(time.Date(2026, 6, 2, 11, 45, 0, 0, time.UTC))

@@ -925,6 +925,8 @@ type fakeIssueSearcher struct {
 	sprintStates           []string
 	sprintStartAt          int
 	sprintMaxResults       int
+	moveSprintID           int
+	moveIssueKeys          []string
 	updateSummaryKey       string
 	updateSummaryValue     string
 	updateDescriptionKey   string
@@ -1233,6 +1235,15 @@ func (f *fakeIssueSearcher) GetBoardSprints(_ context.Context, boardID int, stat
 	f.sprintStartAt = startAt
 	f.sprintMaxResults = maxResults
 	return f.sprintPage, nil
+}
+
+func (f *fakeIssueSearcher) MoveIssuesToSprint(_ context.Context, sprintID int, issueKeys []string) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.moveSprintID = sprintID
+	f.moveIssueKeys = append([]string{}, issueKeys...)
+	return nil
 }
 
 func (f *fakeIssueSearcher) UpdateSummary(_ context.Context, key string, summary string) error {

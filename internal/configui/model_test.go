@@ -460,6 +460,9 @@ func TestSymbolModeHelpShowsNerdFontSetupCommand(t *testing.T) {
 
 func TestScalarFieldEditingUsesCursorAwareTextInput(t *testing.T) {
 	cfg := config.Defaults()
+	cfg.BaseURL = "https://example.atlassian.net"
+	cfg.Email = "person@example.com"
+	cfg.APIToken = "secret"
 	cfg.DefaultProject = "ABC"
 	model := NewModel("/tmp/jira.toml", cfg, nil)
 	model.section = sectionQueries
@@ -516,4 +519,34 @@ func fieldIndexForTest(model Model, section int, label string) int {
 		index++
 	}
 	return 0
+}
+
+func TestQueriesSectionEditsDefaultBoardID(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.BaseURL = "https://example.atlassian.net"
+	cfg.Email = "person@example.com"
+	cfg.APIToken = "secret"
+	cfg.DefaultProject = "ABC"
+	cfg.DefaultJQL = config.DefaultJQLForProject("ABC")
+	cfg.Views = config.DefaultViews("ABC")
+	cfg.ActiveView = cfg.Views[0].Name
+	cfg.DefaultBoardID = 100
+	model := NewModel("/tmp/jira.toml", cfg, nil)
+	model.width = 100
+	model.height = 30
+	model.section = sectionQueries
+
+	view := model.render()
+	if !strings.Contains(view, "Default Board ID") || !strings.Contains(view, "100") {
+		t.Fatalf("queries section missing default board ID:\n%s", view)
+	}
+
+	setFieldForTest(&model, "Default Board ID", "200")
+	next, err := model.Config()
+	if err != nil {
+		t.Fatalf("Config() error = %v", err)
+	}
+	if next.DefaultBoardID != 200 {
+		t.Fatalf("DefaultBoardID = %d", next.DefaultBoardID)
+	}
 }

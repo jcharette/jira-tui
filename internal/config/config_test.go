@@ -958,3 +958,52 @@ func writeConfig(t *testing.T, contents string) string {
 	}
 	return path
 }
+
+func TestLoadReadsDefaultBoardID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(`
+version = 1
+active_profile = "default"
+
+[profiles.default]
+base_url = "https://example.atlassian.net"
+email = "person@example.com"
+api_token = "secret"
+
+[queries]
+default_project = "ABC"
+default_board_id = 100
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(LoadOptions{Path: path})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.DefaultBoardID != 100 {
+		t.Fatalf("DefaultBoardID = %d", cfg.DefaultBoardID)
+	}
+}
+
+func TestSaveWritesDefaultBoardID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	cfg := Defaults()
+	cfg.BaseURL = "https://example.atlassian.net"
+	cfg.Email = "person@example.com"
+	cfg.APIToken = "secret"
+	cfg.DefaultProject = "ABC"
+	cfg.DefaultJQL = DefaultJQLForProject("ABC")
+	cfg.DefaultBoardID = 100
+
+	if err := Save(path, cfg); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if !strings.Contains(string(data), "default_board_id = 100") {
+		t.Fatalf("saved config missing default_board_id:\n%s", string(data))
+	}
+}
