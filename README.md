@@ -38,6 +38,17 @@ data loads.
 - **Practical install story:** release archives, `go install`, source installs, and a repo-managed
   Homebrew formula are all documented.
 
+## Documentation
+
+- [Quickstart](docs/quickstart.md): first-run setup, loading work, opening tickets, and safe exits.
+- [Common workflows](docs/workflows.md): daily issue review, ticket updates, notifications, config,
+  and Git/Jira start-work flows.
+- [Keyboard reference](docs/keyboard.md): global keys plus issue list, detail, config, and workflow
+  mode controls.
+- [Security overview](docs/security.md): auth storage, local data, diagnostics, notifications, and
+  external integrations.
+- [Full docs index](docs/README.md): roadmap, backlog, decisions, releases, and project-state docs.
+
 ## Install
 
 Homebrew:
@@ -77,10 +88,6 @@ More install options are documented in [docs/install.md](docs/install.md).
 
 Security reviewers can start with [docs/security.md](docs/security.md) for authentication, local
 storage, cache, diagnostics, notifications, and external-integration behavior.
-
-New users should start with [docs/quickstart.md](docs/quickstart.md). Common task recipes live in
-[docs/workflows.md](docs/workflows.md), and the full key reference lives in
-[docs/keyboard.md](docs/keyboard.md).
 
 ## Setup
 
