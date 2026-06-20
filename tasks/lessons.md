@@ -260,3 +260,6 @@
   adapter and keep callers on narrow interfaces.
 - Do not close GitHub backlog issues just because implementation is committed or pushed to a feature
   branch. Keep the issue open until the work is merged to `main` or otherwise actually delivered.
+- Treat CI deprecation annotations as release hygiene defects when the fix is a straightforward
+  maintained action/runtime upgrade. Do not leave them as "non-blocking" notes at the end of a
+  release unless the upgrade path is blocked or risky.
