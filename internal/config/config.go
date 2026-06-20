@@ -69,6 +69,8 @@ type IssueView struct {
 }
 
 type Theme struct {
+	Name      string
+	Symbols   ThemeSymbols
 	Primary   string
 	Secondary string
 	Accent    string
@@ -79,6 +81,17 @@ type Theme struct {
 	Border    string
 	Surface   string
 	Text      string
+}
+
+type ThemeSymbols struct {
+	Epic      string
+	Story     string
+	Task      string
+	Bug       string
+	Subtask   string
+	Issue     string
+	Collapsed string
+	Expanded  string
 }
 
 type Display struct {
@@ -192,7 +205,89 @@ func DefaultDisplay() Display {
 }
 
 func DefaultTheme() Theme {
+	theme, _, _ := BuiltInTheme("default")
+	return theme
+}
+
+func BuiltInThemeNames() []string {
+	return []string{"default", "focus", "ops", "high-contrast"}
+}
+
+func BuiltInTheme(name string) (Theme, string, bool) {
+	switch normalizeThemeName(name) {
+	case "", "default":
+		return Theme{
+			Name:      "default",
+			Symbols:   ThemeSymbols{Epic: "◈", Story: "▣", Task: "●", Bug: "!", Subtask: "◇", Issue: "•", Collapsed: "▸", Expanded: "▾"},
+			Primary:   "#7DD3FC",
+			Secondary: "#A78BFA",
+			Accent:    "#F59E0B",
+			Success:   "#34D399",
+			Warning:   "#FBBF24",
+			Error:     "#F87171",
+			Muted:     "#6B7280",
+			Border:    "#374151",
+			Surface:   "#111827",
+			Text:      "#E5E7EB",
+		}, "auto", true
+	case "focus":
+		return Theme{
+			Name:      "focus",
+			Symbols:   ThemeSymbols{Epic: "◇", Story: "□", Task: "•", Bug: "!", Subtask: "-", Issue: "·", Collapsed: "+", Expanded: "-"},
+			Primary:   "#C7D2FE",
+			Secondary: "#A5B4FC",
+			Accent:    "#FDE68A",
+			Success:   "#A7F3D0",
+			Warning:   "#FCD34D",
+			Error:     "#FDA4AF",
+			Muted:     "#94A3B8",
+			Border:    "#475569",
+			Surface:   "#0F172A",
+			Text:      "#E2E8F0",
+		}, "symbols", true
+	case "ops":
+		return Theme{
+			Name:      "ops",
+			Symbols:   ThemeSymbols{Epic: "◆", Story: "●", Task: "▪", Bug: "!", Subtask: "◇", Issue: "•", Collapsed: "▸", Expanded: "▾"},
+			Primary:   "#22D3EE",
+			Secondary: "#34D399",
+			Accent:    "#FACC15",
+			Success:   "#4ADE80",
+			Warning:   "#F97316",
+			Error:     "#FB7185",
+			Muted:     "#6EE7B7",
+			Border:    "#059669",
+			Surface:   "#052E2B",
+			Text:      "#ECFEFF",
+		}, "symbols", true
+	case "high-contrast":
+		return Theme{
+			Name:      "high-contrast",
+			Symbols:   ThemeSymbols{Epic: "EP", Story: "ST", Task: "TK", Bug: "!!", Subtask: "SU", Issue: "IS", Collapsed: "+", Expanded: "-"},
+			Primary:   "#FFFFFF",
+			Secondary: "#00FFFF",
+			Accent:    "#FFFF00",
+			Success:   "#00FF66",
+			Warning:   "#FFCC00",
+			Error:     "#FF3366",
+			Muted:     "#BFC7D5",
+			Border:    "#FFFFFF",
+			Surface:   "#000000",
+			Text:      "#FFFFFF",
+		}, "plain", true
+	default:
+		return Theme{}, "", false
+	}
+}
+
+func normalizeThemeName(name string) string {
+	return strings.ToLower(strings.TrimSpace(name))
+}
+
+func DefaultThemeColors() Theme {
 	return Theme{
+		Name:      "default",
+		Symbols:   ThemeSymbols{Epic: "◈", Story: "▣", Task: "●", Bug: "!", Subtask: "◇", Issue: "•", Collapsed: "▸", Expanded: "▾"},
 		Primary:   "#7DD3FC",
 		Secondary: "#A78BFA",
 		Accent:    "#F59E0B",
@@ -304,7 +399,7 @@ func SaveWithSecretStore(path string, cfg Config, store secretstore.Store) error
 			Active: cfg.ActiveView,
 			Saved:  viewConfigs(cfg.Views),
 		},
-		Appearance: appearanceConfig(cfg.Theme),
+		Appearance: appearanceConfigFromTheme(cfg.Theme),
 		Display: displayConfig{
 			SymbolMode: cfg.Display.SymbolMode,
 		},
@@ -464,6 +559,11 @@ func Validate(cfg Config) error {
 			problems = append(problems, "issue view JQL is required")
 		}
 	}
+	if strings.TrimSpace(cfg.Theme.Name) != "" {
+		if _, _, ok := BuiltInTheme(cfg.Theme.Name); !ok {
+			problems = append(problems, "appearance theme must be one of "+strings.Join(BuiltInThemeNames(), ", "))
+		}
+	}
 	for name, value := range cfg.Theme.colorValues() {
 		if !validHexColor(value) {
 			problems = append(problems, fmt.Sprintf("%s color must be a hex color like #7DD3FC", name))
@@ -519,6 +619,7 @@ type viewConfig struct {
 }
 
 type appearanceConfig struct {
+	Theme     string `toml:"theme"`
 	Primary   string `toml:"primary"`
 	Secondary string `toml:"secondary"`
 	Accent    string `toml:"accent"`
@@ -636,7 +737,13 @@ func applyFile(cfg *Config, fileCfg fileConfig, requestedProfile string, store s
 	if len(fileCfg.Views.Saved) > 0 {
 		cfg.Views = issueViews(fileCfg.Views.Saved)
 	}
-	applyAppearance(&cfg.Theme, fileCfg.Appearance)
+	themeSymbolMode, err := applyAppearance(&cfg.Theme, fileCfg.Appearance)
+	if err != nil {
+		return err
+	}
+	if themeSymbolMode != "" && strings.TrimSpace(fileCfg.Display.SymbolMode) == "" {
+		cfg.Display.SymbolMode = themeSymbolMode
+	}
 	applyDisplay(&cfg.Display, fileCfg.Display)
 	if strings.TrimSpace(fileCfg.Runtime.RefreshInterval) != "" {
 		duration, err := parseDuration("refresh interval", fileCfg.Runtime.RefreshInterval)
@@ -954,7 +1061,16 @@ func issueViews(configs []viewConfig) []IssueView {
 	return views
 }
 
-func applyAppearance(theme *Theme, appearance appearanceConfig) {
+func applyAppearance(theme *Theme, appearance appearanceConfig) (string, error) {
+	symbolMode := ""
+	if strings.TrimSpace(appearance.Theme) != "" {
+		skin, skinSymbolMode, ok := BuiltInTheme(appearance.Theme)
+		if !ok {
+			return "", ValidationError{Problems: []string{"appearance theme must be one of " + strings.Join(BuiltInThemeNames(), ", ")}}
+		}
+		*theme = skin
+		symbolMode = skinSymbolMode
+	}
 	if strings.TrimSpace(appearance.Primary) != "" {
 		theme.Primary = strings.TrimSpace(appearance.Primary)
 	}
@@ -985,6 +1101,7 @@ func applyAppearance(theme *Theme, appearance appearanceConfig) {
 	if strings.TrimSpace(appearance.Text) != "" {
 		theme.Text = strings.TrimSpace(appearance.Text)
 	}
+	return symbolMode, nil
 }
 
 func applyDisplay(display *Display, cfg displayConfig) {
@@ -1025,6 +1142,26 @@ func (t Theme) colorValues() map[string]string {
 		"border":    t.Border,
 		"surface":   t.Surface,
 		"text":      t.Text,
+	}
+}
+
+func appearanceConfigFromTheme(theme Theme) appearanceConfig {
+	name := normalizeThemeName(theme.Name)
+	if name == "" {
+		name = "default"
+	}
+	return appearanceConfig{
+		Theme:     name,
+		Primary:   theme.Primary,
+		Secondary: theme.Secondary,
+		Accent:    theme.Accent,
+		Success:   theme.Success,
+		Warning:   theme.Warning,
+		Error:     theme.Error,
+		Muted:     theme.Muted,
+		Border:    theme.Border,
+		Surface:   theme.Surface,
+		Text:      theme.Text,
 	}
 }
 

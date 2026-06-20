@@ -33,12 +33,12 @@ support.
 Install a tagged release with Go:
 
 ```bash
-go install github.com/jcharette/jira-tui/cmd/jira@v1.0.1
+go install github.com/jcharette/jira-tui/cmd/jira@v1.0.2
 ```
 
 Release archives are published at
 [GitHub Releases](https://github.com/jcharette/jira-tui/releases) with names such as
-`jira-tui_1.0.1_darwin_arm64.tar.gz` and include a `jira` binary.
+`jira-tui_1.0.2_darwin_arm64.tar.gz` and include a `jira` binary.
 
 Run from the project root:
 
@@ -167,6 +167,7 @@ jql = "project = ABC AND issuetype = Epic AND resolution = Unresolved ORDER BY u
 include_children = true
 
 [appearance]
+theme = "default"
 primary = "#7DD3FC"
 secondary = "#A78BFA"
 accent = "#F59E0B"
@@ -594,8 +595,9 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
 - Issue tables can be locally sorted by Jira order, priority, status, assignee, type, or key with
   `o`/`O`; parent-child grouping is preserved when possible.
 - `enter` opens a focused ticket detail view; `esc` returns to the table.
-- Uses saved appearance colors for the config editor and issue list.
-- Uses `display.symbol_mode` to control issue-list symbols. `auto` is the default and detects
+- Uses saved appearance skins and color overrides for the config editor and issue list.
+- Each appearance skin provides a matching default issue-list symbol style.
+- Uses `display.symbol_mode` to override issue-list symbols. `auto` is the default and detects
   supported Nerd-capable terminal setups before falling back to colored terminal-safe glyphs, with
   explicit `plain`, `symbols`, `emoji`, and `nerd` overrides available in config. `nerd` is the
   recommended premium icon mode after users install and select a Nerd Font such as JetBrainsMono

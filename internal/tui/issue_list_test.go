@@ -579,6 +579,57 @@ func TestExplicitSymbolModeOverridesNerdDetection(t *testing.T) {
 	}
 }
 
+func TestThemeSymbolsApplyToSymbolsMode(t *testing.T) {
+	theme, _, ok := config.BuiltInTheme("ops")
+	if !ok {
+		t.Fatal("missing ops theme")
+	}
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithTheme(theme),
+		WithDisplay(config.Display{SymbolMode: "symbols"}),
+	)
+	defer model.workers.Stop()
+
+	if got := model.issueKindSymbol(jira.Issue{IssueType: "Task"}); got != "▪" {
+		t.Fatalf("Task symbol = %q, want ops symbol", got)
+	}
+}
+
+func TestExplicitEmojiSymbolModeOverridesThemeSymbols(t *testing.T) {
+	theme, _, ok := config.BuiltInTheme("ops")
+	if !ok {
+		t.Fatal("missing ops theme")
+	}
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithTheme(theme),
+		WithDisplay(config.Display{SymbolMode: "emoji"}),
+	)
+	defer model.workers.Stop()
+
+	if got := model.issueKindSymbol(jira.Issue{IssueType: "Task"}); got != "🟨" {
+		t.Fatalf("Task symbol = %q, want emoji override", got)
+	}
+}
+
+func TestThemeStatusAndPriorityStylesAreSkinSpecific(t *testing.T) {
+	themeConfig, _, ok := config.BuiltInTheme("ops")
+	if !ok {
+		t.Fatal("missing ops theme")
+	}
+	theme := ui.NewTheme(themeConfig)
+
+	if got, generic := statusStyle(theme, "In Progress").GetForeground(), theme.Warning.GetForeground(); got == generic {
+		t.Fatalf("In Progress foreground = %q, should not use generic warning color", got)
+	}
+	if got, generic := priorityStyle(theme, "P4").GetForeground(), theme.Muted.GetForeground(); got == generic {
+		t.Fatalf("P4 foreground = %q, should not use generic muted color", got)
+	}
+}
+
 func TestLanesLayoutRespectsActiveStatusFilter(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()

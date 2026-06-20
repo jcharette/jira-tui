@@ -53,15 +53,15 @@ binary somewhere on your `PATH`.
 Apple Silicon example:
 
 ```bash
-curl -LO https://github.com/jcharette/jira-tui/releases/download/v1.0.1/jira-tui_1.0.1_darwin_arm64.tar.gz
-tar -xzf jira-tui_1.0.1_darwin_arm64.tar.gz
+curl -LO https://github.com/jcharette/jira-tui/releases/download/v1.0.2/jira-tui_1.0.2_darwin_arm64.tar.gz
+tar -xzf jira-tui_1.0.2_darwin_arm64.tar.gz
 install -m 0755 jira ~/bin/jira
 ```
 
 Or install with Go:
 
 ```bash
-go install github.com/jcharette/jira-tui/cmd/jira@v1.0.1
+go install github.com/jcharette/jira-tui/cmd/jira@v1.0.2
 ```
 
 Go installs the binary as `jira`.
@@ -77,6 +77,10 @@ More install options are documented in [docs/install.md](docs/install.md).
 
 Security reviewers can start with [docs/security.md](docs/security.md) for authentication, local
 storage, cache, diagnostics, notifications, and external-integration behavior.
+
+New users should start with [docs/quickstart.md](docs/quickstart.md). Common task recipes live in
+[docs/workflows.md](docs/workflows.md), and the full key reference lives in
+[docs/keyboard.md](docs/keyboard.md).
 
 ## Setup
 
@@ -99,9 +103,11 @@ The config file keeps account metadata and settings in TOML, but saved API token
 OS secret store: macOS Keychain, Windows Credential Manager, or Linux Secret Service. Existing
 plaintext `api_token` values still load and are migrated the next time `jira config` saves.
 
-The config editor also includes saved views, profiles, runtime settings, appearance colors, display
-symbol mode, persistent notifications, optional system notifications, and the default Git branch
-template used by Start Work.
+The config editor also includes saved views, profiles, runtime settings, appearance skins,
+appearance colors, display symbol mode, persistent notifications, optional system notifications,
+and the default Git branch template used by Start Work. Built-in skins are `default`, `focus`,
+`ops`, and `high-contrast`; each skin carries matching colors, status/priority emphasis, and issue
+icons. `display.symbol_mode` can still override the skin icon style.
 
 ## Recommended Terminal Setup
 
@@ -216,6 +222,8 @@ non-ASCII symbols, then restart the terminal and run `jira config`.
 
 ## Controls
 
+For a fuller reference grouped by screen, see [docs/keyboard.md](docs/keyboard.md).
+
 | Key | Action |
 | --- | --- |
 | `j`, `k`, arrows | Move selection or focused picker |
@@ -270,7 +278,7 @@ make build
 make build-local
 make docs-status
 make milestone-complete M=M1
-make release VERSION=1.0.1
+make release VERSION=1.0.2
 ```
 
 Planning, backlog, release notes, and decisions live in [docs/README.md](docs/README.md). The project

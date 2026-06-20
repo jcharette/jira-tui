@@ -67,6 +67,7 @@ const (
 	sectionAccount = iota
 	sectionQueries
 	sectionAppearance
+	sectionAdvancedColors
 	sectionDisplay
 	sectionRuntime
 	sectionGit
@@ -81,6 +82,7 @@ var sectionLabels = []string{
 	"Jira Account",
 	"Queries",
 	"Appearance",
+	"Advanced Colors",
 	"Display",
 	"Runtime",
 	"Git",
@@ -107,16 +109,17 @@ func NewModel(path string, cfg config.Config, problems []string) Model {
 			{section: sectionAccount, label: "API Token", value: cfg.APIToken, secret: true, help: "Saved tokens are stored in the OS keychain: macOS Keychain, Windows Credential Manager, or Linux Secret Service. The config file keeps only a keyring reference."},
 			{section: sectionQueries, label: "Default Project", value: cfg.DefaultProject},
 			{section: sectionQueries, label: "Default JQL", value: cfg.DefaultJQL},
-			{section: sectionAppearance, label: "Primary", value: cfg.Theme.Primary},
-			{section: sectionAppearance, label: "Secondary", value: cfg.Theme.Secondary},
-			{section: sectionAppearance, label: "Accent", value: cfg.Theme.Accent},
-			{section: sectionAppearance, label: "Success", value: cfg.Theme.Success},
-			{section: sectionAppearance, label: "Warning", value: cfg.Theme.Warning},
-			{section: sectionAppearance, label: "Error", value: cfg.Theme.Error},
-			{section: sectionAppearance, label: "Muted", value: cfg.Theme.Muted},
-			{section: sectionAppearance, label: "Border", value: cfg.Theme.Border},
-			{section: sectionAppearance, label: "Surface", value: cfg.Theme.Surface},
-			{section: sectionAppearance, label: "Text", value: cfg.Theme.Text},
+			{section: sectionAppearance, label: "Theme", value: themeNameOrDefault(cfg.Theme.Name), options: config.BuiltInThemeNames(), help: "Choose a complete visual system: colors, status emphasis, priority emphasis, and issue icons."},
+			{section: sectionAdvancedColors, label: "Primary", value: cfg.Theme.Primary},
+			{section: sectionAdvancedColors, label: "Secondary", value: cfg.Theme.Secondary},
+			{section: sectionAdvancedColors, label: "Accent", value: cfg.Theme.Accent},
+			{section: sectionAdvancedColors, label: "Success", value: cfg.Theme.Success},
+			{section: sectionAdvancedColors, label: "Warning", value: cfg.Theme.Warning},
+			{section: sectionAdvancedColors, label: "Error", value: cfg.Theme.Error},
+			{section: sectionAdvancedColors, label: "Muted", value: cfg.Theme.Muted},
+			{section: sectionAdvancedColors, label: "Border", value: cfg.Theme.Border},
+			{section: sectionAdvancedColors, label: "Surface", value: cfg.Theme.Surface},
+			{section: sectionAdvancedColors, label: "Text", value: cfg.Theme.Text},
 			{section: sectionDisplay, label: "Symbol Mode", value: cfg.Display.SymbolMode, options: []string{"auto", "symbols", "emoji", "nerd", "plain"}, help: "Auto detects Nerd-capable iTerm profiles, then falls back to colored safe glyphs.\nNerd setup: brew install --cask font-jetbrains-mono-nerd-font\nThen set your terminal profile font to JetBrainsMono Nerd Font, restart the terminal, and select nerd if auto does not switch."},
 			{section: sectionRuntime, label: "Refresh Interval", value: cfg.RefreshInterval.String()},
 			{section: sectionRuntime, label: "Request Timeout", value: cfg.RequestTimeout.String()},
@@ -217,8 +220,16 @@ func (m Model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cancel = true
 		return m, tea.Quit
 	case "up", "k":
+		if m.section == sectionAppearance {
+			m.cycleCurrentOption(-1)
+			return m, nil
+		}
 		m.moveField(-1)
 	case "down", "j":
+		if m.section == sectionAppearance {
+			m.cycleCurrentOption(1)
+			return m, nil
+		}
 		m.moveField(1)
 	case "left", "shift+tab", "backtab", "h":
 		m.switchSection(-1)
@@ -536,6 +547,9 @@ func (m Model) renderMenu(layout layout) string {
 }
 
 func (m Model) renderFields(layout layout) string {
+	if m.section == sectionAppearance {
+		return m.renderThemeGallery(layout.fieldPane)
+	}
 	if m.section == sectionTest {
 		body := "Run a live Jira check with the current account, token, base URL, project, and JQL before saving. Saving stores the token in the OS keychain."
 		if m.testing {
@@ -564,12 +578,12 @@ func (m Model) renderFields(layout layout) string {
 			editor := m.editor
 			editor.SetWidth(max(1, layout.fieldPane-24))
 			value = m.theme.Input.Render(editor.View())
-		} else if field.section == sectionAppearance {
-			value = renderColorSwatch(m.theme, value)
 		} else if field.boolean {
 			value = renderBoolPicker(m.theme, field.value)
 		} else if len(field.options) > 0 {
 			value = renderOptionPicker(m.theme, field.value, field.options)
+		} else if field.section == sectionAdvancedColors {
+			value = renderColorSwatch(m.theme, value)
 		}
 
 		label := m.theme.FieldLabel.Render(field.label + ":")
@@ -586,6 +600,67 @@ func (m Model) renderFields(layout layout) string {
 		content += "\n\n" + m.theme.Muted.Render(wrapConfigHelp(help, max(20, layout.fieldPane-6)))
 	}
 	return m.theme.ActivePane.Width(layout.fieldPane).Render(content)
+}
+
+func (m Model) renderThemeGallery(width int) string {
+	innerWidth := max(28, width-4)
+	current := themeNameOrDefault(fieldValue(m.fields, "Theme"))
+	lines := []string{m.theme.PaneTitle.Render("Theme Gallery") + " " + m.theme.Muted.Render("j/k choose")}
+	for _, option := range themeGalleryOptions() {
+		cursor := " "
+		nameStyle := m.theme.FieldLabel
+		descStyle := m.theme.Muted
+		if option.Name == current {
+			cursor = ">"
+			nameStyle = m.theme.Selected
+			descStyle = m.theme.Text
+		}
+		line := fmt.Sprintf("%s %-14s %s", cursor, nameStyle.Render(option.Label), descStyle.Render(truncate(option.Description, max(16, innerWidth-18))))
+		lines = append(lines, line)
+	}
+	lines = append(lines, "", m.renderAppearancePreview(innerWidth))
+	lines = append(lines, "", m.theme.Muted.Render("Advanced Colors is available for manual overrides. Display > Symbol Mode can override the theme icon style."))
+	return m.theme.ActivePane.Width(width).Render(strings.Join(lines, "\n"))
+}
+
+type themeGalleryOption struct {
+	Name        string
+	Label       string
+	Description string
+}
+
+func themeGalleryOptions() []themeGalleryOption {
+	return []themeGalleryOption{
+		{Name: "default", Label: "Default", Description: "Balanced daily Jira triage with familiar colors."},
+		{Name: "focus", Label: "Focus", Description: "Lower-noise reading mode for long planning and review sessions."},
+		{Name: "ops", Label: "Ops", Description: "High-signal side-terminal monitoring for active ticket movement."},
+		{Name: "high-contrast", Label: "High Contrast", Description: "Maximum contrast with plain icons for accessibility."},
+	}
+}
+
+func (m Model) renderAppearancePreview(width int) string {
+	summaryWidth := max(18, width-36)
+	row := m.theme.Key.Render("◆ PROJ-123") + " " +
+		m.theme.Text.Render(truncate("Tune theme preview rows", summaryWidth)) + " " +
+		m.theme.StatusActive.Render("In Progress") + " " +
+		m.theme.PriorityMedium.Render("P3") + " " +
+		m.theme.Muted.Render("Jane D.")
+	secondary := m.theme.Key.Render("◇ PROJ-124") + " " +
+		m.theme.Text.Render(truncate("Review lower priority work", summaryWidth)) + " " +
+		m.theme.StatusTodo.Render("To Do") + " " +
+		m.theme.PriorityLow.Render("P4") + " " +
+		m.theme.Muted.Render("Sam R.")
+	child := m.theme.Muted.Render("  └─ ") + m.theme.Key.Render("PROJ-125") + " " +
+		m.theme.Text.Render(truncate("Child task hierarchy", summaryWidth)) + " " +
+		m.theme.StatusReview.Render("Review")
+	notification := m.theme.Warning.Render("Notifications") + " " + m.theme.Text.Render("2 uncleared ticket updates")
+	footer := m.theme.Muted.Render("Issue Lanes") + " " +
+		m.theme.Key.Render("?") + " " + m.theme.Text.Render("help") + " " +
+		m.theme.Muted.Render("|") + " " +
+		m.theme.Key.Render("j/k") + " " + m.theme.Text.Render("move") + " " +
+		m.theme.Muted.Render("|") + " " +
+		m.theme.Key.Render("ctrl+n") + " " + m.theme.Text.Render("notifications")
+	return m.theme.FieldLabel.Render("Preview") + "\n" + row + "\n" + secondary + "\n" + child + "\n" + notification + "\n" + footer
 }
 
 func configLayout(width int) layout {
@@ -634,6 +709,12 @@ func (m Model) configFromFields() (config.Config, error) {
 			cfg.DefaultProject = value
 		case "Default JQL":
 			cfg.DefaultJQL = value
+		case "Theme":
+			theme, _, ok := config.BuiltInTheme(value)
+			if !ok {
+				return config.Config{}, config.ValidationError{Problems: []string{"appearance theme must be one of " + strings.Join(config.BuiltInThemeNames(), ", ")}}
+			}
+			cfg.Theme = theme
 		case "Primary":
 			cfg.Theme.Primary = value
 		case "Secondary":
@@ -853,6 +934,7 @@ func (m Model) currentField() field {
 }
 
 func (m *Model) setCurrentValue(value string) {
+	current := m.currentField()
 	index := 0
 	for i, field := range m.fields {
 		if field.section != m.section {
@@ -860,6 +942,9 @@ func (m *Model) setCurrentValue(value string) {
 		}
 		if index == m.selected {
 			m.fields[i].value = value
+			if current.section == sectionAppearance || current.section == sectionAdvancedColors {
+				m.refreshAppearancePreview(current.label, value)
+			}
 			return
 		}
 		index++
@@ -886,6 +971,92 @@ func (m *Model) cycleCurrentOption(delta int) {
 	}
 	selected = (selected + delta + len(field.options)) % len(field.options)
 	m.setCurrentValue(field.options[selected])
+}
+
+func (m *Model) refreshAppearancePreview(label string, value string) {
+	if label == "Theme" {
+		theme, symbolMode, ok := config.BuiltInTheme(value)
+		if !ok {
+			return
+		}
+		m.theme = ui.NewTheme(theme)
+		m.setFieldValue("Symbol Mode", symbolMode)
+		for _, field := range []struct {
+			label string
+			value string
+		}{
+			{"Primary", theme.Primary},
+			{"Secondary", theme.Secondary},
+			{"Accent", theme.Accent},
+			{"Success", theme.Success},
+			{"Warning", theme.Warning},
+			{"Error", theme.Error},
+			{"Muted", theme.Muted},
+			{"Border", theme.Border},
+			{"Surface", theme.Surface},
+			{"Text", theme.Text},
+		} {
+			m.setFieldValue(field.label, field.value)
+		}
+		return
+	}
+	m.theme = ui.NewTheme(m.themeFromAppearanceFields())
+}
+
+func (m *Model) setFieldValue(label string, value string) {
+	for index, field := range m.fields {
+		if field.label == label {
+			m.fields[index].value = value
+			return
+		}
+	}
+}
+
+func (m Model) themeFromAppearanceFields() config.Theme {
+	theme, _, _ := config.BuiltInTheme(fieldValue(m.fields, "Theme"))
+	for _, field := range m.fields {
+		value := strings.TrimSpace(field.value)
+		switch field.label {
+		case "Primary":
+			theme.Primary = value
+		case "Secondary":
+			theme.Secondary = value
+		case "Accent":
+			theme.Accent = value
+		case "Success":
+			theme.Success = value
+		case "Warning":
+			theme.Warning = value
+		case "Error":
+			theme.Error = value
+		case "Muted":
+			theme.Muted = value
+		case "Border":
+			theme.Border = value
+		case "Surface":
+			theme.Surface = value
+		case "Text":
+			theme.Text = value
+		}
+	}
+	return theme
+}
+
+func fieldValue(fields []field, label string) string {
+	for _, field := range fields {
+		if field.label == label {
+			return field.value
+		}
+	}
+	return ""
+}
+
+func themeNameOrDefault(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" {
+		return "default"
+	}
+	return name
 }
 
 func displayValue(field field) string {

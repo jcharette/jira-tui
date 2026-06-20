@@ -88,13 +88,15 @@ func statusStyle(theme ui.Theme, status string) lipgloss.Style {
 	normalized := strings.ToLower(status)
 	switch {
 	case strings.Contains(normalized, "done"), strings.Contains(normalized, "closed"), strings.Contains(normalized, "resolved"):
-		return theme.Success
+		return theme.StatusDone
 	case strings.Contains(normalized, "block"), strings.Contains(normalized, "fail"):
-		return theme.Error
-	case strings.Contains(normalized, "progress"), strings.Contains(normalized, "review"):
-		return theme.Warning
+		return theme.StatusBlocked
+	case strings.Contains(normalized, "review"):
+		return theme.StatusReview
+	case strings.Contains(normalized, "progress"):
+		return theme.StatusActive
 	default:
-		return theme.Muted
+		return theme.StatusTodo
 	}
 }
 
@@ -102,13 +104,13 @@ func priorityStyle(theme ui.Theme, priority string) lipgloss.Style {
 	normalized := strings.ToLower(priority)
 	switch {
 	case strings.Contains(normalized, "highest"), strings.Contains(normalized, "critical"), strings.Contains(normalized, "blocker"):
-		return theme.Error
+		return theme.PriorityHigh
 	case strings.Contains(normalized, "high"):
-		return theme.Warning
-	case strings.Contains(normalized, "medium"):
-		return theme.Text
+		return theme.PriorityHigh
+	case strings.Contains(normalized, "medium"), strings.EqualFold(strings.TrimSpace(priority), "P3"):
+		return theme.PriorityMedium
 	default:
-		return theme.Muted
+		return theme.PriorityLow
 	}
 }
 

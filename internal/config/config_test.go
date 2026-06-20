@@ -25,6 +25,7 @@ api_token = "secret"
 default_project = "ABC"
 
 [appearance]
+theme = "ops"
 primary = "#7DD3FC"
 accent = "#F59E0B"
 
@@ -90,8 +91,14 @@ allow_code_edits = false
 	if cfg.Theme.Primary != "#7DD3FC" {
 		t.Fatalf("Theme.Primary = %q", cfg.Theme.Primary)
 	}
+	if cfg.Theme.Name != "ops" {
+		t.Fatalf("Theme.Name = %q", cfg.Theme.Name)
+	}
 	if cfg.Theme.Accent != "#F59E0B" {
 		t.Fatalf("Theme.Accent = %q", cfg.Theme.Accent)
+	}
+	if cfg.Theme.Surface != "#052E2B" {
+		t.Fatalf("Theme.Surface = %q", cfg.Theme.Surface)
 	}
 	if cfg.Display.SymbolMode != "symbols" {
 		t.Fatalf("Display.SymbolMode = %q", cfg.Display.SymbolMode)
@@ -172,6 +179,66 @@ default_project = "ABC"
 	}
 	if cfg.Profiles["default"].Email != "default@example.com" || cfg.Profiles["work"].Email != "work@example.com" {
 		t.Fatalf("Profiles = %#v", cfg.Profiles)
+	}
+}
+
+func TestLoadAppliesThemeDefaultSymbolMode(t *testing.T) {
+	path := writeConfig(t, `
+version = 1
+active_profile = "default"
+
+[profiles.default]
+base_url = "https://example.atlassian.net"
+email = "person@example.com"
+api_token = "secret"
+
+[queries]
+default_project = "ABC"
+
+[appearance]
+theme = "high-contrast"
+`)
+
+	cfg, err := Load(LoadOptions{Path: path})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.Theme.Name != "high-contrast" {
+		t.Fatalf("Theme.Name = %q", cfg.Theme.Name)
+	}
+	if cfg.Display.SymbolMode != "plain" {
+		t.Fatalf("Display.SymbolMode = %q, want plain", cfg.Display.SymbolMode)
+	}
+}
+
+func TestLoadLetsDisplaySymbolModeOverrideThemeDefault(t *testing.T) {
+	path := writeConfig(t, `
+version = 1
+active_profile = "default"
+
+[profiles.default]
+base_url = "https://example.atlassian.net"
+email = "person@example.com"
+api_token = "secret"
+
+[queries]
+default_project = "ABC"
+
+[appearance]
+theme = "high-contrast"
+
+[display]
+symbol_mode = "emoji"
+`)
+
+	cfg, err := Load(LoadOptions{Path: path})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.Display.SymbolMode != "emoji" {
+		t.Fatalf("Display.SymbolMode = %q, want emoji", cfg.Display.SymbolMode)
 	}
 }
 
@@ -856,6 +923,29 @@ primary = "blue"
 	_, err := Load(LoadOptions{Path: path})
 	if err == nil {
 		t.Fatal("expected invalid color error")
+	}
+}
+
+func TestLoadRejectsInvalidAppearanceTheme(t *testing.T) {
+	path := writeConfig(t, `
+version = 1
+active_profile = "default"
+
+[profiles.default]
+base_url = "https://example.atlassian.net"
+email = "person@example.com"
+api_token = "secret"
+
+[queries]
+default_project = "ABC"
+
+[appearance]
+theme = "laser"
+`)
+
+	_, err := Load(LoadOptions{Path: path})
+	if err == nil {
+		t.Fatal("expected invalid theme error")
 	}
 }
 

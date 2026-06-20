@@ -1,4 +1,4 @@
- Jira Config  editing v1.0.1                                                                            /tmp/jira.toml
+ Jira Config  editing v1.0.2                                                                            /tmp/jira.toml
 
 ╭────────────────────────────────╮  ╭────────────────────────────────────────────────────────────────────────────────╮
 │                                │  │                                                                                │
@@ -7,12 +7,13 @@
 │    Jira Account                │  │  > Symbol Mode:       auto / symbols / emoji / nerd / plain                    │
 │    Queries                     │  │                                                                                │
 │    Appearance                  │  │  Auto detects Nerd-capable iTerm profiles, then falls back to colored safe     │
-│    Display                     │  │  glyphs.                                                                       │
-│    Runtime                     │  │  Nerd setup: brew install --cask font-jetbrains-mono-nerd-font                 │
-│    Git                         │  │  Then set your terminal profile font to JetBrainsMono Nerd Font, restart       │
-│    Claude                      │  │  the terminal, and select nerd if auto does not switch.                        │
-│    Notifications               │  │                                                                                │
-│    Test Connection             │  ╰────────────────────────────────────────────────────────────────────────────────╯
+│    Advanced Colors             │  │  glyphs.                                                                       │
+│    Display                     │  │  Nerd setup: brew install --cask font-jetbrains-mono-nerd-font                 │
+│    Runtime                     │  │  Then set your terminal profile font to JetBrainsMono Nerd Font, restart       │
+│    Git                         │  │  the terminal, and select nerd if auto does not switch.                        │
+│    Claude                      │  │                                                                                │
+│    Notifications               │  ╰────────────────────────────────────────────────────────────────────────────────╯
+│    Test Connection             │
 │    Save and Exit               │
 │    Quit Without Saving         │
 │                                │

@@ -8,26 +8,34 @@ import (
 )
 
 type Theme struct {
-	Header       lipgloss.Style
-	Subtitle     lipgloss.Style
-	Panel        lipgloss.Style
-	ActivePane   lipgloss.Style
-	PaneTitle    lipgloss.Style
-	Selected     lipgloss.Style
-	TabActive    lipgloss.Style
-	TabInactive  lipgloss.Style
-	Key          lipgloss.Style
-	Muted        lipgloss.Style
-	Success      lipgloss.Style
-	Warning      lipgloss.Style
-	Error        lipgloss.Style
-	Text         lipgloss.Style
-	FieldLabel   lipgloss.Style
-	Code         lipgloss.Style
-	CodeBlock    lipgloss.Style
-	CommentBlock lipgloss.Style
-	NoticeBlock  lipgloss.Style
-	Input        lipgloss.Style
+	Header         lipgloss.Style
+	Subtitle       lipgloss.Style
+	Panel          lipgloss.Style
+	ActivePane     lipgloss.Style
+	PaneTitle      lipgloss.Style
+	Selected       lipgloss.Style
+	TabActive      lipgloss.Style
+	TabInactive    lipgloss.Style
+	Key            lipgloss.Style
+	Muted          lipgloss.Style
+	Success        lipgloss.Style
+	Warning        lipgloss.Style
+	Error          lipgloss.Style
+	StatusTodo     lipgloss.Style
+	StatusActive   lipgloss.Style
+	StatusReview   lipgloss.Style
+	StatusDone     lipgloss.Style
+	StatusBlocked  lipgloss.Style
+	PriorityHigh   lipgloss.Style
+	PriorityMedium lipgloss.Style
+	PriorityLow    lipgloss.Style
+	Text           lipgloss.Style
+	FieldLabel     lipgloss.Style
+	Code           lipgloss.Style
+	CodeBlock      lipgloss.Style
+	CommentBlock   lipgloss.Style
+	NoticeBlock    lipgloss.Style
+	Input          lipgloss.Style
 }
 
 func NewTheme(cfg config.Theme) Theme {
@@ -88,6 +96,26 @@ func NewTheme(cfg config.Theme) Theme {
 		Error: lipgloss.NewStyle().
 			Bold(true).
 			Foreground(errorColor),
+		StatusTodo: lipgloss.NewStyle().
+			Foreground(muted),
+		StatusActive: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(primary),
+		StatusReview: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(secondary),
+		StatusDone: lipgloss.NewStyle().
+			Foreground(success),
+		StatusBlocked: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(errorColor),
+		PriorityHigh: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(errorColor),
+		PriorityMedium: lipgloss.NewStyle().
+			Foreground(accent),
+		PriorityLow: lipgloss.NewStyle().
+			Foreground(secondary),
 		Text: lipgloss.NewStyle().
 			Foreground(text),
 		FieldLabel: lipgloss.NewStyle().
@@ -96,25 +124,26 @@ func NewTheme(cfg config.Theme) Theme {
 		Code: lipgloss.NewStyle().
 			Bold(true).
 			Foreground(accent).
-			Background(lipgloss.Color("#1F2937")),
+			Background(border),
 		CodeBlock: lipgloss.NewStyle().
 			Foreground(text).
-			Background(lipgloss.Color("#0B1220")).
+			Background(surface).
 			Padding(0, 1),
 		CommentBlock: lipgloss.NewStyle().
 			Foreground(text).
+			Background(surface).
 			Border(lipgloss.NormalBorder(), false, false, false, true).
 			BorderForeground(border).
 			Padding(0, 1),
 		NoticeBlock: lipgloss.NewStyle().
 			Foreground(text).
-			Background(lipgloss.Color("#1F2937")).
+			Background(surface).
 			Border(lipgloss.NormalBorder(), false, false, false, true).
 			BorderForeground(accent).
 			Padding(0, 1),
 		Input: lipgloss.NewStyle().
 			Foreground(text).
-			Background(lipgloss.Color("#1F2937")).
+			Background(border).
 			Padding(0, 1),
 	}
 }

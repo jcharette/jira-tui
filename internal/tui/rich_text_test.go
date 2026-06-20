@@ -31,6 +31,28 @@ func TestRenderRichDescriptionStylesInlineCode(t *testing.T) {
 	}
 }
 
+func TestRenderRichDescriptionUnescapesMarkdownPunctuation(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+
+	rendered := model.renderRichDescriptionBody(`Install Kubernetes \(node autoscaling/provisioning\) via Helm.`, 96)
+
+	if strings.Contains(rendered, `\(`) || strings.Contains(rendered, `\)`) {
+		t.Fatalf("escaped punctuation leaked into rendered text: %q", rendered)
+	}
+	if !strings.Contains(rendered, "(node autoscaling/provisioning)") {
+		t.Fatalf("missing unescaped parenthetical in %q", rendered)
+	}
+}
+
+func TestSingleLineUnescapesMarkdownPunctuation(t *testing.T) {
+	got := singleLine(`Install Kubernetes \(node autoscaling/provisioning\) via Helm.`)
+
+	if got != "Install Kubernetes (node autoscaling/provisioning) via Helm." {
+		t.Fatalf("singleLine = %q", got)
+	}
+}
+
 func TestRenderRichDescriptionFormatsCodeBlock(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()

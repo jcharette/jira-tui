@@ -506,6 +506,7 @@ type Model struct {
 	activeRequestID   int
 	theme             ui.Theme
 	symbolMode        issueSymbolMode
+	skinSymbols       issueSymbols
 	savedViewWriter   SavedViewWriter
 	savedViewsWriter  SavedViewsWriter
 	diagnosticSink    diagnosticSink
@@ -600,6 +601,7 @@ func WithQueueSize(size int) Option {
 func WithTheme(theme config.Theme) Option {
 	return func(m *Model) {
 		m.theme = ui.NewTheme(theme)
+		m.skinSymbols = issueSymbolsFromConfig(theme.Symbols)
 	}
 }
 
@@ -747,6 +749,7 @@ func NewModel(client worker.JiraClient, jql string, options ...Option) Model {
 		issueLayout:     issueLayoutLanes,
 		theme:           ui.NewTheme(config.DefaultTheme()),
 		symbolMode:      symbolModeAuto,
+		skinSymbols:     issueSymbolsFromConfig(config.DefaultTheme().Symbols),
 		notificationConfig: NotificationConfig{
 			Enabled:                   true,
 			AutoOpenPanel:             true,

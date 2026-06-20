@@ -189,32 +189,32 @@ func renderRichInline(theme ui.Theme, line string) string {
 		linkStart, linkEnd := nextRichLink(remaining)
 		mentionStart, mentionEnd := nextRichMention(remaining)
 		if start < 0 && statusStart < 0 && linkStart < 0 && mentionStart < 0 {
-			b.WriteString(theme.Text.Render(remaining))
+			b.WriteString(theme.Text.Render(unescapeMarkdownPunctuation(remaining)))
 			break
 		}
 		if statusStart >= 0 && isFirstRichToken(statusStart, start, linkStart, mentionStart) {
-			b.WriteString(theme.Text.Render(remaining[:statusStart]))
+			b.WriteString(theme.Text.Render(unescapeMarkdownPunctuation(remaining[:statusStart])))
 			b.WriteString(theme.Warning.Copy().Bold(true).Render(statusText))
 			remaining = remaining[statusEnd:]
 			continue
 		}
 		if linkStart >= 0 && isFirstRichToken(linkStart, start, statusStart, mentionStart) {
-			b.WriteString(theme.Text.Render(remaining[:linkStart]))
+			b.WriteString(theme.Text.Render(unescapeMarkdownPunctuation(remaining[:linkStart])))
 			b.WriteString(theme.Key.Copy().Underline(true).Render(remaining[linkStart:linkEnd]))
 			remaining = remaining[linkEnd:]
 			continue
 		}
 		if mentionStart >= 0 && isFirstRichToken(mentionStart, start, statusStart, linkStart) {
-			b.WriteString(theme.Text.Render(remaining[:mentionStart]))
+			b.WriteString(theme.Text.Render(unescapeMarkdownPunctuation(remaining[:mentionStart])))
 			b.WriteString(theme.Selected.Render(remaining[mentionStart:mentionEnd]))
 			remaining = remaining[mentionEnd:]
 			continue
 		}
-		b.WriteString(theme.Text.Render(remaining[:start]))
+		b.WriteString(theme.Text.Render(unescapeMarkdownPunctuation(remaining[:start])))
 		remaining = remaining[start+1:]
 		end := strings.Index(remaining, "`")
 		if end < 0 {
-			b.WriteString(theme.Text.Render("`" + remaining))
+			b.WriteString(theme.Text.Render("`" + unescapeMarkdownPunctuation(remaining)))
 			break
 		}
 		code := remaining[:end]
@@ -226,6 +226,24 @@ func renderRichInline(theme ui.Theme, line string) string {
 		remaining = remaining[end+1:]
 	}
 	return b.String()
+}
+
+func unescapeMarkdownPunctuation(value string) string {
+	replacer := strings.NewReplacer(
+		`\(`, "(",
+		`\)`, ")",
+		`\[`, "[",
+		`\]`, "]",
+		`\{`, "{",
+		`\}`, "}",
+		`\.`, ".",
+		`\,`, ",",
+		`\:`, ":",
+		`\;`, ";",
+		`\!`, "!",
+		`\?`, "?",
+	)
+	return replacer.Replace(value)
 }
 
 func isFirstRichToken(candidate int, others ...int) bool {

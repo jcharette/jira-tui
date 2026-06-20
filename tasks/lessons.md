@@ -158,6 +158,15 @@
   review and final creation.
 - For compact TUI mode tabs, prefer plain selected markers like `>` over filled background styles.
   Do not pass styled Lip Gloss strings through byte-based truncation; it can render as broken blocks
+- When adding visual skins, treat icons/symbols as part of the skin contract, not a separate
+  afterthought. Color palettes and default symbol modes should be designed together, with explicit
+  user display settings still able to override the skin default.
+- For TUI skins, apply the skin at the shared style layer, not just outer panels. Text roles, code
+  blocks, input blocks, notices, status labels, and selected rows should all derive foreground and
+  background from the selected skin so screens do not mix skin colors with the terminal default.
+- Inline TUI styles must not set backgrounds just to force skin coverage. Backgrounds on word-level
+  styles create rectangular artifacts in tables and footers; reserve backgrounds for block/container
+  styles such as panels, code blocks, inputs, and notices.
   or clipped labels in real terminals.
 - Create-ticket forms must be bounded and focused-field aware. Jira metadata can return enough
   fields/options to exceed the terminal height, so render a windowed body with line-range context

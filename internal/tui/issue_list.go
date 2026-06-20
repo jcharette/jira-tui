@@ -8,6 +8,7 @@ import (
 
 	"charm.land/bubbles/v2/viewport"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/jcharette/jira-tui/internal/config"
 	"github.com/jcharette/jira-tui/internal/jira"
 	"github.com/jcharette/jira-tui/internal/worker"
 )
@@ -571,7 +572,7 @@ func titleCase(value string) string {
 }
 
 func singleLine(value string) string {
-	return strings.Join(strings.Fields(value), " ")
+	return unescapeMarkdownPunctuation(strings.Join(strings.Fields(value), " "))
 }
 
 func (m Model) issueListHeader(layout browserLayout) string {
@@ -1143,8 +1144,28 @@ func (m Model) issueSymbols() issueSymbols {
 	case symbolModeNerd:
 		return issueSymbols{Epic: "", Story: "", Task: "", Bug: "", Subtask: "◇", Issue: "", Collapsed: "▸", Expanded: "▾"}
 	default:
+		if !m.skinSymbols.empty() {
+			return m.skinSymbols
+		}
 		return issueSymbols{Epic: "◈", Story: "▣", Task: "●", Bug: "!", Subtask: "◇", Issue: "•", Collapsed: "▸", Expanded: "▾"}
 	}
+}
+
+func issueSymbolsFromConfig(symbols config.ThemeSymbols) issueSymbols {
+	return issueSymbols{
+		Epic:      symbols.Epic,
+		Story:     symbols.Story,
+		Task:      symbols.Task,
+		Bug:       symbols.Bug,
+		Subtask:   symbols.Subtask,
+		Issue:     symbols.Issue,
+		Collapsed: symbols.Collapsed,
+		Expanded:  symbols.Expanded,
+	}
+}
+
+func (s issueSymbols) empty() bool {
+	return s.Epic == "" && s.Story == "" && s.Task == "" && s.Bug == "" && s.Subtask == "" && s.Issue == ""
 }
 
 func (m Model) issueHierarchySymbol(row issueDisplayRow, collapsed bool) string {

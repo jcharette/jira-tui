@@ -4,6 +4,9 @@ This folder contains the durable project documentation for Jira TUI.
 
 ## Start Here
 
+- [quickstart.md](quickstart.md): the shortest path to configure and use the app.
+- [workflows.md](workflows.md): task-oriented recipes for day-to-day Jira work.
+- [keyboard.md](keyboard.md): keyboard reference grouped by screen.
 - [project-state.md](project-state.md): current architecture, commands, behavior, and assumptions.
 - [security.md](security.md): authentication, local storage, diagnostics, and integration security model.
 - [install.md](install.md): release, Go, source, and Homebrew install paths.

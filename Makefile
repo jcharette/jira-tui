@@ -66,6 +66,9 @@ docs-status:
 
 docs-check:
 	test -f docs/README.md
+	test -f docs/quickstart.md
+	test -f docs/workflows.md
+	test -f docs/keyboard.md
 	test -f docs/roadmap.md
 	test -f docs/backlog.md
 	test -f docs/project-state.md

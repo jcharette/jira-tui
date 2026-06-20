@@ -154,6 +154,49 @@ func TestRenderShowsNotificationsSection(t *testing.T) {
 	}
 }
 
+func TestRenderShowsAppearanceThemePicker(t *testing.T) {
+	cfg := config.Defaults()
+	model := NewModel("/tmp/jira.toml", cfg, nil)
+	model.width = 120
+	model.height = 30
+	model.section = sectionAppearance
+	model.selected = fieldIndexForTest(model, sectionAppearance, "Theme")
+
+	view := model.render()
+
+	for _, want := range []string{"Theme Gallery", "Default", "Focus", "Ops", "High Contrast", "Preview", "PROJ-123", "In Progress", "Notifications", "ctrl+n", "Advanced Colors"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in %q", want, view)
+		}
+	}
+}
+
+func TestThemeGalleryMovesWithJKWithoutTextEditing(t *testing.T) {
+	cfg := config.Defaults()
+	model := NewModel("/tmp/jira.toml", cfg, nil)
+	model.section = sectionAppearance
+	model.selected = fieldIndexForTest(model, sectionAppearance, "Theme")
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
+	next := updated.(Model)
+
+	if next.editing {
+		t.Fatal("theme gallery should move without entering text edit mode")
+	}
+	if value := fieldValueForTest(next, "Theme"); value != "focus" {
+		t.Fatalf("Theme after j = %q, want focus", value)
+	}
+	if value := fieldValueForTest(next, "Symbol Mode"); value != "symbols" {
+		t.Fatalf("Symbol Mode after theme change = %q, want symbols", value)
+	}
+
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "k", Code: 'k'}))
+	next = updated.(Model)
+	if value := fieldValueForTest(next, "Theme"); value != "default" {
+		t.Fatalf("Theme after k = %q, want default", value)
+	}
+}
+
 func TestConfigFromFieldsIncludesClaudeSettings(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.ActiveProfile = "work"
@@ -189,6 +232,41 @@ func TestConfigFromFieldsIncludesClaudeSettings(t *testing.T) {
 	}
 	if cfg.ActiveProfile != "work" {
 		t.Fatalf("ActiveProfile = %q", cfg.ActiveProfile)
+	}
+}
+
+func TestConfigFromFieldsIncludesThemeSkin(t *testing.T) {
+	cfg := config.Defaults()
+	theme, symbolMode, ok := config.BuiltInTheme("ops")
+	if !ok {
+		t.Fatal("missing ops theme")
+	}
+	cfg.Theme = theme
+	cfg.Display.SymbolMode = symbolMode
+	cfg.ActiveProfile = "default"
+	cfg.BaseURL = "https://example.atlassian.net"
+	cfg.Email = "person@example.com"
+	cfg.APIToken = "secret"
+	cfg.DefaultProject = "ABC"
+	cfg.DefaultJQL = config.DefaultJQLForProject("ABC")
+	cfg.Views = config.DefaultViews("ABC")
+	cfg.ActiveView = cfg.Views[0].Name
+	model := NewModel("/tmp/jira.toml", cfg, nil)
+	setFieldForTest(&model, "Primary", "#111111")
+
+	next, err := model.Config()
+	if err != nil {
+		t.Fatalf("Config() error = %v", err)
+	}
+
+	if next.Theme.Name != "ops" {
+		t.Fatalf("Theme.Name = %q", next.Theme.Name)
+	}
+	if next.Theme.Primary != "#111111" {
+		t.Fatalf("Theme.Primary = %q", next.Theme.Primary)
+	}
+	if next.Theme.Surface != "#052E2B" {
+		t.Fatalf("Theme.Surface = %q", next.Theme.Surface)
 	}
 }
 

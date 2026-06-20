@@ -2,6 +2,15 @@
 
 All notable changes to this project should be recorded here.
 
+## Unreleased
+
+## 1.0.2 - 2026-06-20
+
+- Added curated appearance themes with matching issue-list symbol styles.
+- Added quickstart, workflow, and keyboard reference docs.
+- Improved Jira rich-text rendering for escaped Markdown punctuation.
+- Clarified issue-list footer help for child expansion.
+
 ## 1.0.1 - 2026-06-19
 
 - Added the app version to the main TUI and config UI headers.
