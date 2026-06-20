@@ -988,6 +988,7 @@ default_board_id = 100
 
 func TestSaveWritesDefaultBoardID(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
+	secrets := secretstore.NewMemoryStore()
 	cfg := Defaults()
 	cfg.BaseURL = "https://example.atlassian.net"
 	cfg.Email = "person@example.com"
@@ -996,7 +997,7 @@ func TestSaveWritesDefaultBoardID(t *testing.T) {
 	cfg.DefaultJQL = DefaultJQLForProject("ABC")
 	cfg.DefaultBoardID = 100
 
-	if err := Save(path, cfg); err != nil {
+	if err := SaveWithSecretStore(path, cfg, secrets); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
 	data, err := os.ReadFile(path)
