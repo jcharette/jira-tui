@@ -14,11 +14,15 @@ engineering context that should stay close to the codebase.
 
 - [#6 Expand AI workflows behind provider-neutral ai.task events](https://github.com/jcharette/jira-tui/issues/6)
 
+### Ticket Actions
+
+- [#12 Expand metadata-backed Ticket Actions](https://github.com/jcharette/jira-tui/issues/12)
+
 ## Local-Only Backlog Guidance
 
-- Add more metadata-backed Ticket Actions only when Jira workflows expose a concrete supported field
-  or operation that is not already covered by generic edit, comments, status, links, worklogs,
-  create, assignee, labels, components, summary, priority, or Sprint Actions.
+- Metadata-backed Ticket Actions should only ship when Jira exposes a concrete supported field or
+  operation that is not already covered by generic edit, comments, status, links, worklogs, create,
+  assignee, labels, components, summary, priority, or Sprint Actions.
 - Multi-site Jira profiles stay Maybe Later unless real usage shows people regularly need to switch
   between unrelated Jira tenants from the same install.
 - Jira OAuth/device authorization is intentionally not planned. API-token auth remains the supported
