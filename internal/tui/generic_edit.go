@@ -33,7 +33,7 @@ func (m Model) genericEditFieldActions() []detailAction {
 		enabled := genericEditFieldSupported(field)
 		action := detailAction{
 			ID:          "field:" + fieldID,
-			Label:       "Edit " + name,
+			Label:       genericEditFieldActionLabel(field),
 			Description: genericEditFieldDescription(field, enabled),
 			Enabled:     enabled,
 		}
@@ -47,7 +47,7 @@ func (m Model) genericEditFieldActions() []detailAction {
 }
 
 func genericEditFieldSupported(field jira.EditField) bool {
-	if !field.Editable || !strings.HasPrefix(strings.TrimSpace(field.ID), "customfield_") {
+	if !field.Editable || !genericEditFieldAllowedID(field.ID) {
 		return false
 	}
 	schemaType := strings.ToLower(strings.TrimSpace(field.SchemaType))
@@ -70,6 +70,32 @@ func genericEditFieldSupported(field jira.EditField) bool {
 		}
 	default:
 		return strings.Contains(schemaCustom, "gh-sprint") && hasOptions
+	}
+}
+
+func genericEditFieldAllowedID(fieldID string) bool {
+	fieldID = strings.TrimSpace(fieldID)
+	if strings.HasPrefix(fieldID, "customfield_") {
+		return true
+	}
+	switch fieldID {
+	case "fixVersions", "versions", "duedate":
+		return true
+	default:
+		return false
+	}
+}
+
+func genericEditFieldActionLabel(field jira.EditField) string {
+	switch strings.TrimSpace(field.ID) {
+	case "fixVersions":
+		return "Set Fix Version"
+	case "versions":
+		return "Set Affects Version"
+	case "duedate":
+		return "Set Due Date"
+	default:
+		return "Edit " + strings.TrimSpace(displayValue(field.Name, field.ID))
 	}
 }
 
@@ -251,7 +277,7 @@ func (m Model) renderGenericFieldDialog(width int) string {
 	if !genericEditFieldUsesText(field) {
 		footer = "type filter  j/k select  space toggle  enter save  esc cancel"
 	}
-	return m.renderDetailDialog(width, "Edit "+fieldName, selected.Key, strings.Join(lines, "\n"), footer)
+	return m.renderDetailDialog(width, genericEditFieldActionLabel(field), selected.Key, strings.Join(lines, "\n"), footer)
 }
 
 func (m Model) renderGenericFieldOptions(width int) []string {

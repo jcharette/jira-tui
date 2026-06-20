@@ -65,15 +65,15 @@ binary somewhere on your `PATH`.
 Apple Silicon example:
 
 ```bash
-curl -LO https://github.com/jcharette/jira-tui/releases/download/v1.0.3/jira-tui_1.0.3_darwin_arm64.tar.gz
-tar -xzf jira-tui_1.0.3_darwin_arm64.tar.gz
+curl -LO https://github.com/jcharette/jira-tui/releases/download/v1.0.4/jira-tui_1.0.4_darwin_arm64.tar.gz
+tar -xzf jira-tui_1.0.4_darwin_arm64.tar.gz
 install -m 0755 jira ~/bin/jira
 ```
 
 Or install with Go:
 
 ```bash
-go install github.com/jcharette/jira-tui/cmd/jira@v1.0.3
+go install github.com/jcharette/jira-tui/cmd/jira@v1.0.4
 ```
 
 Go installs the binary as `jira`.
@@ -170,7 +170,7 @@ non-ASCII symbols, then restart the terminal and run `jira config`.
 - Comments load through the worker pool and render Jira ADF in the terminal.
 - Links include Jira issue links, detected URLs, email addresses, and copy/open actions.
 - Ticket Actions (`.`) gives a searchable command surface for edits, comments, status, assignment,
-  links, subtasks, and worklogs.
+  version/date fields, links, subtasks, and worklogs.
 
 ### Start Work
 
@@ -198,8 +198,8 @@ non-ASCII symbols, then restart the terminal and run `jira config`.
 
 - `n` opens Jira-backed ticket creation with issue type, Summary, Description, and supported
   metadata fields.
-- Ticket detail supports summary, priority, assignee, labels, components, safe generic custom fields,
-  and workflow transitions through Jira edit metadata.
+- Ticket detail supports summary, priority, assignee, labels, components, fix/affects versions, due
+  date, safe generic custom fields, and workflow transitions through Jira edit metadata.
 - Transition screens support required Resolution, Comment, text/date fields, user pickers,
   multi-select fields, and autocomplete-backed options when Jira metadata supplies safe values.
 - Subtask creation reuses the same Jira metadata-backed create flow with the current ticket as
@@ -287,7 +287,7 @@ make build
 make build-local
 make docs-status
 make milestone-complete M=M1
-make release VERSION=1.0.3
+make release VERSION=1.0.4
 ```
 
 Planning, backlog, release notes, and decisions live in [docs/README.md](docs/README.md). The project

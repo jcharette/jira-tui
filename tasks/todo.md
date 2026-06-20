@@ -189,8 +189,26 @@ cache/Diagnostics infrastructure, and the current security model.
 - [x] Audit docs for Sprint Actions before shipping.
 - [x] Move release notes from Unreleased to v1.0.3.
 - [x] Run docs and full project checks.
-- [ ] Push release prep to GitHub.
-- [ ] Create GitHub release v1.0.3.
-- [ ] Update Homebrew formula checksums from published assets.
-- [ ] Capture the next metadata-backed Ticket Actions backlog slice.
+- [x] Push release prep to GitHub.
+- [x] Create GitHub release v1.0.3.
+- [x] Update Homebrew formula checksums from published assets.
+- [x] Capture the next metadata-backed Ticket Actions backlog slice.
 
+## Metadata-Backed Ticket Actions - 2026-06-20
+
+- [x] Add RED tests for Fix Version, Affects Version, and Due Date actions.
+- [x] Allow supported standard Jira edit fields through the generic edit writer.
+- [x] Surface the three actions only when Jira edit metadata exposes them as editable.
+- [x] Reuse option pickers for version fields and text input for due date.
+- [x] Update docs for the new Ticket Actions.
+- [x] Verify focused tests and full project checks.
+
+## Release v1.0.4 - 2026-06-20
+
+- [x] Audit docs for metadata-backed Ticket Actions before shipping.
+- [x] Move release notes from Unreleased to v1.0.4.
+- [x] Run docs and full project checks.
+- [ ] Push release prep to GitHub.
+- [ ] Create GitHub release v1.0.4.
+- [ ] Update Homebrew formula checksums from published assets.
+- [ ] Update GitHub issue #12 with shipped first-slice scope.

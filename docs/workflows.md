@@ -63,6 +63,17 @@ Sprint Actions use Jira Agile APIs instead of editing the raw Sprint custom fiel
 is listed first, future sprints follow, and closed sprints are hidden. Set `Default Board ID` in
 `jira config` when a project has multiple boards and you want sprint actions scoped to one board.
 
+## Set Versions Or Due Date
+
+1. Open ticket detail.
+2. Press `.` for Ticket Actions.
+3. Choose Set Fix Version, Set Affects Version, or Set Due Date.
+4. Pick Jira-provided version values, or type the due date as `YYYY-MM-DD`.
+5. Press `enter` to save.
+
+These actions only appear when Jira edit metadata says the selected issue can edit the field. If a
+workflow hides versions or due date from the edit screen, the action stays hidden or disabled.
+
 ## Comment On A Ticket
 
 1. Open ticket detail.

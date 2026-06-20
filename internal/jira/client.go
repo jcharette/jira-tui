@@ -1283,7 +1283,7 @@ func (c *Client) UpdateEditField(ctx context.Context, key string, value EditFiel
 	if fieldID == "" {
 		return fmt.Errorf("update jira field %s: empty field ID", key)
 	}
-	if !strings.HasPrefix(fieldID, "customfield_") {
+	if !supportedEditFieldValueID(fieldID) {
 		return fmt.Errorf("update jira field %s: unsupported field %s", key, fieldID)
 	}
 	raw, ok := editCustomFieldPayload(value)
@@ -1304,6 +1304,19 @@ func (c *Client) UpdateEditField(ctx context.Context, key string, value EditFiel
 		return fmt.Errorf("update jira field %s: %w", key, err)
 	}
 	return nil
+}
+
+func supportedEditFieldValueID(fieldID string) bool {
+	fieldID = strings.TrimSpace(fieldID)
+	if strings.HasPrefix(fieldID, "customfield_") {
+		return true
+	}
+	switch fieldID {
+	case "fixVersions", "versions", "duedate":
+		return true
+	default:
+		return false
+	}
 }
 
 func editCustomFieldPayload(value EditFieldValue) (interface{}, bool) {

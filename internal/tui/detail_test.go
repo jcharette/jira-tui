@@ -1716,6 +1716,9 @@ func TestDetailActionsPaletteListsSafeActionsAndGenericEditFields(t *testing.T) 
 			Fields: []jira.EditField{
 				{ID: "summary", Name: "Summary", Editable: true},
 				{ID: "customfield_10016", Name: "Story Points", Editable: true, SchemaType: "number"},
+				{ID: "fixVersions", Name: "Fix Version/s", Editable: true, SchemaType: "array", SchemaItems: "version", AllowedValues: []jira.FieldOption{{ID: "10001", Name: "1.0.0"}}},
+				{ID: "versions", Name: "Affects Version/s", Editable: true, SchemaType: "array", SchemaItems: "version", AllowedValues: []jira.FieldOption{{ID: "10002", Name: "1.1.0"}}},
+				{ID: "duedate", Name: "Due date", Editable: true, SchemaType: "date"},
 				{ID: "customfield_10017", Name: "Team", Editable: false},
 			},
 		},
@@ -1734,6 +1737,11 @@ func TestDetailActionsPaletteListsSafeActionsAndGenericEditFields(t *testing.T) 
 	}
 	if !strings.Contains(view, "Edit Story Points") {
 		t.Fatalf("metadata-backed generic field should render:\n%s", view)
+	}
+	for _, want := range []string{"Set Fix Version", "Set Affects Version", "Set Due Date"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("metadata-backed standard field should render %q:\n%s", want, view)
+		}
 	}
 	if strings.Contains(view, "Edit Team") {
 		t.Fatalf("non-editable metadata field should not render:\n%s", view)
@@ -1773,6 +1781,15 @@ func TestDetailActionsPaletteListsSafeActionsAndGenericEditFields(t *testing.T) 
 	if !strings.Contains(storyPoints.Description, "generic editor") {
 		t.Fatalf("story points description should include generic editor context: %#v", storyPoints)
 	}
+	if actionLabels["field:fixVersions"].Label != "Set Fix Version" || !actionLabels["field:fixVersions"].Enabled {
+		t.Fatalf("fix version action = %#v", actionLabels["field:fixVersions"])
+	}
+	if actionLabels["field:versions"].Label != "Set Affects Version" || !actionLabels["field:versions"].Enabled {
+		t.Fatalf("affects version action = %#v", actionLabels["field:versions"])
+	}
+	if actionLabels["field:duedate"].Label != "Set Due Date" || !actionLabels["field:duedate"].Enabled {
+		t.Fatalf("due date action = %#v", actionLabels["field:duedate"])
+	}
 	if actionLabels["subtask"].Label != "Create Subtask" || !actionLabels["subtask"].Enabled {
 		t.Fatalf("subtask action = %#v", actionLabels["subtask"])
 	}
@@ -1805,6 +1822,43 @@ func TestDetailActionsPaletteListsSafeActionsAndGenericEditFields(t *testing.T) 
 	}
 	if cmd == nil {
 		t.Fatal("subtask action should request create metadata")
+	}
+}
+
+func TestMetadataBackedStandardActionOpensGenericFieldEditor(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do", Priority: "Medium"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {Issue: model.issues[0]},
+	}
+	model.editMetadata = map[string]jira.EditMetadata{
+		"ABC-1": {
+			Fields: []jira.EditField{
+				{ID: "fixVersions", Name: "Fix Version/s", Editable: true, SchemaType: "array", SchemaItems: "version", AllowedValues: []jira.FieldOption{{ID: "10001", Name: "1.0.0"}}},
+			},
+		},
+	}
+	model.actionFocus = true
+	model.selectedAction = detailActionIndexForTest(t, model.detailActions(), "field:fixVersions")
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("cached metadata should open generic field editor without loading")
+	}
+	if !next.genericFieldFocus {
+		t.Fatal("expected generic field focus")
+	}
+	if next.genericField.ID != "fixVersions" {
+		t.Fatalf("genericField = %#v", next.genericField)
+	}
+	if !strings.Contains(next.render(), "Set Fix Version") {
+		t.Fatalf("missing standard field modal title in %q", next.render())
 	}
 }
 

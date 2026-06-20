@@ -4,6 +4,11 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+## 1.0.4 - 2026-06-20
+
+- Added metadata-backed Ticket Actions for Fix Version, Affects Version, and Due Date when Jira edit
+  metadata exposes those fields as editable.
+
 ## 1.0.3 - 2026-06-20
 
 - Added Sprint ticket actions for adding the selected issue to active or future Jira Agile sprints.

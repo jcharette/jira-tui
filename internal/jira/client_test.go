@@ -1937,19 +1937,48 @@ func TestUpdateEditFieldSendsCustomNumberField(t *testing.T) {
 	}
 }
 
-func TestUpdateEditFieldRejectsStandardField(t *testing.T) {
-	client := &Client{issue: &fakeIssueService{}}
+func TestUpdateEditFieldSendsStandardDueDateField(t *testing.T) {
+	issue := &fakeIssueService{}
+	client := &Client{issue: issue}
 
 	err := client.UpdateEditField(context.Background(), "ABC-123", EditFieldValue{
 		FieldID:    "duedate",
 		SchemaType: "date",
 		Text:       "2026-06-19",
 	})
-	if err == nil {
-		t.Fatal("expected error")
+	if err != nil {
+		t.Fatalf("UpdateEditField() error = %v", err)
 	}
-	if !strings.Contains(err.Error(), "unsupported field duedate") {
-		t.Fatalf("error = %v", err)
+	fields := mergedCustomFieldPayloadForTest(t, issue.updatePayload, issue.updateCustomFields)
+	if got := fields["duedate"]; got != "2026-06-19" {
+		t.Fatalf("duedate = %#v", got)
+	}
+}
+
+func TestUpdateEditFieldSendsStandardVersionArrayField(t *testing.T) {
+	issue := &fakeIssueService{}
+	client := &Client{issue: issue}
+
+	err := client.UpdateEditField(context.Background(), "ABC-123", EditFieldValue{
+		FieldID:     "fixVersions",
+		SchemaType:  "array",
+		SchemaItems: "version",
+		Options: []FieldOption{
+			{ID: "10001", Name: "1.0.0"},
+			{ID: "10002", Name: "1.1.0"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateEditField() error = %v", err)
+	}
+	fields := mergedCustomFieldPayloadForTest(t, issue.updatePayload, issue.updateCustomFields)
+	got, ok := fields["fixVersions"].([]map[string]interface{})
+	if !ok {
+		t.Fatalf("fixVersions type = %T", fields["fixVersions"])
+	}
+	want := []map[string]interface{}{{"id": "10001"}, {"id": "10002"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("fixVersions = %#v, want %#v", got, want)
 	}
 }
 

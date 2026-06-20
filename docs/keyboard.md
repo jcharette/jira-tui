@@ -48,7 +48,9 @@ Press `?` in the app for context-aware help. This page explains the main keys by
 | `a` | Open AI/Claude actions when enabled |
 | `esc` | Return to issue list |
 
-Ticket Actions includes Sprint, which lists the active sprint first and future sprints below it.
+Ticket Actions includes Sprint, which lists the active sprint first and future sprints below it. It
+also includes Fix Version, Affects Version, and Due Date when Jira edit metadata exposes those fields
+for the selected issue.
 
 ## Query
 
