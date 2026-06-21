@@ -230,6 +230,6 @@ cache/Diagnostics infrastructure, and the current security model.
 - [x] Move release notes from Unreleased to v1.0.5.
 - [x] Run docs and full project checks.
 - [ ] Push release prep to GitHub.
-- [ ] Create GitHub release v1.0.5.
-- [ ] Update Homebrew formula checksums from published assets.
-- [ ] Close GitHub issue #12 after release.
+- [x] Create GitHub release v1.0.5.
+- [x] Update Homebrew formula checksums from published assets.
+- [x] Close GitHub issue #12 after release.
