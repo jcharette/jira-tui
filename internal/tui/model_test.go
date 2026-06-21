@@ -870,78 +870,82 @@ func TestRenderFullDetailSeparatesMetadataFromTabs(t *testing.T) {
 }
 
 type fakeIssueSearcher struct {
-	issues                 []jira.Issue
-	searchResults          map[string][]jira.Issue
-	searches               []string
-	detail                 jira.IssueDetail
-	comments               []jira.Comment
-	addedComment           jira.Comment
-	addedBody              string
-	addMentions            []jira.Mention
-	updatedComment         jira.Comment
-	updatedBody            string
-	updateCommentKey       string
-	updateCommentID        string
-	updateMentions         []jira.Mention
-	users                  []jira.User
-	currentUser            jira.User
-	assignableUsers        []jira.User
-	assignableIssueKey     string
-	assignableQuery        string
-	assignableMaxResults   int
-	transitions            []jira.Transition
-	transitionKey          string
-	transitionID           string
-	transitionRequest      jira.TransitionIssueRequest
-	editMetadata           jira.EditMetadata
-	createIssueTypes       []jira.CreateIssueType
-	createFields           []jira.CreateField
-	fieldOptions           []jira.FieldOption
-	fieldOptionURL         string
-	fieldOptionQuery       string
-	fieldOptionMaxResults  int
-	issueLinkTypes         []jira.IssueLinkType
-	issueLinkRequest       jira.CreateIssueLinkRequest
-	deleteIssueLinkID      string
-	worklogs               []jira.Worklog
-	worklogKey             string
-	worklogMaxResults      int
-	addWorklogKey          string
-	addWorklogRequest      jira.AddWorklogRequest
-	addedWorklog           jira.Worklog
-	updateWorklogKey       string
-	updateWorklogRequest   jira.UpdateWorklogRequest
-	updatedWorklog         jira.Worklog
-	deleteWorklogKey       string
-	deleteWorklogID        string
-	createIssueRequest     jira.CreateIssueRequest
-	createdIssue           jira.Issue
-	boardPage              jira.BoardPage
-	sprintPage             jira.SprintPage
-	boardProjectKey        string
-	boardStartAt           int
-	boardMaxResults        int
-	sprintBoardID          int
-	sprintStates           []string
-	sprintStartAt          int
-	sprintMaxResults       int
-	moveSprintID           int
-	moveIssueKeys          []string
-	updateSummaryKey       string
-	updateSummaryValue     string
-	updateDescriptionKey   string
-	updateDescriptionValue string
-	updatePriorityKey      string
-	updatePriorityValue    jira.FieldOption
-	updateLabelsKey        string
-	updateLabelsValue      []string
-	updateComponentsKey    string
-	updateComponentsValue  []jira.FieldOption
-	updateEditFieldKey     string
-	updateEditFieldValue   jira.EditFieldValue
-	updateAssigneeKey      string
-	updateAssigneeValue    jira.User
-	err                    error
+	issues                    []jira.Issue
+	searchResults             map[string][]jira.Issue
+	searches                  []string
+	detail                    jira.IssueDetail
+	comments                  []jira.Comment
+	addedComment              jira.Comment
+	addedBody                 string
+	addMentions               []jira.Mention
+	updatedComment            jira.Comment
+	updatedBody               string
+	updateCommentKey          string
+	updateCommentID           string
+	updateMentions            []jira.Mention
+	users                     []jira.User
+	currentUser               jira.User
+	assignableUsers           []jira.User
+	assignableIssueKey        string
+	assignableQuery           string
+	assignableMaxResults      int
+	transitions               []jira.Transition
+	transitionKey             string
+	transitionID              string
+	transitionRequest         jira.TransitionIssueRequest
+	editMetadata              jira.EditMetadata
+	createIssueTypes          []jira.CreateIssueType
+	createFields              []jira.CreateField
+	fieldOptions              []jira.FieldOption
+	fieldOptionURL            string
+	fieldOptionQuery          string
+	fieldOptionMaxResults     int
+	issueLinkTypes            []jira.IssueLinkType
+	issueLinkRequest          jira.CreateIssueLinkRequest
+	deleteIssueLinkID         string
+	worklogs                  []jira.Worklog
+	worklogKey                string
+	worklogMaxResults         int
+	addWorklogKey             string
+	addWorklogRequest         jira.AddWorklogRequest
+	addedWorklog              jira.Worklog
+	updateWorklogKey          string
+	updateWorklogRequest      jira.UpdateWorklogRequest
+	updatedWorklog            jira.Worklog
+	deleteWorklogKey          string
+	deleteWorklogID           string
+	createIssueRequest        jira.CreateIssueRequest
+	createdIssue              jira.Issue
+	boardPage                 jira.BoardPage
+	sprintPage                jira.SprintPage
+	boardProjectKey           string
+	boardStartAt              int
+	boardMaxResults           int
+	sprintBoardID             int
+	sprintStates              []string
+	sprintStartAt             int
+	sprintMaxResults          int
+	updateParentKey           string
+	updateParentRequest       jira.UpdateParentRequest
+	updateTimeTrackingKey     string
+	updateTimeTrackingRequest jira.UpdateTimeTrackingRequest
+	moveSprintID              int
+	moveIssueKeys             []string
+	updateSummaryKey          string
+	updateSummaryValue        string
+	updateDescriptionKey      string
+	updateDescriptionValue    string
+	updatePriorityKey         string
+	updatePriorityValue       jira.FieldOption
+	updateLabelsKey           string
+	updateLabelsValue         []string
+	updateComponentsKey       string
+	updateComponentsValue     []jira.FieldOption
+	updateEditFieldKey        string
+	updateEditFieldValue      jira.EditFieldValue
+	updateAssigneeKey         string
+	updateAssigneeValue       jira.User
+	err                       error
 }
 
 type fakeGitWorkflowClient struct {
@@ -1297,6 +1301,24 @@ func (f *fakeIssueSearcher) UpdateEditField(_ context.Context, key string, value
 	}
 	f.updateEditFieldKey = key
 	f.updateEditFieldValue = value
+	return nil
+}
+
+func (f *fakeIssueSearcher) UpdateParent(_ context.Context, key string, request jira.UpdateParentRequest) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.updateParentKey = key
+	f.updateParentRequest = request
+	return nil
+}
+
+func (f *fakeIssueSearcher) UpdateTimeTracking(_ context.Context, key string, request jira.UpdateTimeTrackingRequest) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.updateTimeTrackingKey = key
+	f.updateTimeTrackingRequest = request
 	return nil
 }
 

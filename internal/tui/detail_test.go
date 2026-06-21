@@ -1719,6 +1719,8 @@ func TestDetailActionsPaletteListsSafeActionsAndGenericEditFields(t *testing.T) 
 				{ID: "fixVersions", Name: "Fix Version/s", Editable: true, SchemaType: "array", SchemaItems: "version", AllowedValues: []jira.FieldOption{{ID: "10001", Name: "1.0.0"}}},
 				{ID: "versions", Name: "Affects Version/s", Editable: true, SchemaType: "array", SchemaItems: "version", AllowedValues: []jira.FieldOption{{ID: "10002", Name: "1.1.0"}}},
 				{ID: "duedate", Name: "Due date", Editable: true, SchemaType: "date"},
+				{ID: "parent", Name: "Parent", Editable: true, SchemaType: "issuelink"},
+				{ID: "timetracking", Name: "Time tracking", Editable: true, SchemaType: "timetracking"},
 				{ID: "customfield_10017", Name: "Team", Editable: false},
 			},
 		},
@@ -1741,6 +1743,11 @@ func TestDetailActionsPaletteListsSafeActionsAndGenericEditFields(t *testing.T) 
 	for _, want := range []string{"Set Fix Version", "Set Affects Version", "Set Due Date"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("metadata-backed standard field should render %q:\n%s", want, view)
+		}
+	}
+	for _, want := range []string{"Set Parent", "Edit Estimates"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("metadata-backed workflow field should render %q:\n%s", want, view)
 		}
 	}
 	if strings.Contains(view, "Edit Team") {
@@ -1789,6 +1796,12 @@ func TestDetailActionsPaletteListsSafeActionsAndGenericEditFields(t *testing.T) 
 	}
 	if actionLabels["field:duedate"].Label != "Set Due Date" || !actionLabels["field:duedate"].Enabled {
 		t.Fatalf("due date action = %#v", actionLabels["field:duedate"])
+	}
+	if actionLabels["field:parent"].Label != "Set Parent" || !actionLabels["field:parent"].Enabled {
+		t.Fatalf("parent action = %#v", actionLabels["field:parent"])
+	}
+	if actionLabels["field:timetracking"].Label != "Edit Estimates" || !actionLabels["field:timetracking"].Enabled {
+		t.Fatalf("time tracking action = %#v", actionLabels["field:timetracking"])
 	}
 	if actionLabels["subtask"].Label != "Create Subtask" || !actionLabels["subtask"].Enabled {
 		t.Fatalf("subtask action = %#v", actionLabels["subtask"])
@@ -1859,6 +1872,74 @@ func TestMetadataBackedStandardActionOpensGenericFieldEditor(t *testing.T) {
 	}
 	if !strings.Contains(next.render(), "Set Fix Version") {
 		t.Fatalf("missing standard field modal title in %q", next.render())
+	}
+}
+
+func TestMetadataBackedParentActionOpensParentEditor(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do", ParentKey: "ABC-100"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {Issue: model.issues[0]},
+	}
+	model.editMetadata = map[string]jira.EditMetadata{
+		"ABC-1": {
+			Fields: []jira.EditField{
+				{ID: "parent", Name: "Parent", Editable: true, SchemaType: "issuelink"},
+			},
+		},
+	}
+	model.actionFocus = true
+	model.selectedAction = detailActionIndexForTest(t, model.detailActions(), "field:parent")
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("cached metadata should open parent editor without loading")
+	}
+	if !next.parentFocus {
+		t.Fatal("expected parent focus")
+	}
+	if !strings.Contains(next.render(), "Set Parent") {
+		t.Fatalf("missing parent modal in %q", next.render())
+	}
+}
+
+func TestMetadataBackedTimeTrackingActionOpensEstimateEditor(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {Issue: model.issues[0]},
+	}
+	model.editMetadata = map[string]jira.EditMetadata{
+		"ABC-1": {
+			Fields: []jira.EditField{
+				{ID: "timetracking", Name: "Time tracking", Editable: true, SchemaType: "timetracking"},
+			},
+		},
+	}
+	model.actionFocus = true
+	model.selectedAction = detailActionIndexForTest(t, model.detailActions(), "field:timetracking")
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("cached metadata should open estimate editor without loading")
+	}
+	if !next.timeTrackingFocus {
+		t.Fatal("expected time tracking focus")
+	}
+	if !strings.Contains(next.render(), "Edit Estimates") {
+		t.Fatalf("missing estimates modal in %q", next.render())
 	}
 }
 

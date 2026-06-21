@@ -187,6 +187,25 @@ type Model struct {
 	genericFieldSubmitKey              string
 	genericFieldSubmitField            jira.EditField
 	genericFieldSubmitValue            jira.EditFieldValue
+	parentFocus                        bool
+	parentDraft                        string
+	parentEditor                       textinput.Model
+	parentEditorReady                  bool
+	parentSubmitting                   bool
+	parentSubmitKey                    string
+	parentSubmitRequest                jira.UpdateParentRequest
+	activeParentReqID                  int
+	timeTrackingFocus                  bool
+	timeTrackingField                  int
+	timeTrackingOriginalDraft          string
+	timeTrackingRemainingDraft         string
+	timeTrackingOriginalEditor         textinput.Model
+	timeTrackingRemainingEditor        textinput.Model
+	timeTrackingEditorReady            bool
+	timeTrackingSubmitting             bool
+	timeTrackingSubmitKey              string
+	timeTrackingSubmitRequest          jira.UpdateTimeTrackingRequest
+	activeTimeTrackingReqID            int
 	assigneeFocus                      bool
 	selectedAssignee                   int
 	assigneeUsers                      []jira.User
@@ -1051,6 +1070,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if m.mode == modeDetail && m.parentFocus {
+			return m.updateParentEditor(msg)
+		}
+		if m.mode == modeDetail && m.timeTrackingFocus {
+			return m.updateTimeTrackingEditor(msg)
+		}
 		if m.mode == modeDetail && m.genericFieldFocus {
 			return m.updateGenericFieldEditor(msg)
 		}
@@ -1138,6 +1163,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				if m.genericFieldFocus {
 					m.closeGenericFieldEditor()
+					return m, nil
+				}
+				if m.parentFocus {
+					m.closeParentEditor()
+					return m, nil
+				}
+				if m.timeTrackingFocus {
+					m.closeTimeTrackingEditor()
 					return m, nil
 				}
 				if m.assigneeFocus {
@@ -1327,6 +1360,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if m.mode == modeDetail && m.genericFieldFocus {
 				return m.submitGenericField()
+			}
+			if m.mode == modeDetail && m.parentFocus {
+				return m.submitParent()
+			}
+			if m.mode == modeDetail && m.timeTrackingFocus {
+				return m.submitTimeTracking()
 			}
 			if m.mode == modeDetail && m.assigneeFocus {
 				return m.submitSelectedAssignee()

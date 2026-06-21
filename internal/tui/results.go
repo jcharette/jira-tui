@@ -63,6 +63,10 @@ func (m Model) handleWorkerResult(result worker.Result) (Model, tea.Cmd) {
 		return m.handleUpdateComponentsResult(result), nil
 	case worker.KindUpdateEditField:
 		return m.handleUpdateEditFieldResult(result), nil
+	case worker.KindUpdateParent:
+		return m.handleUpdateParentResult(result), nil
+	case worker.KindUpdateTimeTracking:
+		return m.handleUpdateTimeTrackingResult(result), nil
 	case worker.KindUpdateAssignee:
 		return m.handleUpdateAssigneeResult(result), nil
 	case worker.KindGetCreateIssueTypes:

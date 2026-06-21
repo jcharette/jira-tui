@@ -59,6 +59,8 @@ const (
 	KindUpdateLabels        Kind = "update_labels"
 	KindUpdateComponents    Kind = "update_components"
 	KindUpdateEditField     Kind = "update_edit_field"
+	KindUpdateParent        Kind = "update_parent"
+	KindUpdateTimeTracking  Kind = "update_time_tracking"
 	KindUpdateAssignee      Kind = "update_assignee"
 	KindCreateIssue         Kind = "create_issue"
 )
@@ -106,6 +108,8 @@ type JiraClient interface {
 	UpdateLabels(ctx context.Context, key string, labels []string) error
 	UpdateComponents(ctx context.Context, key string, components []jira.FieldOption) error
 	UpdateEditField(ctx context.Context, key string, value jira.EditFieldValue) error
+	UpdateParent(ctx context.Context, key string, request jira.UpdateParentRequest) error
+	UpdateTimeTracking(ctx context.Context, key string, request jira.UpdateTimeTrackingRequest) error
 	UpdateAssignee(ctx context.Context, key string, assignee jira.User) error
 }
 
@@ -147,6 +151,8 @@ type Request struct {
 	UpdateLabels        *UpdateLabelsRequest
 	UpdateComponents    *UpdateComponentsRequest
 	UpdateEditField     *UpdateEditFieldRequest
+	UpdateParent        *UpdateParentRequest
+	UpdateTimeTracking  *UpdateTimeTrackingRequest
 	UpdateAssignee      *UpdateAssigneeRequest
 	CreateIssue         *CreateIssueRequest
 }
@@ -317,6 +323,16 @@ type UpdateEditFieldRequest struct {
 	Value jira.EditFieldValue
 }
 
+type UpdateParentRequest struct {
+	Key     string
+	Request jira.UpdateParentRequest
+}
+
+type UpdateTimeTrackingRequest struct {
+	Key     string
+	Request jira.UpdateTimeTrackingRequest
+}
+
 type UpdateAssigneeRequest struct {
 	Key      string
 	Assignee jira.User
@@ -367,6 +383,8 @@ type Result struct {
 	UpdateLabels        *UpdateLabelsResult
 	UpdateComponents    *UpdateComponentsResult
 	UpdateEditField     *UpdateEditFieldResult
+	UpdateParent        *UpdateParentResult
+	UpdateTimeTracking  *UpdateTimeTrackingResult
 	UpdateAssignee      *UpdateAssigneeResult
 	CreateIssue         *CreateIssueResult
 }
@@ -558,6 +576,18 @@ type UpdateEditFieldResult struct {
 	Key      string
 	Field    jira.EditField
 	Value    jira.EditFieldValue
+	SyncedAt time.Time
+}
+
+type UpdateParentResult struct {
+	Key      string
+	Request  jira.UpdateParentRequest
+	SyncedAt time.Time
+}
+
+type UpdateTimeTrackingResult struct {
+	Key      string
+	Request  jira.UpdateTimeTrackingRequest
 	SyncedAt time.Time
 }
 
@@ -933,6 +963,10 @@ func (p *Pool) handle(request Request) Result {
 		return p.handleUpdateComponents(request)
 	case KindUpdateEditField:
 		return p.handleUpdateEditField(request)
+	case KindUpdateParent:
+		return p.handleUpdateParent(request)
+	case KindUpdateTimeTracking:
+		return p.handleUpdateTimeTracking(request)
 	case KindUpdateAssignee:
 		return p.handleUpdateAssignee(request)
 	case KindCreateIssue:
@@ -1685,6 +1719,70 @@ func (p *Pool) handleUpdateEditField(request Request) Result {
 			Key:      request.UpdateEditField.Key,
 			Field:    request.UpdateEditField.Field,
 			Value:    value,
+			SyncedAt: time.Now(),
+		},
+	}
+}
+
+func (p *Pool) handleUpdateParent(request Request) Result {
+	if request.UpdateParent == nil || strings.TrimSpace(request.UpdateParent.Key) == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+	parentRequest := request.UpdateParent.Request
+	if !parentRequest.Clear && strings.TrimSpace(parentRequest.ParentKey) == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	err := p.client.UpdateParent(ctx, request.UpdateParent.Key, parentRequest)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		UpdateParent: &UpdateParentResult{
+			Key:      request.UpdateParent.Key,
+			Request:  parentRequest,
+			SyncedAt: time.Now(),
+		},
+	}
+}
+
+func (p *Pool) handleUpdateTimeTracking(request Request) Result {
+	if request.UpdateTimeTracking == nil || strings.TrimSpace(request.UpdateTimeTracking.Key) == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+	timeRequest := request.UpdateTimeTracking.Request
+	if strings.TrimSpace(timeRequest.OriginalEstimate) == "" && strings.TrimSpace(timeRequest.RemainingEstimate) == "" {
+		return Result{ID: request.ID, Kind: request.Kind, Err: ErrInvalidRequest}
+	}
+
+	ctx := context.Background()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
+
+	err := p.client.UpdateTimeTracking(ctx, request.UpdateTimeTracking.Key, timeRequest)
+	if err != nil {
+		return Result{ID: request.ID, Kind: request.Kind, Err: err}
+	}
+
+	return Result{
+		ID:   request.ID,
+		Kind: request.Kind,
+		UpdateTimeTracking: &UpdateTimeTrackingResult{
+			Key:      request.UpdateTimeTracking.Key,
+			Request:  timeRequest,
 			SyncedAt: time.Now(),
 		},
 	}

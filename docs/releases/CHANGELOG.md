@@ -4,6 +4,11 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+## 1.0.5 - 2026-06-21
+
+- Added metadata-backed Ticket Actions for setting or clearing Parent and editing Time Tracking
+  estimates when Jira edit metadata exposes those fields as editable.
+
 ## 1.0.4 - 2026-06-20
 
 - Added metadata-backed Ticket Actions for Fix Version, Affects Version, and Due Date when Jira edit

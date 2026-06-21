@@ -1982,6 +1982,94 @@ func TestUpdateEditFieldSendsStandardVersionArrayField(t *testing.T) {
 	}
 }
 
+func TestUpdateParentSendsParentKey(t *testing.T) {
+	rest := &fakeRESTConnector{}
+	client := &Client{rest: rest}
+
+	err := client.UpdateParent(context.Background(), "ABC-123", UpdateParentRequest{ParentKey: "ABC-100"})
+	if err != nil {
+		t.Fatalf("UpdateParent() error = %v", err)
+	}
+	if rest.method != http.MethodPut {
+		t.Fatalf("method = %q", rest.method)
+	}
+	if rest.endpoint != "rest/api/3/issue/ABC-123" {
+		t.Fatalf("endpoint = %q", rest.endpoint)
+	}
+	payload, ok := rest.body.(map[string]interface{})
+	if !ok {
+		t.Fatalf("body type = %T", rest.body)
+	}
+	fields, ok := payload["fields"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("fields = %#v", payload["fields"])
+	}
+	parent, ok := fields["parent"].(map[string]string)
+	if !ok || parent["key"] != "ABC-100" {
+		t.Fatalf("parent = %#v", fields["parent"])
+	}
+}
+
+func TestUpdateParentClearsParent(t *testing.T) {
+	rest := &fakeRESTConnector{}
+	client := &Client{rest: rest}
+
+	err := client.UpdateParent(context.Background(), "ABC-123", UpdateParentRequest{Clear: true})
+	if err != nil {
+		t.Fatalf("UpdateParent() error = %v", err)
+	}
+	payload, ok := rest.body.(map[string]interface{})
+	if !ok {
+		t.Fatalf("body type = %T", rest.body)
+	}
+	update, ok := payload["update"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("update = %#v", payload["update"])
+	}
+	parent, ok := update["parent"].([]map[string]interface{})
+	if !ok || len(parent) != 1 {
+		t.Fatalf("parent update = %#v", update["parent"])
+	}
+	set, ok := parent[0]["set"].(map[string]bool)
+	if !ok || !set["none"] {
+		t.Fatalf("parent set = %#v", parent[0]["set"])
+	}
+}
+
+func TestUpdateTimeTrackingSendsEstimateFields(t *testing.T) {
+	rest := &fakeRESTConnector{}
+	client := &Client{rest: rest}
+
+	err := client.UpdateTimeTracking(context.Background(), "ABC-123", UpdateTimeTrackingRequest{
+		OriginalEstimate:  "2d",
+		RemainingEstimate: "3h",
+	})
+	if err != nil {
+		t.Fatalf("UpdateTimeTracking() error = %v", err)
+	}
+	if rest.method != http.MethodPut {
+		t.Fatalf("method = %q", rest.method)
+	}
+	if rest.endpoint != "rest/api/3/issue/ABC-123" {
+		t.Fatalf("endpoint = %q", rest.endpoint)
+	}
+	payload, ok := rest.body.(map[string]interface{})
+	if !ok {
+		t.Fatalf("body type = %T", rest.body)
+	}
+	fields, ok := payload["fields"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("fields = %#v", payload["fields"])
+	}
+	timetracking, ok := fields["timetracking"].(map[string]string)
+	if !ok {
+		t.Fatalf("timetracking = %#v", fields["timetracking"])
+	}
+	if timetracking["originalEstimate"] != "2d" || timetracking["remainingEstimate"] != "3h" {
+		t.Fatalf("timetracking = %#v", timetracking)
+	}
+}
+
 func TestUpdateAssigneeSendsAccountID(t *testing.T) {
 	issue := &fakeIssueService{}
 	client := &Client{

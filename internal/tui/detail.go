@@ -138,6 +138,12 @@ func (m Model) renderDetailOverlay(layout browserLayout) string {
 	if m.genericFieldMetadataLoading {
 		return m.renderGenericFieldLoadingDialog(width)
 	}
+	if m.parentFocus || m.parentSubmitting {
+		return m.renderParentDialog(width)
+	}
+	if m.timeTrackingFocus || m.timeTrackingSubmitting {
+		return m.renderTimeTrackingDialog(width)
+	}
 	if m.genericFieldFocus || m.genericFieldSubmitting {
 		return m.renderGenericFieldDialog(width)
 	}
@@ -1671,6 +1677,12 @@ func (m Model) runSelectedDetailAction() (Model, tea.Cmd) {
 		return m.startCreateSubtask()
 	default:
 		if fieldID, ok := strings.CutPrefix(action.ID, "field:"); ok {
+			switch fieldID {
+			case "parent":
+				return m.startParentEditor()
+			case "timetracking":
+				return m.startTimeTrackingEditor()
+			}
 			return m.startGenericFieldEditor(fieldID)
 		}
 		return m, nil

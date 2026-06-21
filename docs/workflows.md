@@ -74,6 +74,18 @@ is listed first, future sprints follow, and closed sprints are hidden. Set `Defa
 These actions only appear when Jira edit metadata says the selected issue can edit the field. If a
 workflow hides versions or due date from the edit screen, the action stays hidden or disabled.
 
+## Set Parent Or Estimates
+
+1. Open ticket detail.
+2. Press `.` for Ticket Actions.
+3. Choose Set Parent or Edit Estimates.
+4. For Parent, enter the parent issue key, or leave it blank to clear the parent.
+5. For Estimates, enter Original and/or Remaining estimate values such as `2d`, `3h`, or `30m`.
+6. Press `enter` to save.
+
+Parent and Estimates actions only appear when Jira edit metadata says the selected issue can edit
+those fields. Estimate edits update Jira time tracking estimates; they do not create worklogs.
+
 ## Comment On A Ticket
 
 1. Open ticket detail.

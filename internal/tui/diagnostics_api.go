@@ -40,7 +40,7 @@ func apiEndpointFamily(kind worker.Kind) string {
 	switch kind {
 	case worker.KindSearchIssues:
 		return "search"
-	case worker.KindGetIssue, worker.KindUpdateSummary, worker.KindUpdateDescription, worker.KindUpdatePriority, worker.KindUpdateLabels, worker.KindUpdateAssignee, worker.KindUpdateComponents, worker.KindUpdateEditField:
+	case worker.KindGetIssue, worker.KindUpdateSummary, worker.KindUpdateDescription, worker.KindUpdatePriority, worker.KindUpdateLabels, worker.KindUpdateAssignee, worker.KindUpdateComponents, worker.KindUpdateEditField, worker.KindUpdateParent, worker.KindUpdateTimeTracking:
 		return "issue"
 	case worker.KindGetComments, worker.KindAddComment, worker.KindUpdateComment:
 		return "comment"

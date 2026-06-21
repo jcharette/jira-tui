@@ -830,6 +830,62 @@ func (m Model) submitUpdateEditField(requestID int, key string, field jira.EditF
 	}
 }
 
+func (m Model) submitUpdateParent(requestID int, key string, request jira.UpdateParentRequest) tea.Cmd {
+	return func() tea.Msg {
+		if key == "" || (!request.Clear && strings.TrimSpace(request.ParentKey) == "") {
+			return noDetailRequestMsg{}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:       requestID,
+			Kind:     worker.KindUpdateParent,
+			Timeout:  m.requestTimeout,
+			Priority: worker.PriorityWrite,
+			UpdateParent: &worker.UpdateParentRequest{
+				Key:     key,
+				Request: request,
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindUpdateParent,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindUpdateParent, id: requestID, key: key}
+	}
+}
+
+func (m Model) submitUpdateTimeTracking(requestID int, key string, request jira.UpdateTimeTrackingRequest) tea.Cmd {
+	return func() tea.Msg {
+		if key == "" || (strings.TrimSpace(request.OriginalEstimate) == "" && strings.TrimSpace(request.RemainingEstimate) == "") {
+			return noDetailRequestMsg{}
+		}
+		err := m.workers.Submit(worker.Request{
+			ID:       requestID,
+			Kind:     worker.KindUpdateTimeTracking,
+			Timeout:  m.requestTimeout,
+			Priority: worker.PriorityWrite,
+			UpdateTimeTracking: &worker.UpdateTimeTrackingRequest{
+				Key:     key,
+				Request: request,
+			},
+		})
+		if err != nil {
+			return workerResultMsg{
+				result: worker.Result{
+					ID:   requestID,
+					Kind: worker.KindUpdateTimeTracking,
+					Err:  err,
+				},
+			}
+		}
+		return workSubmittedMsg{kind: worker.KindUpdateTimeTracking, id: requestID, key: key}
+	}
+}
+
 func (m Model) submitGenericFieldOptions(requestID int, field jira.EditField, query string) tea.Cmd {
 	return func() tea.Msg {
 		fieldID := strings.TrimSpace(field.ID)

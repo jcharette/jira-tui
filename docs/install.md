@@ -30,15 +30,15 @@ Download a release archive from GitHub Releases, unpack it, and move `jira` onto
 Apple Silicon example:
 
 ```bash
-curl -LO https://github.com/jcharette/jira-tui/releases/download/v1.0.4/jira-tui_1.0.4_darwin_arm64.tar.gz
-tar -xzf jira-tui_1.0.4_darwin_arm64.tar.gz
+curl -LO https://github.com/jcharette/jira-tui/releases/download/v1.0.5/jira-tui_1.0.5_darwin_arm64.tar.gz
+tar -xzf jira-tui_1.0.5_darwin_arm64.tar.gz
 install -m 0755 jira ~/bin/jira
 ```
 
 ## Go Install
 
 ```bash
-go install github.com/jcharette/jira-tui/cmd/jira@v1.0.4
+go install github.com/jcharette/jira-tui/cmd/jira@v1.0.5
 ```
 
 Go installs the binary as `jira`.

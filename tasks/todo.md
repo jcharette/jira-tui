@@ -212,3 +212,24 @@ cache/Diagnostics infrastructure, and the current security model.
 - [x] Create GitHub release v1.0.4.
 - [x] Update Homebrew formula checksums from published assets.
 - [x] Update GitHub issue #12 with shipped first-slice scope.
+
+## Metadata-Backed Ticket Actions Completion - 2026-06-21
+
+- [x] Add RED client tests for parent and time tracking payloads.
+- [x] Add RED worker tests for parent and time tracking writes.
+- [x] Add RED TUI tests for metadata-gated Parent and Estimates actions.
+- [x] Implement Jira parent and time tracking writes.
+- [x] Implement worker request/result routing.
+- [x] Implement TUI dialogs for Set Parent and Edit Estimates.
+- [x] Update docs and issue #12 completion notes.
+- [x] Verify focused tests and full project checks.
+
+## Release v1.0.5 - 2026-06-21
+
+- [x] Audit docs for Parent and Estimates Ticket Actions before shipping.
+- [x] Move release notes from Unreleased to v1.0.5.
+- [x] Run docs and full project checks.
+- [ ] Push release prep to GitHub.
+- [ ] Create GitHub release v1.0.5.
+- [ ] Update Homebrew formula checksums from published assets.
+- [ ] Close GitHub issue #12 after release.

@@ -33,12 +33,12 @@ support.
 Install a tagged release with Go:
 
 ```bash
-go install github.com/jcharette/jira-tui/cmd/jira@v1.0.4
+go install github.com/jcharette/jira-tui/cmd/jira@v1.0.5
 ```
 
 Release archives are published at
 [GitHub Releases](https://github.com/jcharette/jira-tui/releases) with names such as
-`jira-tui_1.0.4_darwin_arm64.tar.gz` and include a `jira` binary.
+`jira-tui_1.0.5_darwin_arm64.tar.gz` and include a `jira` binary.
 
 Run from the project root:
 
@@ -465,9 +465,10 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
 - Focused ticket detail can edit safe generic Jira custom fields through the Ticket Actions palette.
   The generic editor is enabled only for metadata-backed custom string/text/number/date/datetime
   fields, single-select option fields, multi-select option arrays with inline Jira `allowedValues`,
-  and the supported standard fields Fix Versions, Affects Versions, and Due Date. User, sprint,
-  autocomplete-only, other standard, and unknown field schemas stay visible but disabled until a
-  field-specific workflow exists.
+  and the supported standard fields Fix Versions, Affects Versions, and Due Date. Parent and Time
+  Tracking have dedicated metadata-backed dialogs for parent key updates and original/remaining
+  estimate edits. User, sprint, autocomplete-only, other standard, and unknown field schemas stay
+  visible but disabled until a field-specific workflow exists.
 - Jira field option lookup is available through the client and worker pool for metadata-provided
   `autoCompleteUrl` values. The create-ticket form uses it for option-backed picker fields; generic
   edit-field autocomplete remains gated until that option source has a safe selected-value submit
@@ -476,8 +477,8 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   Summary, Priority, Labels, and Components helpers. Retained edit fields include schema type,
   schema system/items/custom data, operations, default markers, inline allowed values, and
   autocomplete URLs. Ticket Actions enables safe generic custom fields plus supported standard
-  version/date fields, and keeps unsupported editable fields as disabled, searchable rows with an
-  `Unsupported` state and option-source context.
+  version/date, parent, and estimate fields, and keeps unsupported editable fields as disabled,
+  searchable rows with an `Unsupported` state and option-source context.
 - Focused ticket detail treats Overview, Summary, Status, Assignee, and Priority as first-class
   focus targets before the remaining content destinations. `tab` and `shift+tab` move through
   focusable controls and sections, while `enter` opens the contextual edit modal, picker, or

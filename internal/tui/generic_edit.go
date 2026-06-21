@@ -30,7 +30,7 @@ func (m Model) genericEditFieldActions() []detailAction {
 			continue
 		}
 		name := strings.TrimSpace(displayValue(field.Name, fieldID))
-		enabled := genericEditFieldSupported(field)
+		enabled := genericEditFieldSupported(field) || metadataBackedWorkflowFieldSupported(field)
 		action := detailAction{
 			ID:          "field:" + fieldID,
 			Label:       genericEditFieldActionLabel(field),
@@ -73,6 +73,18 @@ func genericEditFieldSupported(field jira.EditField) bool {
 	}
 }
 
+func metadataBackedWorkflowFieldSupported(field jira.EditField) bool {
+	if !field.Editable {
+		return false
+	}
+	switch strings.TrimSpace(field.ID) {
+	case "parent", "timetracking":
+		return true
+	default:
+		return false
+	}
+}
+
 func genericEditFieldAllowedID(fieldID string) bool {
 	fieldID = strings.TrimSpace(fieldID)
 	if strings.HasPrefix(fieldID, "customfield_") {
@@ -94,6 +106,10 @@ func genericEditFieldActionLabel(field jira.EditField) string {
 		return "Set Affects Version"
 	case "duedate":
 		return "Set Due Date"
+	case "parent":
+		return "Set Parent"
+	case "timetracking":
+		return "Edit Estimates"
 	default:
 		return "Edit " + strings.TrimSpace(displayValue(field.Name, field.ID))
 	}

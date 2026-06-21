@@ -164,6 +164,16 @@ type UpdateWorklogRequest struct {
 	Comment   string
 }
 
+type UpdateParentRequest struct {
+	ParentKey string
+	Clear     bool
+}
+
+type UpdateTimeTrackingRequest struct {
+	OriginalEstimate  string
+	RemainingEstimate string
+}
+
 type User struct {
 	AccountID   string
 	DisplayName string
@@ -1302,6 +1312,91 @@ func (c *Client) UpdateEditField(ctx context.Context, key string, value EditFiel
 	}
 	if _, err := c.issue.Update(ctx, key, false, &model.IssueScheme{}, customFields, nil); err != nil {
 		return fmt.Errorf("update jira field %s: %w", key, err)
+	}
+	return nil
+}
+
+func (c *Client) UpdateParent(ctx context.Context, key string, request UpdateParentRequest) error {
+	key = strings.TrimSpace(key)
+	parentKey := strings.ToUpper(strings.TrimSpace(request.ParentKey))
+	if key == "" {
+		return fmt.Errorf("update jira parent: missing issue key")
+	}
+	if !request.Clear && parentKey == "" {
+		return fmt.Errorf("update jira parent %s: missing parent key", key)
+	}
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+	if c.rest == nil {
+		return fmt.Errorf("update jira parent %s: REST service unavailable", key)
+	}
+	var payload map[string]interface{}
+	if request.Clear {
+		payload = map[string]interface{}{
+			"update": map[string]interface{}{
+				"parent": []map[string]interface{}{
+					{"set": map[string]bool{"none": true}},
+				},
+			},
+		}
+	} else {
+		payload = map[string]interface{}{
+			"fields": map[string]interface{}{
+				"parent": map[string]string{"key": parentKey},
+			},
+		}
+	}
+	endpoint := "rest/api/3/issue/" + url.PathEscape(key)
+	restRequest, err := c.rest.NewRequest(ctx, http.MethodPut, endpoint, "", payload)
+	if err != nil {
+		return fmt.Errorf("update jira parent %s: %w", key, err)
+	}
+	if _, err := c.rest.Call(restRequest, nil); err != nil {
+		return fmt.Errorf("update jira parent %s: %w", key, err)
+	}
+	return nil
+}
+
+func (c *Client) UpdateTimeTracking(ctx context.Context, key string, request UpdateTimeTrackingRequest) error {
+	key = strings.TrimSpace(key)
+	original := strings.TrimSpace(request.OriginalEstimate)
+	remaining := strings.TrimSpace(request.RemainingEstimate)
+	if key == "" {
+		return fmt.Errorf("update jira time tracking: missing issue key")
+	}
+	if original == "" && remaining == "" {
+		return fmt.Errorf("update jira time tracking %s: enter an original or remaining estimate", key)
+	}
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+	if c.rest == nil {
+		return fmt.Errorf("update jira time tracking %s: REST service unavailable", key)
+	}
+	timeTracking := map[string]string{}
+	if original != "" {
+		timeTracking["originalEstimate"] = original
+	}
+	if remaining != "" {
+		timeTracking["remainingEstimate"] = remaining
+	}
+	payload := map[string]interface{}{
+		"fields": map[string]interface{}{
+			"timetracking": timeTracking,
+		},
+	}
+	endpoint := "rest/api/3/issue/" + url.PathEscape(key)
+	restRequest, err := c.rest.NewRequest(ctx, http.MethodPut, endpoint, "", payload)
+	if err != nil {
+		return fmt.Errorf("update jira time tracking %s: %w", key, err)
+	}
+	if _, err := c.rest.Call(restRequest, nil); err != nil {
+		return fmt.Errorf("update jira time tracking %s: %w", key, err)
 	}
 	return nil
 }

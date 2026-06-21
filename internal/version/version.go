@@ -3,7 +3,7 @@ package version
 import "strings"
 
 // Version is the app version shown in the TUI. Keep this aligned with release tags.
-var Version = "1.0.4"
+var Version = "1.0.5"
 
 func Display() string {
 	value := strings.TrimSpace(Version)

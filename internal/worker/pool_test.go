@@ -1331,6 +1331,62 @@ func TestPoolUpdateEditFieldSuccess(t *testing.T) {
 	}
 }
 
+func TestPoolUpdateParentSuccess(t *testing.T) {
+	searcher := &fakeIssueSearcher{}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:   41,
+		Kind: KindUpdateParent,
+		UpdateParent: &UpdateParentRequest{
+			Key:     "ABC-1",
+			Request: jira.UpdateParentRequest{ParentKey: "ABC-100"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.ID != 41 || result.Kind != KindUpdateParent || result.Err != nil {
+		t.Fatalf("result = %#v", result)
+	}
+	if searcher.updateParentKey != "ABC-1" || searcher.updateParentRequest.ParentKey != "ABC-100" {
+		t.Fatalf("update parent = %s/%#v", searcher.updateParentKey, searcher.updateParentRequest)
+	}
+	if result.UpdateParent.Key != "ABC-1" || result.UpdateParent.Request.ParentKey != "ABC-100" {
+		t.Fatalf("UpdateParent = %#v", result.UpdateParent)
+	}
+}
+
+func TestPoolUpdateTimeTrackingSuccess(t *testing.T) {
+	searcher := &fakeIssueSearcher{}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	request := jira.UpdateTimeTrackingRequest{OriginalEstimate: "2d", RemainingEstimate: "3h"}
+	err := pool.Submit(Request{
+		ID:                 42,
+		Kind:               KindUpdateTimeTracking,
+		UpdateTimeTracking: &UpdateTimeTrackingRequest{Key: "ABC-1", Request: request},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.ID != 42 || result.Kind != KindUpdateTimeTracking || result.Err != nil {
+		t.Fatalf("result = %#v", result)
+	}
+	if searcher.updateTimeTrackingKey != "ABC-1" || searcher.updateTimeTrackingRequest.OriginalEstimate != "2d" || searcher.updateTimeTrackingRequest.RemainingEstimate != "3h" {
+		t.Fatalf("update time tracking = %s/%#v", searcher.updateTimeTrackingKey, searcher.updateTimeTrackingRequest)
+	}
+	if result.UpdateTimeTracking.Key != "ABC-1" || result.UpdateTimeTracking.Request != request {
+		t.Fatalf("UpdateTimeTracking = %#v", result.UpdateTimeTracking)
+	}
+}
+
 func TestPoolGetIssueLinkTypesSuccess(t *testing.T) {
 	searcher := &fakeIssueSearcher{
 		issueLinkTypes: []jira.IssueLinkType{{ID: "10000", Name: "Blocks", Inward: "is blocked by", Outward: "blocks"}},
@@ -1970,93 +2026,99 @@ func searchRequest(id int) Request {
 }
 
 type fakeIssueSearcher struct {
-	issues                 []jira.Issue
-	searchResults          map[string][]jira.Issue
-	searches               []string
-	detail                 jira.IssueDetail
-	details                map[string]jira.IssueDetail
-	comments               []jira.Comment
-	addedComment           jira.Comment
-	addCommentBody         string
-	addMentions            []jira.Mention
-	updatedComment         jira.Comment
-	updateCommentKey       string
-	updateCommentID        string
-	updateCommentBody      string
-	updateMentions         []jira.Mention
-	users                  []jira.User
-	currentUser            jira.User
-	assignableUsers        []jira.User
-	assignableIssueKey     string
-	assignableQuery        string
-	assignableMaxResults   int
-	transitions            []jira.Transition
-	transitionKey          string
-	transitionID           string
-	transitionRequest      jira.TransitionIssueRequest
-	transitionErr          error
-	editMetadata           jira.EditMetadata
-	createIssueTypes       []jira.CreateIssueType
-	createFields           []jira.CreateField
-	fieldOptions           []jira.FieldOption
-	fieldOptionURL         string
-	fieldOptionQuery       string
-	fieldOptionMaxResults  int
-	issueLinkTypes         []jira.IssueLinkType
-	issueLinkRequest       jira.CreateIssueLinkRequest
-	deleteIssueLinkID      string
-	issueLinkErr           error
-	worklogs               []jira.Worklog
-	worklogKey             string
-	worklogMaxResults      int
-	worklogErr             error
-	addWorklogKey          string
-	addWorklogRequest      jira.AddWorklogRequest
-	addedWorklog           jira.Worklog
-	addWorklogErr          error
-	updateWorklogKey       string
-	updateWorklogRequest   jira.UpdateWorklogRequest
-	updatedWorklog         jira.Worklog
-	updateWorklogErr       error
-	deleteWorklogKey       string
-	deleteWorklogID        string
-	deleteWorklogErr       error
-	createIssueRequest     jira.CreateIssueRequest
-	createdIssue           jira.Issue
-	boardPage              jira.BoardPage
-	sprintPage             jira.SprintPage
-	boardProjectKey        string
-	boardStartAt           int
-	boardMaxResults        int
-	sprintBoardID          int
-	sprintStates           []string
-	sprintStartAt          int
-	sprintMaxResults       int
-	moveSprintID           int
-	moveIssueKeys          []string
-	moveSprintErr          error
-	updateSummaryKey       string
-	updateSummaryValue     string
-	updateSummaryErr       error
-	updateDescriptionKey   string
-	updateDescriptionValue string
-	updateDescriptionErr   error
-	updatePriorityKey      string
-	updatePriorityValue    jira.FieldOption
-	updatePriorityErr      error
-	updateLabelsKey        string
-	updateLabelsValue      []string
-	updateLabelsErr        error
-	updateComponentsKey    string
-	updateComponentsValue  []jira.FieldOption
-	updateComponentsErr    error
-	updateEditFieldKey     string
-	updateEditFieldValue   jira.EditFieldValue
-	updateEditFieldErr     error
-	updateAssigneeKey      string
-	updateAssigneeValue    jira.User
-	updateAssigneeErr      error
-	err                    error
+	issues                    []jira.Issue
+	searchResults             map[string][]jira.Issue
+	searches                  []string
+	detail                    jira.IssueDetail
+	details                   map[string]jira.IssueDetail
+	comments                  []jira.Comment
+	addedComment              jira.Comment
+	addCommentBody            string
+	addMentions               []jira.Mention
+	updatedComment            jira.Comment
+	updateCommentKey          string
+	updateCommentID           string
+	updateCommentBody         string
+	updateMentions            []jira.Mention
+	users                     []jira.User
+	currentUser               jira.User
+	assignableUsers           []jira.User
+	assignableIssueKey        string
+	assignableQuery           string
+	assignableMaxResults      int
+	transitions               []jira.Transition
+	transitionKey             string
+	transitionID              string
+	transitionRequest         jira.TransitionIssueRequest
+	transitionErr             error
+	editMetadata              jira.EditMetadata
+	createIssueTypes          []jira.CreateIssueType
+	createFields              []jira.CreateField
+	fieldOptions              []jira.FieldOption
+	fieldOptionURL            string
+	fieldOptionQuery          string
+	fieldOptionMaxResults     int
+	issueLinkTypes            []jira.IssueLinkType
+	issueLinkRequest          jira.CreateIssueLinkRequest
+	deleteIssueLinkID         string
+	issueLinkErr              error
+	worklogs                  []jira.Worklog
+	worklogKey                string
+	worklogMaxResults         int
+	worklogErr                error
+	addWorklogKey             string
+	addWorklogRequest         jira.AddWorklogRequest
+	addedWorklog              jira.Worklog
+	addWorklogErr             error
+	updateWorklogKey          string
+	updateWorklogRequest      jira.UpdateWorklogRequest
+	updatedWorklog            jira.Worklog
+	updateWorklogErr          error
+	deleteWorklogKey          string
+	deleteWorklogID           string
+	deleteWorklogErr          error
+	createIssueRequest        jira.CreateIssueRequest
+	createdIssue              jira.Issue
+	boardPage                 jira.BoardPage
+	sprintPage                jira.SprintPage
+	boardProjectKey           string
+	boardStartAt              int
+	boardMaxResults           int
+	sprintBoardID             int
+	sprintStates              []string
+	sprintStartAt             int
+	sprintMaxResults          int
+	moveSprintID              int
+	moveIssueKeys             []string
+	moveSprintErr             error
+	updateSummaryKey          string
+	updateSummaryValue        string
+	updateSummaryErr          error
+	updateDescriptionKey      string
+	updateDescriptionValue    string
+	updateDescriptionErr      error
+	updatePriorityKey         string
+	updatePriorityValue       jira.FieldOption
+	updatePriorityErr         error
+	updateLabelsKey           string
+	updateLabelsValue         []string
+	updateLabelsErr           error
+	updateComponentsKey       string
+	updateComponentsValue     []jira.FieldOption
+	updateComponentsErr       error
+	updateEditFieldKey        string
+	updateEditFieldValue      jira.EditFieldValue
+	updateEditFieldErr        error
+	updateParentKey           string
+	updateParentRequest       jira.UpdateParentRequest
+	updateParentErr           error
+	updateTimeTrackingKey     string
+	updateTimeTrackingRequest jira.UpdateTimeTrackingRequest
+	updateTimeTrackingErr     error
+	updateAssigneeKey         string
+	updateAssigneeValue       jira.User
+	updateAssigneeErr         error
+	err                       error
 }
 
 func (f *fakeIssueSearcher) SearchIssues(_ context.Context, jql string, _ int) ([]jira.Issue, error) {
@@ -2408,6 +2470,30 @@ func (f *fakeIssueSearcher) UpdateEditField(_ context.Context, key string, value
 	}
 	f.updateEditFieldKey = key
 	f.updateEditFieldValue = value
+	return nil
+}
+
+func (f *fakeIssueSearcher) UpdateParent(_ context.Context, key string, request jira.UpdateParentRequest) error {
+	if f.updateParentErr != nil {
+		return f.updateParentErr
+	}
+	if f.err != nil {
+		return f.err
+	}
+	f.updateParentKey = key
+	f.updateParentRequest = request
+	return nil
+}
+
+func (f *fakeIssueSearcher) UpdateTimeTracking(_ context.Context, key string, request jira.UpdateTimeTrackingRequest) error {
+	if f.updateTimeTrackingErr != nil {
+		return f.updateTimeTrackingErr
+	}
+	if f.err != nil {
+		return f.err
+	}
+	f.updateTimeTrackingKey = key
+	f.updateTimeTrackingRequest = request
 	return nil
 }
 
@@ -2819,6 +2905,32 @@ func (b *blockingIssueSearcher) UpdateComponents(ctx context.Context, _ string, 
 }
 
 func (b *blockingIssueSearcher) UpdateEditField(ctx context.Context, _ string, _ jira.EditFieldValue) error {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (b *blockingIssueSearcher) UpdateParent(ctx context.Context, _ string, _ jira.UpdateParentRequest) error {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (b *blockingIssueSearcher) UpdateTimeTracking(ctx context.Context, _ string, _ jira.UpdateTimeTrackingRequest) error {
 	if b.started != nil {
 		close(b.started)
 		b.started = nil
