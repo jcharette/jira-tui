@@ -257,4 +257,4 @@ Review results:
 - [x] Push release prep to GitHub.
 - [x] Create GitHub release v1.0.6.
 - [x] Update Homebrew formula checksums from published assets.
-- [ ] Verify final main CI.
+- [x] Verify final main CI.
