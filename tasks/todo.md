@@ -254,7 +254,7 @@ Review results:
 - [x] Audit docs for parent cache and time tracking detail fixes before shipping.
 - [x] Move release notes from Unreleased to v1.0.6.
 - [x] Run docs and full project checks.
-- [ ] Push release prep to GitHub.
-- [ ] Create GitHub release v1.0.6.
-- [ ] Update Homebrew formula checksums from published assets.
+- [x] Push release prep to GitHub.
+- [x] Create GitHub release v1.0.6.
+- [x] Update Homebrew formula checksums from published assets.
 - [ ] Verify final main CI.
