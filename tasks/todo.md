@@ -279,7 +279,16 @@ Review results:
 - [x] Move Unreleased changelog entry to `1.0.7`.
 - [x] Update app version, install docs, and Homebrew formula version references for `1.0.7`.
 - [x] Run full release verification.
-- [ ] Commit release changes and push `main`.
-- [ ] Tag and create GitHub release `v1.0.7`.
-- [ ] Update Homebrew formula checksums from published assets.
-- [ ] Verify final release state.
+- [x] Commit release changes and push `main`.
+- [x] Tag and create GitHub release `v1.0.7`.
+- [x] Update Homebrew formula checksums from published assets.
+- [x] Verify final release state.
+
+### Review
+
+- Published `v1.0.7` for the Ticket Assist text-entry shortcut fix.
+- Release commit: `e64e86c`.
+- Release URL: https://github.com/jcharette/jira-tui/releases/tag/v1.0.7
+- Assets uploaded: macOS arm64/amd64 tarballs, Linux arm64/amd64 tarballs, Windows amd64 zip, and `checksums.txt`.
+- Formula checksums match the published GitHub asset digests.
+- Verification: `make check`, `make install-user`, `make docs-check`, GitHub release metadata, and `gh release list --limit 5`.
