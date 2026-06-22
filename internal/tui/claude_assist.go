@@ -157,13 +157,20 @@ func (m Model) handleClaudeAssistApplyResult(result worker.Result) Model {
 	default:
 		return m
 	}
-	if m.claudeAssistSummaryApplied && m.claudeAssistDescriptionApplied {
+	if m.claudeAssistSummaryApplied && m.claudeAssistDescriptionApplied && m.claudeAssistSubtasksApplied {
+		recommendations := strings.TrimSpace(m.claudeAssistApplySubtasks)
+		parentKey := m.claudeAssistKey
+		parentSummary := m.claudeAssistApplySummary
 		m.claudeAssistApplying = false
 		m.claudeAssistConfirmApply = false
 		m.claudeAssistOpen = false
 		m.activeClaudeAssistSummaryReqID = 0
 		m.activeClaudeAssistDescriptionReqID = 0
+		m.activeClaudeAssistSubtaskReqID = 0
 		m.detailNotice = "Ticket assist draft applied."
+		if recommendations != "" {
+			m = m.openClaudeSubtaskReview(parentKey, parentSummary, recommendations)
+		}
 	}
 	return m
 }
@@ -208,7 +215,7 @@ func (m Model) renderInlineAIDialog(width int) string {
 			"",
 			m.theme.Muted.Render("Claude will receive the current ticket context and Description."),
 		}
-		return m.renderDetailDialog(width, "AI for Description", selected.Key, strings.Join(lines, "\n"), "ctrl+s send  esc cancel")
+		return m.renderDetailDialog(width, "Ticket Assist", selected.Key, strings.Join(lines, "\n"), "ctrl+s send  esc cancel")
 	}
 	actions := inlineDescriptionAIActions()
 	cursor := clamp(m.selectedInlineAIAction, 0, len(actions)-1)
@@ -228,7 +235,7 @@ func (m Model) renderInlineAIDialog(width int) string {
 		})
 	}
 	body := m.detailTable(0, []string{"", "ACTION", "DETAIL"}, rows, nil)
-	return m.renderDetailDialog(width, "AI for Description", selected.Key, body, "j/k select  enter run  esc cancel")
+	return m.renderDetailDialog(width, "Ticket Assist", selected.Key, body, "j/k select  enter run  esc cancel")
 }
 
 func (m Model) renderClaudePlanDialog(width int) string {
@@ -280,6 +287,9 @@ func (m Model) renderClaudeAssistDialog(width int) string {
 		lines = append(lines, "")
 		lines = append(lines, m.theme.Muted.Render("Summary: ")+m.theme.Text.Render(applyStatusLabel(m.claudeAssistSummaryApplied)))
 		lines = append(lines, m.theme.Muted.Render("Description: ")+m.theme.Text.Render(applyStatusLabel(m.claudeAssistDescriptionApplied)))
+		if strings.TrimSpace(m.claudeAssistApplySubtasks) != "" {
+			lines = append(lines, m.theme.Muted.Render("Subtask recommendations: ")+m.theme.Text.Render("review after save"))
+		}
 	case m.claudeAssistPostingComment:
 		footer = "esc close"
 		lines = append(lines, m.detailStatusBlock("Posting Ticket Assist draft as a Jira comment...", bodyWidth, false))
@@ -295,10 +305,18 @@ func (m Model) renderClaudeAssistDialog(width int) string {
 	case m.claudeAssistErr != nil:
 		lines = append(lines, m.renderClaudeAssistError(bodyWidth, m.claudeNow()))
 	default:
-		if m.claudeConfig.AllowJiraWrites {
-			footer = "ctrl+s apply  ctrl+c comment  ctrl+r refine  ctrl+y copy  pgup/pgdn page  esc close"
+		if m.claudeAssistDraftSelection.active || m.claudeAssistQuestionSelection.active {
+			footer = "arrows select  ctrl+y copy  delete remove  esc clear"
+		} else if len(m.claudeAssistQuestions) > 0 && m.claudeAssistQuestionAnswering {
+			footer = "enter save next  ctrl+s save  esc cancel"
+		} else if len(m.claudeAssistQuestions) > 0 && m.claudeConfig.AllowJiraWrites {
+			footer = "enter answer  j/k question  ctrl+r refine with answers  ctrl+s apply  ctrl+space select  ctrl+y copy  esc close"
+		} else if len(m.claudeAssistQuestions) > 0 {
+			footer = "enter answer  j/k question  ctrl+r refine with answers  ctrl+space select  ctrl+y copy  esc close"
+		} else if m.claudeConfig.AllowJiraWrites {
+			footer = "ctrl+s apply  ctrl+c comment  ctrl+r refine  ctrl+space select  ctrl+y copy  pgup/pgdn page  esc close"
 		} else {
-			footer = "ctrl+c comment  ctrl+r refine  ctrl+y copy  pgup/pgdn page  esc close"
+			footer = "ctrl+c comment  ctrl+r refine  ctrl+space select  ctrl+y copy  pgup/pgdn page  esc close"
 		}
 		lines = append(lines, m.renderClaudeAssistEditor(bodyWidth))
 	}
@@ -382,6 +400,12 @@ func (m Model) renderClaudeAssistEditor(width int) string {
 	}
 	lines = append(lines, m.theme.FieldLabel.Render("Local Draft")+" "+m.theme.Muted.Render("Not Applied"))
 	lines = append(lines, m.renderClaudeAssistDraftEditor(width))
+	if len(m.claudeAssistQuestions) > 0 {
+		if m.height > 32 {
+			lines = append(lines, "")
+		}
+		lines = append(lines, m.renderClaudeAssistQuestions(width))
+	}
 	if m.height == 0 || m.height > 32 {
 		lines = append(lines, "")
 		lines = append(lines, m.renderClaudeAssistActionHint(width))
@@ -391,21 +415,72 @@ func (m Model) renderClaudeAssistEditor(width int) string {
 
 func (m Model) renderClaudeAssistActionHint(width int) string {
 	var action string
-	if m.claudeConfig.AllowJiraWrites {
-		action = "ctrl+s apply  |  ctrl+c comment  |  ctrl+r refine  |  ctrl+y copy"
+	if len(m.claudeAssistQuestions) > 0 {
+		if m.claudeAssistQuestionSelection.active {
+			action = "arrows select  |  ctrl+y copy  |  delete remove  |  esc clear"
+		} else if m.claudeAssistQuestionAnswering {
+			action = "enter save next  |  ctrl+s save  |  esc cancel"
+		} else {
+			action = "enter answer  |  j/k select  |  ctrl+r refine with answers  |  ctrl+space select"
+		}
+		return m.theme.FieldLabel.Render("Available Actions") + "\n" + m.theme.Muted.Render(truncate(action, width))
+	}
+	if m.claudeAssistDraftSelection.active {
+		action = "arrows select  |  ctrl+y copy  |  delete remove  |  esc clear"
+	} else if m.claudeConfig.AllowJiraWrites {
+		action = "ctrl+s apply  |  ctrl+c comment  |  ctrl+r refine  |  ctrl+space select  |  ctrl+y copy"
 	} else {
-		action = "Jira writes disabled  |  ctrl+c comment  |  ctrl+r refine  |  ctrl+y copy"
+		action = "Jira writes disabled  |  ctrl+c comment  |  ctrl+r refine  |  ctrl+space select  |  ctrl+y copy"
 	}
 	return m.theme.FieldLabel.Render("Available Actions") + "\n" + m.theme.Muted.Render(truncate(action, width))
 }
 
 func (m Model) claudeAssistEditorRows() int {
 	reviewRows := m.claudeAssistReviewRows()
-	available := max(1, m.fullDetailRows()-reviewRows-13)
+	questionRows := m.claudeAssistQuestionRows()
+	available := max(1, m.fullDetailRows()-reviewRows-questionRows-13)
 	if m.height > 0 && m.height <= 32 {
 		return max(2, min(4, available/2))
 	}
 	return max(6, min(18, available/2))
+}
+
+func (m Model) claudeAssistQuestionRows() int {
+	if len(m.claudeAssistQuestions) == 0 {
+		return 0
+	}
+	rows := min(len(m.claudeAssistQuestions), 4) + 3
+	if m.claudeAssistQuestionAnswering {
+		rows += 3
+	}
+	return rows
+}
+
+func (m Model) renderClaudeAssistQuestions(width int) string {
+	if len(m.claudeAssistQuestions) == 0 {
+		return ""
+	}
+	selected := clamp(m.selectedClaudeAssistQuestion, 0, len(m.claudeAssistQuestions)-1)
+	lines := []string{m.theme.FieldLabel.Render("Open Questions")}
+	for index, question := range m.claudeAssistQuestions {
+		marker := " "
+		style := m.theme.Text
+		if index == selected {
+			marker = ">"
+			style = m.theme.Selected
+		}
+		state := ""
+		if strings.TrimSpace(question.Answer) != "" {
+			state = " " + m.theme.Muted.Render("answered")
+		}
+		text := fmt.Sprintf("%s %s", marker, question.Question)
+		lines = append(lines, style.Render(truncate(text, width))+state)
+		if m.claudeAssistQuestionAnswering && index == selected {
+			editor := m.configuredClaudeAssistQuestionAnswerEditor(width, 3)
+			lines = append(lines, editor.View())
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m Model) claudeAssistReviewRows() int {
@@ -484,6 +559,11 @@ func (m Model) renderClaudeAssistApplyConfirmation(width int) string {
 			break
 		}
 		lines = append(lines, m.theme.Text.Render(truncate(line, width)))
+	}
+	if strings.TrimSpace(m.claudeAssistApplySubtasks) != "" {
+		lines = append(lines, "")
+		lines = append(lines, m.theme.Muted.Render("Subtask Recommendations"))
+		lines = append(lines, m.theme.Text.Render("Will open Review Subtask Changes after Summary and Description save."))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -611,7 +691,7 @@ type claudeAssistTarget int
 
 func inlineDescriptionAIActions() []inlineAIAction {
 	return []inlineAIAction{
-		{ID: "improve_clarity", Label: "Improve clarity", Description: "Rewrite the Description for clearer scope and verification."},
+		{ID: "ticket_assist", Label: "Improve ticket", Description: "Guide a whole-ticket draft with questions and subtask recommendations."},
 		{ID: "extract_acceptance", Label: "Extract acceptance criteria", Description: "Draft explicit acceptance criteria and open questions."},
 		{ID: "ask_question", Label: "Ask Claude a question", Description: "Ask about this ticket and draft a local answer."},
 		{ID: "draft_comment", Label: "Draft clarifying comment", Description: "Draft a Jira comment without editing fields."},
@@ -621,7 +701,7 @@ func inlineDescriptionAIActions() []inlineAIAction {
 func (m Model) claudeActions() []claudeAction {
 	actions := []claudeAction{
 		{ID: "ticket_plan", Label: "Ticket Plan", Description: "Create a read-only implementation and verification plan.", Enabled: m.claudeTicketPlanAvailable()},
-		{ID: "ticket_assist", Label: "Ticket Assist", Description: "Evaluate and rewrite this ticket with editable acceptance criteria.", Enabled: m.claudeTicketAssistAvailable()},
+		{ID: "ticket_assist", Label: "Ticket Assist", Description: "Guide a whole-ticket draft with questions and subtask recommendations.", Enabled: m.claudeTicketAssistAvailable()},
 	}
 	filtered := make([]claudeAction, 0, len(actions))
 	for _, action := range actions {
@@ -739,6 +819,8 @@ func (m Model) startClaudeTicketAssist() (Model, tea.Cmd) {
 	m.claudeAssistDraft = ""
 	m.claudeAssistEditor = newClaudeAssistEditor("")
 	m.claudeAssistEditorReady = true
+	m.claudeAssistDraftSelection.Clear()
+	m.resetClaudeAssistQuestions()
 	m.claudeAssistTarget = claudeAssistTargetTicket
 	m.claudeAssistEvents = make(chan claude.Event, 16)
 	runCtx, cancel := context.WithCancel(context.Background())
@@ -941,6 +1023,13 @@ func (m Model) handleClaudeAssistResult(msg claudeAssistResultMsg) Model {
 		m.claudeAssistDraft = claudeAssistDraftFromText(m.claudeAssistText)
 		m.claudeAssistEditor = newClaudeAssistEditor(m.claudeAssistDraft)
 		m.claudeAssistEditorReady = true
+		m.claudeAssistDraftSelection.Clear()
+		m.claudeAssistQuestions = mergeCreateAIQuestionAnswers(parseCreateIssueOpenQuestions(m.claudeAssistText), m.claudeAssistQuestions)
+		m.selectedClaudeAssistQuestion = clamp(m.selectedClaudeAssistQuestion, 0, max(0, len(m.claudeAssistQuestions)-1))
+		m.claudeAssistQuestionAnswering = false
+		m.claudeAssistQuestionEditorReady = false
+	} else {
+		m.resetClaudeAssistQuestions()
 	}
 	return m
 }
@@ -1118,16 +1207,18 @@ func (m Model) buildClaudeTicketPlanPrompt(ctx detailRenderContext) string {
 
 func (m Model) buildClaudeTicketAssistPrompt(ctx detailRenderContext) string {
 	var b strings.Builder
-	b.WriteString("Evaluate and sanitize this existing Jira ticket.\n")
+	b.WriteString("Evaluate and improve this existing Jira ticket as a guided drafting session.\n")
 	b.WriteString("Do not update Jira, create tickets, edit files, create branches, run git commands, call GitHub, or make external changes.\n")
 	b.WriteString("Return practical ticket-writing help only. Do not invent product decisions; list unknowns as Open Questions.\n")
 	b.WriteString("Acceptance Criteria must be a first-class section in the draft, not buried inside prose.\n")
+	b.WriteString("Review loaded child issues and subtasks. Recommend which to keep, add, remove, or rescope, but do not perform Jira writes.\n")
 	b.WriteString("Use this exact high-level structure:\n")
 	b.WriteString("Review\n")
 	b.WriteString("- Clarity issues\n")
 	b.WriteString("- Missing acceptance criteria\n")
 	b.WriteString("- Conflicting or stale context\n")
 	b.WriteString("- Implementation or test gaps\n")
+	b.WriteString("- Subtask or child issue scope gaps\n")
 	b.WriteString("- Open questions\n\n")
 	b.WriteString("Draft\n")
 	b.WriteString("Summary: <one concise summary>\n\n")
@@ -1136,6 +1227,11 @@ func (m Model) buildClaudeTicketAssistPrompt(ctx detailRenderContext) string {
 	b.WriteString("Test / Verification\n- <verification step>\n\n")
 	b.WriteString("Implementation Notes\n- <notes or constraints>\n\n")
 	b.WriteString("Open Questions\n- <question or None>\n\n")
+	b.WriteString("Subtask Recommendations\n")
+	b.WriteString("- Keep: <existing issue key and why>\n")
+	b.WriteString("- Add: <suggested subtask title and scope>\n")
+	b.WriteString("- Remove / Defer: <existing issue key and why>\n")
+	b.WriteString("- Rescope: <existing issue key and suggested scope>\n\n")
 	b.WriteString("Ticket:\n")
 	m.writeClaudeTicketContext(&b, ctx)
 	return strings.TrimSpace(b.String())
@@ -1147,6 +1243,7 @@ func (m Model) buildClaudeTicketAssistRefinementPrompt(ctx detailRenderContext, 
 	b.WriteString("Do not update Jira, create tickets, edit files, create branches, run git commands, call GitHub, or make external changes.\n")
 	b.WriteString("Do not reinvent the draft from scratch. Preserve useful user edits from the current draft unless the instruction asks otherwise.\n")
 	b.WriteString("Acceptance Criteria must remain a first-class section in the draft, not buried inside prose.\n")
+	b.WriteString("Subtask Recommendations must remain a first-class section when child or subtask scope matters.\n")
 	b.WriteString("Return the same high-level structure as Ticket Assist:\n")
 	b.WriteString("Review\n")
 	b.WriteString("- What changed and why\n")
@@ -1158,6 +1255,8 @@ func (m Model) buildClaudeTicketAssistRefinementPrompt(ctx detailRenderContext, 
 	b.WriteString("Test / Verification\n- <verification step>\n\n")
 	b.WriteString("Implementation Notes\n- <notes or constraints>\n\n")
 	b.WriteString("Open Questions\n- <question or None>\n\n")
+	b.WriteString("Subtask Recommendations\n")
+	b.WriteString("- Keep/Add/Remove / Defer/Rescope recommendations as needed\n\n")
 	b.WriteString("User instruction:\n")
 	b.WriteString(strings.TrimSpace(instruction))
 	b.WriteString("\n\nCurrent user-edited draft:\n")
@@ -1221,6 +1320,28 @@ func (m Model) writeClaudeTicketContext(b *strings.Builder, ctx detailRenderCont
 		b.WriteString("\nDescription:\n")
 		b.WriteString(description)
 		b.WriteString("\n")
+	}
+	rows := m.hierarchyRows(issue.Key)
+	if len(rows) > 0 {
+		b.WriteString("\nLoaded hierarchy:\n")
+		for _, row := range rows {
+			child := row.Issue
+			group := "Children"
+			if row.Group == "subtasks" {
+				group = "Subtasks"
+			}
+			fmt.Fprintf(b, "- %s: %s %s", group, child.Key, strings.TrimSpace(child.Summary))
+			if strings.TrimSpace(child.Status) != "" {
+				fmt.Fprintf(b, " [%s]", child.Status)
+			}
+			if strings.TrimSpace(child.IssueType) != "" {
+				fmt.Fprintf(b, " type=%s", child.IssueType)
+			}
+			if strings.TrimSpace(child.Assignee) != "" {
+				fmt.Fprintf(b, " assignee=%s", child.Assignee)
+			}
+			b.WriteString("\n")
+		}
 	}
 	comments := m.comments[issue.Key]
 	if len(comments) > 0 {
@@ -1506,11 +1627,60 @@ func (m Model) updateClaudeAssistEditor(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if len(m.claudeAssistQuestions) > 0 {
+		switch msg.String() {
+		case "up", "k", "down", "j", "enter", "ctrl+r":
+			return m.updateClaudeAssistQuestions(msg)
+		case "ctrl+s":
+			if m.claudeAssistQuestionAnswering {
+				return m.updateClaudeAssistQuestions(msg)
+			}
+		case "esc":
+			if m.claudeAssistQuestionAnswering {
+				if m.claudeAssistQuestionSelection.active {
+					m.claudeAssistQuestionSelection.Clear()
+					m.detailNotice = ""
+					return m, nil
+				}
+				m.claudeAssistQuestionAnswering = false
+				m.claudeAssistQuestionEditorReady = false
+				m.detailNotice = ""
+				return m, nil
+			}
+		}
+		if m.claudeAssistQuestionAnswering {
+			return m.updateClaudeAssistQuestions(msg)
+		}
+	}
+	if _, ok := shiftSelectionMovementKey(msg.String()); ok {
+		m.configureClaudeAssistEditor(max(32, m.browserLayout(m.width).contentWidth-16), m.claudeAssistEditorRows())
+	}
+	if updateTextareaShiftSelection(&m.claudeAssistEditor, &m.claudeAssistDraftSelection, msg.String()) {
+		m.claudeAssistDraft = m.claudeAssistEditor.Value()
+		m.detailNotice = ""
+		return m, nil
+	}
 	switch msg.String() {
 	case "esc":
+		if m.claudeAssistDraftSelection.active {
+			m.claudeAssistDraftSelection.Clear()
+			m.detailNotice = ""
+			return m, nil
+		}
 		m.claudeAssistDraft = m.claudeAssistDraftValue()
 		m.claudeAssistOpen = false
 		return m, nil
+	case "ctrl+space", "ctrl+@":
+		m.configureClaudeAssistEditor(max(32, m.browserLayout(m.width).contentWidth-16), m.claudeAssistEditorRows())
+		m.claudeAssistDraftSelection.Mark(m.claudeAssistEditor)
+		m.detailNotice = "Selection started. Use arrows to extend, ctrl+y to copy, delete to remove."
+		return m, nil
+	case "delete", "backspace":
+		if deleteTextareaSelection(&m.claudeAssistEditor, &m.claudeAssistDraftSelection) {
+			m.claudeAssistDraft = m.claudeAssistEditor.Value()
+			m.detailNotice = "Deleted selected text."
+			return m, nil
+		}
 	case "ctrl+r":
 		m.claudeAssistDraft = m.claudeAssistDraftValue()
 		m.claudeAssistRefineInstruction = ""
@@ -1540,7 +1710,32 @@ func (m Model) updateClaudeAssistEditor(msg tea.KeyMsg) (Model, tea.Cmd) {
 	editor, cmd := m.claudeAssistEditor.Update(msg)
 	m.claudeAssistEditor = editor
 	m.claudeAssistDraft = m.claudeAssistEditor.Value()
+	if m.claudeAssistDraftSelection.active {
+		if textareaSelectionExtendingKey(msg.String()) {
+			m.claudeAssistDraftSelection.UpdateCursor(m.claudeAssistEditor)
+		} else {
+			m.claudeAssistDraftSelection.Clear()
+		}
+	}
 	return m, cmd
+}
+
+func (m Model) updateClaudeAssistPaste(msg tea.PasteMsg) (Model, tea.Cmd) {
+	if m.claudeAssistQuestionAnswering && len(m.claudeAssistQuestions) > 0 {
+		m.ensureClaudeAssistQuestionAnswerEditor()
+		if !replaceTextareaSelection(&m.claudeAssistQuestionEditor, &m.claudeAssistQuestionSelection, msg.String()) {
+			m.claudeAssistQuestionEditor.InsertString(msg.String())
+		}
+		m.detailNotice = ""
+		return m, nil
+	}
+	m.configureClaudeAssistEditor(max(32, m.browserLayout(m.width).contentWidth-16), m.claudeAssistEditorRows())
+	if !replaceTextareaSelection(&m.claudeAssistEditor, &m.claudeAssistDraftSelection, msg.String()) {
+		m.claudeAssistEditor.InsertString(msg.String())
+	}
+	m.claudeAssistDraft = m.claudeAssistEditor.Value()
+	m.detailNotice = ""
+	return m, nil
 }
 
 func (m Model) updateInlineAIPicker(msg tea.KeyMsg) (Model, tea.Cmd) {
@@ -1593,6 +1788,11 @@ func (m Model) runSelectedInlineAIAction() (Model, tea.Cmd) {
 }
 
 func (m Model) submitInlineDescriptionAI(action inlineAIAction, instruction string) (Model, tea.Cmd) {
+	if action.ID == "ticket_assist" {
+		m.inlineAIOpen = false
+		m.inlineAIInstructionOpen = false
+		return m.startClaudeTicketAssist()
+	}
 	ctx, ok := m.detailRenderContext()
 	if !ok {
 		m.detailNotice = "No selected ticket for inline AI."
@@ -1619,6 +1819,8 @@ func (m Model) submitInlineDescriptionAI(action inlineAIAction, instruction stri
 	m.claudeAssistDraft = ""
 	m.claudeAssistEditor = newClaudeAssistEditor("")
 	m.claudeAssistEditorReady = true
+	m.claudeAssistDraftSelection.Clear()
+	m.resetClaudeAssistQuestions()
 	m.claudeAssistTarget = claudeAssistTargetDescription
 	m.inlineAIOpen = false
 	m.inlineAIInstructionOpen = false
@@ -1632,6 +1834,180 @@ func (m Model) submitInlineDescriptionAI(action inlineAIAction, instruction stri
 		m.waitForClaudeAssistProgress(reqID, key),
 		m.scheduleClaudeAssistTick(reqID),
 	)
+}
+
+func (m Model) updateClaudeAssistQuestions(msg tea.KeyMsg) (Model, tea.Cmd) {
+	if len(m.claudeAssistQuestions) == 0 {
+		return m, nil
+	}
+	if m.claudeAssistQuestionAnswering {
+		if _, ok := shiftSelectionMovementKey(msg.String()); ok {
+			m.ensureClaudeAssistQuestionAnswerEditor()
+		}
+		if updateTextareaShiftSelection(&m.claudeAssistQuestionEditor, &m.claudeAssistQuestionSelection, msg.String()) {
+			m.detailNotice = ""
+			return m, nil
+		}
+		switch msg.String() {
+		case "ctrl+space", "ctrl+@":
+			m.ensureClaudeAssistQuestionAnswerEditor()
+			m.claudeAssistQuestionSelection.Mark(m.claudeAssistQuestionEditor)
+			m.detailNotice = "Selection started. Use arrows to extend, ctrl+y to copy, delete to remove."
+			return m, nil
+		case "ctrl+y":
+			m.ensureClaudeAssistQuestionAnswerEditor()
+			if selected := strings.TrimSpace(m.claudeAssistQuestionSelection.SelectedText(m.claudeAssistQuestionEditor)); selected != "" {
+				return m, copyClaudeAssistText("Claude question answer selection", selected)
+			}
+			m.detailNotice = "No selected answer text to copy."
+			return m, nil
+		case "delete", "backspace":
+			if deleteTextareaSelection(&m.claudeAssistQuestionEditor, &m.claudeAssistQuestionSelection) {
+				m.detailNotice = "Deleted selected text."
+				return m, nil
+			}
+		case "enter":
+			m.saveClaudeAssistQuestionAnswer()
+			if m.selectedClaudeAssistQuestion < len(m.claudeAssistQuestions)-1 {
+				m.selectedClaudeAssistQuestion++
+				m.claudeAssistQuestionEditor = newCreateQuestionAnswerEditor(m.claudeAssistQuestions[m.selectedClaudeAssistQuestion].Answer)
+				m.claudeAssistQuestionEditorReady = true
+				m.claudeAssistQuestionAnswering = true
+				m.claudeAssistQuestionSelection.Clear()
+				m.detailNotice = "Saved answer. Next question."
+				return m, nil
+			}
+			m.claudeAssistQuestionAnswering = false
+			m.claudeAssistQuestionEditorReady = false
+			m.claudeAssistQuestionSelection.Clear()
+			m.detailNotice = "Saved final question answer locally."
+			return m, nil
+		case "ctrl+s":
+			m.saveClaudeAssistQuestionAnswer()
+			m.claudeAssistQuestionAnswering = false
+			m.claudeAssistQuestionEditorReady = false
+			m.claudeAssistQuestionSelection.Clear()
+			m.detailNotice = "Saved question answer locally."
+			return m, nil
+		}
+		m.ensureClaudeAssistQuestionAnswerEditor()
+		editor, cmd := m.claudeAssistQuestionEditor.Update(msg)
+		m.claudeAssistQuestionEditor = editor
+		if m.claudeAssistQuestionSelection.active {
+			if textareaSelectionExtendingKey(msg.String()) {
+				m.claudeAssistQuestionSelection.UpdateCursor(m.claudeAssistQuestionEditor)
+			} else {
+				m.claudeAssistQuestionSelection.Clear()
+			}
+		}
+		m.detailNotice = ""
+		return m, cmd
+	}
+	switch msg.String() {
+	case "up", "k":
+		m.selectedClaudeAssistQuestion = clamp(m.selectedClaudeAssistQuestion-1, 0, len(m.claudeAssistQuestions)-1)
+		return m, nil
+	case "down", "j":
+		m.selectedClaudeAssistQuestion = clamp(m.selectedClaudeAssistQuestion+1, 0, len(m.claudeAssistQuestions)-1)
+		return m, nil
+	case "enter":
+		selected := clamp(m.selectedClaudeAssistQuestion, 0, len(m.claudeAssistQuestions)-1)
+		m.claudeAssistQuestionEditor = newCreateQuestionAnswerEditor(m.claudeAssistQuestions[selected].Answer)
+		m.claudeAssistQuestionEditorReady = true
+		m.claudeAssistQuestionAnswering = true
+		m.detailNotice = ""
+		return m, nil
+	case "ctrl+r":
+		return m.submitClaudeAssistQuestionRefinement()
+	}
+	return m, nil
+}
+
+func (m Model) submitClaudeAssistQuestionRefinement() (Model, tea.Cmd) {
+	instruction := "Refine the current ticket draft using my answers to the Open Questions."
+	if feedback := strings.TrimSpace(m.claudeAssistQuestionFeedback()); feedback != "" {
+		instruction += "\n\n" + feedback
+	}
+	m.claudeAssistRefineInstruction = instruction
+	m.claudeAssistRefineEditor = newClaudeAssistRefineEditor(instruction)
+	m.claudeAssistRefineEditorReady = true
+	return m.submitClaudeAssistRefinement()
+}
+
+func (m *Model) saveClaudeAssistQuestionAnswer() {
+	if len(m.claudeAssistQuestions) == 0 {
+		return
+	}
+	selected := clamp(m.selectedClaudeAssistQuestion, 0, len(m.claudeAssistQuestions)-1)
+	m.claudeAssistQuestions[selected].Answer = strings.TrimSpace(m.claudeAssistQuestionEditor.Value())
+}
+
+func (m *Model) ensureClaudeAssistQuestionAnswerEditor() {
+	if m.claudeAssistQuestionEditorReady {
+		return
+	}
+	value := ""
+	if len(m.claudeAssistQuestions) > 0 {
+		selected := clamp(m.selectedClaudeAssistQuestion, 0, len(m.claudeAssistQuestions)-1)
+		value = m.claudeAssistQuestions[selected].Answer
+	}
+	m.claudeAssistQuestionEditor = newCreateQuestionAnswerEditor(value)
+	m.claudeAssistQuestionEditorReady = true
+}
+
+func (m Model) configuredClaudeAssistQuestionAnswerEditor(width int, rows int) textarea.Model {
+	editor := m.claudeAssistQuestionEditor
+	if !m.claudeAssistQuestionEditorReady {
+		value := ""
+		if len(m.claudeAssistQuestions) > 0 {
+			selected := clamp(m.selectedClaudeAssistQuestion, 0, len(m.claudeAssistQuestions)-1)
+			value = m.claudeAssistQuestions[selected].Answer
+		}
+		editor = newCreateQuestionAnswerEditor(value)
+	}
+	editor.MaxHeight = max(rows, 1)
+	editor.MaxWidth = width
+	editor.SetWidth(width)
+	editor.SetHeight(rows)
+	editor.Focus()
+	return editor
+}
+
+func (m Model) claudeAssistQuestionFeedback() string {
+	if len(m.claudeAssistQuestions) == 0 {
+		return ""
+	}
+	answered := make([]string, 0, len(m.claudeAssistQuestions))
+	unanswered := make([]string, 0, len(m.claudeAssistQuestions))
+	for _, question := range m.claudeAssistQuestions {
+		q := strings.TrimSpace(question.Question)
+		if q == "" {
+			continue
+		}
+		answer := strings.TrimSpace(question.Answer)
+		if answer == "" {
+			unanswered = append(unanswered, "- "+q)
+			continue
+		}
+		answered = append(answered, "Q: "+q+"\nA: "+answer)
+	}
+	parts := make([]string, 0, 2)
+	if len(answered) > 0 {
+		parts = append(parts, "User answers to Open Questions:\n"+strings.Join(answered, "\n\n"))
+	}
+	if len(unanswered) > 0 {
+		parts = append(parts, "Still unanswered Open Questions:\n"+strings.Join(unanswered, "\n"))
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func (m *Model) resetClaudeAssistQuestions() {
+	m.claudeAssistQuestions = nil
+	m.selectedClaudeAssistQuestion = 0
+	m.claudeAssistQuestionAnswering = false
+	m.claudeAssistQuestionEditor = textarea.Model{}
+	m.claudeAssistQuestionEditorReady = false
+	m.claudeAssistQuestionSelection.Clear()
 }
 
 func (m Model) beginClaudeAssistApply() (Model, tea.Cmd) {
@@ -1654,6 +2030,7 @@ func (m Model) beginClaudeAssistApply() (Model, tea.Cmd) {
 		m.claudeAssistKey = selected.Key
 		m.claudeAssistApplySummary = ""
 		m.claudeAssistApplyDescription = description
+		m.claudeAssistApplySubtasks = ""
 		m.claudeAssistConfirmApply = m.claudeConfig.RequireConfirmation
 		if m.claudeAssistConfirmApply {
 			return m, nil
@@ -1668,6 +2045,7 @@ func (m Model) beginClaudeAssistApply() (Model, tea.Cmd) {
 	m.claudeAssistKey = selected.Key
 	m.claudeAssistApplySummary = draft.Summary
 	m.claudeAssistApplyDescription = draft.Description
+	m.claudeAssistApplySubtasks = claudeAssistSubtaskRecommendationsFromDraft(m.claudeAssistDraft)
 	m.claudeAssistConfirmApply = m.claudeConfig.RequireConfirmation
 	if m.claudeAssistConfirmApply {
 		return m, nil
@@ -1700,10 +2078,12 @@ func (m Model) submitClaudeAssistApply() (Model, tea.Cmd) {
 		m.nextRequestID++
 		m.activeClaudeAssistDescriptionReqID = m.nextRequestID
 		m.activeClaudeAssistSummaryReqID = 0
+		m.activeClaudeAssistSubtaskReqID = 0
 		m.claudeAssistApplying = true
 		m.claudeAssistConfirmApply = false
 		m.claudeAssistSummaryApplied = true
 		m.claudeAssistDescriptionApplied = false
+		m.claudeAssistSubtasksApplied = true
 		m.detailNotice = ""
 		return m, m.submitUpdateDescription(m.activeClaudeAssistDescriptionReqID, key, description)
 	}
@@ -1715,15 +2095,18 @@ func (m Model) submitClaudeAssistApply() (Model, tea.Cmd) {
 	m.activeClaudeAssistSummaryReqID = m.nextRequestID
 	m.nextRequestID++
 	m.activeClaudeAssistDescriptionReqID = m.nextRequestID
+	m.activeClaudeAssistSubtaskReqID = 0
 	m.claudeAssistApplying = true
 	m.claudeAssistConfirmApply = false
 	m.claudeAssistSummaryApplied = false
 	m.claudeAssistDescriptionApplied = false
+	m.claudeAssistSubtasksApplied = true
 	m.detailNotice = ""
-	return m, tea.Batch(
+	cmds := []tea.Cmd{
 		m.submitUpdateSummary(m.activeClaudeAssistSummaryReqID, key, summary),
 		m.submitUpdateDescription(m.activeClaudeAssistDescriptionReqID, key, description),
-	)
+	}
+	return m, tea.Batch(cmds...)
 }
 
 func (m Model) submitClaudeAssistRefinement() (Model, tea.Cmd) {
@@ -1817,17 +2200,49 @@ func parseClaudeAssistApplyDraft(draft string, fallbackSummary string) claudeAss
 	}
 }
 
+func claudeAssistSubtaskRecommendationsFromDraft(draft string) string {
+	lines := strings.Split(draft, "\n")
+	var collected []string
+	inSection := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		normalized := strings.ToLower(strings.Trim(trimmed, "# "))
+		if normalized == "subtask recommendations" {
+			inSection = true
+			continue
+		}
+		if inSection && trimmed != "" && !strings.HasPrefix(trimmed, "-") && !strings.HasPrefix(trimmed, "*") {
+			break
+		}
+		if inSection {
+			collected = append(collected, line)
+		}
+	}
+	return strings.TrimSpace(strings.Join(collected, "\n"))
+}
+
+func claudeAssistSubtaskRecommendationsComment(recommendations string) string {
+	return strings.TrimSpace("Ticket Assist Subtask Recommendations\n\n" + strings.TrimSpace(recommendations))
+}
+
 func (m Model) copyClaudeAssistDraft() (Model, tea.Cmd) {
+	if selected := strings.TrimSpace(m.claudeAssistDraftSelection.SelectedText(m.claudeAssistEditor)); selected != "" {
+		return m, copyClaudeAssistText("Claude ticket draft selection", selected)
+	}
 	draft := strings.TrimSpace(m.claudeAssistDraftValue())
 	if draft == "" {
 		m.detailNotice = "No Claude ticket draft to copy."
 		return m, nil
 	}
-	return m, func() tea.Msg {
+	return m, copyClaudeAssistText("Claude ticket draft", draft)
+}
+
+func copyClaudeAssistText(target string, value string) tea.Cmd {
+	return func() tea.Msg {
 		return linkActionMsg{
 			action: "copy-draft",
-			target: "Claude ticket draft",
-			err:    copyToClipboard(draft),
+			target: target,
+			err:    copyToClipboard(value),
 		}
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/jcharette/jira-tui/internal/claude"
 	"github.com/jcharette/jira-tui/internal/events"
 	"github.com/jcharette/jira-tui/internal/jira"
+	"github.com/jcharette/jira-tui/internal/worker"
 )
 
 func TestClaudeSectionRequiresEnabledAvailableTicketPlan(t *testing.T) {
@@ -59,7 +60,7 @@ func TestClaudeSectionVisibleWithTicketAssistOnly(t *testing.T) {
 		t.Fatal("Claude section should be visible when ticket_assist is enabled")
 	}
 	view := model.render()
-	for _, want := range []string{"Ticket Assist", "Evaluate and rewrite this ticket"} {
+	for _, want := range []string{"Ticket Assist", "whole-ticket draft", "subtask recommendations"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q in %q", want, view)
 		}
@@ -82,7 +83,7 @@ func TestInlineAIPickerCanCancel(t *testing.T) {
 	}
 }
 
-func TestInlineDescriptionAIImproveClaritySubmitsScopedPrompt(t *testing.T) {
+func TestInlineAIImproveTicketStartsGuidedTicketAssist(t *testing.T) {
 	stream := events.NewStream()
 	defer stream.Close()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -91,7 +92,7 @@ func TestInlineDescriptionAIImproveClaritySubmitsScopedPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Subscribe() error = %v", err)
 	}
-	runner := &fakeClaudeRunner{result: claude.Result{Text: "Review\n- Description is vague\n\nDraft\nClearer description"}}
+	runner := &fakeClaudeRunner{result: claude.Result{Text: "Review\n- Description is vague\n\nDraft\nSummary: Clearer ticket"}}
 	model := newInlineDescriptionAIModel(t)
 	model.eventStream = stream
 	model.claudeRunner = runner
@@ -115,10 +116,10 @@ func TestInlineDescriptionAIImproveClaritySubmitsScopedPrompt(t *testing.T) {
 	}
 	taskEvents := collectEventTypesForTest(t, received, events.TypeAITaskRequested, events.TypeAITaskCompleted)
 	requested := decodeAITaskPayloadForTest(t, taskEvents[events.TypeAITaskRequested])
-	if requested.Operation != events.AIOperationInlineAssist || requested.IssueKey != "ABC-1" {
+	if requested.Operation != events.AIOperationTicketAssist || requested.IssueKey != "ABC-1" {
 		t.Fatalf("requested payload = %#v", requested)
 	}
-	for _, want := range []string{"Improve clarity", "Description-scoped", "Do not update Jira", "ABC-1", "Current unclear description", "Please clarify done."} {
+	for _, want := range []string{"guided drafting session", "Subtask Recommendations", "Do not update Jira", "ABC-1", "Current unclear description", "Please clarify done."} {
 		if !strings.Contains(runner.request.Prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, runner.request.Prompt)
 		}
@@ -449,6 +450,10 @@ func TestClaudeSectionSubmitsTicketAssistWithSelectedContext(t *testing.T) {
 			Description: "Need to do deploy stuff.",
 		},
 	}
+	model.issues = append(model.issues,
+		jira.Issue{Key: "ABC-2", Summary: "Install platform controllers", Status: "In Progress", IssueType: "Sub-task", ParentKey: "ABC-1", IsSubtask: true, Assignee: "Rae"},
+		jira.Issue{Key: "ABC-3", Summary: "Automate Helm releases", Status: "To Do", IssueType: "Task", ParentKey: "ABC-1", Assignee: "Jon"},
+	)
 	model.comments = map[string][]jira.Comment{
 		"ABC-1": {{Author: "Rae", Body: "What does done mean?"}},
 	}
@@ -472,9 +477,17 @@ func TestClaudeSectionSubmitsTicketAssistWithSelectedContext(t *testing.T) {
 		t.Fatalf("Claude assist result error = %v", result.err)
 	}
 	for _, want := range []string{
-		"Evaluate and sanitize this existing Jira ticket",
+		"Evaluate and improve this existing Jira ticket as a guided drafting session",
 		"Do not update Jira",
 		"Acceptance Criteria",
+		"Subtask Recommendations",
+		"Loaded hierarchy",
+		"Subtasks",
+		"ABC-2",
+		"Install platform controllers",
+		"Children",
+		"ABC-3",
+		"Automate Helm releases",
 		"ABC-1",
 		"Need to do deploy stuff.",
 		"What does done mean?",
@@ -494,6 +507,200 @@ func TestClaudeSectionSubmitsTicketAssistWithSelectedContext(t *testing.T) {
 	}
 	if next.claudeAssistDraftValue() == "" {
 		t.Fatal("expected editable Claude assist draft")
+	}
+}
+
+func TestClaudeTicketAssistResultExtractsOpenQuestions(t *testing.T) {
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, TicketAssist: true, Timeout: time.Second}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 130
+	model.height = 42
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Original summary", Status: "To Do"}}
+	model.claudeAssistOpen = true
+	model.claudeAssistKey = "ABC-1"
+	model.activeClaudeAssistReqID = 7
+	model.claudeAssistLoading = true
+
+	updated, _ := model.Update(claudeAssistResultMsg{
+		id:  7,
+		key: "ABC-1",
+		text: strings.Join([]string{
+			"Review",
+			"- Needs sharper scope",
+			"",
+			"Draft",
+			"Summary: Better ticket",
+			"",
+			"Acceptance Criteria",
+			"- [ ] Clear and testable",
+			"",
+			"Open Questions",
+			"- Which controllers are in the platform baseline?",
+			"- Is Helm deployment required for day one?",
+			"",
+			"Subtask Recommendations",
+			"- Add: Document controller ownership",
+		}, "\n"),
+	})
+	next := updated.(Model)
+
+	if len(next.claudeAssistQuestions) != 2 {
+		t.Fatalf("questions = %#v", next.claudeAssistQuestions)
+	}
+	if next.claudeAssistQuestions[0].Question != "Which controllers are in the platform baseline?" {
+		t.Fatalf("question[0] = %#v", next.claudeAssistQuestions[0])
+	}
+	view := next.render()
+	for _, want := range []string{"Open Questions", "> Which controllers are in the platform baseline?", "enter answer", "ctrl+r refine with answers"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in:\n%s", want, view)
+		}
+	}
+}
+
+func TestClaudeTicketAssistAnswersQuestionsAndRefinesWithFeedback(t *testing.T) {
+	runner := &fakeClaudeRunner{result: claude.Result{Text: "Review\n- Used answers\n\nDraft\nSummary: Refined ticket"}}
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, TicketAssist: true, Timeout: time.Second}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
+		WithClaudeRunner(runner),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 130
+	model.height = 42
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Original summary", Status: "To Do"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {Issue: model.issues[0], Description: "Original description."},
+	}
+	model.claudeAssistOpen = true
+	model.claudeAssistKey = "ABC-1"
+	model.claudeAssistDraft = "Summary: Better ticket\n\nAcceptance Criteria\n- [ ] Clear"
+	model.claudeAssistEditor = newClaudeAssistEditor(model.claudeAssistDraft)
+	model.claudeAssistEditorReady = true
+	model.claudeAssistQuestions = []createAIQuestion{
+		{Question: "Which controllers are in the platform baseline?"},
+		{Question: "Is Helm deployment required for day one?", Answer: "Yes, for the core chart set."},
+	}
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+	if !next.claudeAssistQuestionAnswering {
+		t.Fatal("expected answer editor to open")
+	}
+	updated, _ = next.Update(tea.PasteMsg{Content: "external-dns and cert-manager"})
+	next = updated.(Model)
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next = updated.(Model)
+	if next.claudeAssistQuestionAnswering {
+		t.Fatal("expected answer editor to close")
+	}
+	if next.claudeAssistQuestions[0].Answer != "external-dns and cert-manager" {
+		t.Fatalf("answer = %q", next.claudeAssistQuestions[0].Answer)
+	}
+
+	updated, cmd := next.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+r"}))
+	next = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected refinement command")
+	}
+	resultMsg := <-runClaudePlanCommandAsyncForTest(cmd)
+	if _, ok := resultMsg.(claudeAssistResultMsg); !ok {
+		t.Fatalf("message = %#v", resultMsg)
+	}
+	for _, want := range []string{
+		"Refine this Jira ticket draft",
+		"User answers to Open Questions",
+		"Q: Which controllers are in the platform baseline?",
+		"A: external-dns and cert-manager",
+		"Q: Is Helm deployment required for day one?",
+		"A: Yes, for the core chart set.",
+	} {
+		if !strings.Contains(runner.request.Prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, runner.request.Prompt)
+		}
+	}
+}
+
+func TestClaudeTicketAssistQuestionsDoNotBlockApplyShortcut(t *testing.T) {
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, TicketAssist: true, Timeout: time.Second, AllowJiraWrites: true, RequireConfirmation: true}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 130
+	model.height = 42
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Original summary", Status: "To Do"}}
+	model.details = map[string]jira.IssueDetail{"ABC-1": {Issue: model.issues[0], Description: "Old description"}}
+	model.claudeAssistOpen = true
+	model.claudeAssistKey = "ABC-1"
+	model.claudeAssistTarget = claudeAssistTargetTicket
+	model.claudeAssistDraft = "Summary: Clearer ticket\n\nDescription: Better scope."
+	model.claudeAssistEditor = newClaudeAssistEditor(model.claudeAssistDraft)
+	model.claudeAssistEditorReady = true
+	model.claudeAssistQuestions = []createAIQuestion{{Question: "Which controllers are required?"}}
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next := updated.(Model)
+	if cmd != nil {
+		t.Fatal("expected confirmation before applying")
+	}
+	if !next.claudeAssistConfirmApply {
+		t.Fatal("expected apply confirmation")
+	}
+}
+
+func TestClaudeTicketAssistQuestionAnswerSelectionCanBeDeleted(t *testing.T) {
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, TicketAssist: true, Timeout: time.Second}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 130
+	model.height = 42
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Original summary", Status: "To Do"}}
+	model.claudeAssistOpen = true
+	model.claudeAssistKey = "ABC-1"
+	model.claudeAssistDraft = "Summary: Better ticket"
+	model.claudeAssistEditor = newClaudeAssistEditor(model.claudeAssistDraft)
+	model.claudeAssistEditorReady = true
+	model.claudeAssistQuestions = []createAIQuestion{{Question: "Which controllers are required?", Answer: "external-dns and cert-manager"}}
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+	next.claudeAssistQuestionEditor.MoveToBegin()
+
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+space"}))
+	next = updated.(Model)
+	for range len("external-dns") {
+		updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "right", Code: tea.KeyRight}))
+		next = updated.(Model)
+	}
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "backspace", Code: tea.KeyBackspace}))
+	next = updated.(Model)
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next = updated.(Model)
+
+	if got := next.claudeAssistQuestions[0].Answer; got != "and cert-manager" {
+		t.Fatalf("answer = %q", got)
 	}
 }
 
@@ -819,6 +1026,95 @@ func TestClaudeTicketAssistDraftCanBeCopied(t *testing.T) {
 	}
 }
 
+func TestClaudeTicketAssistDraftSelectionCanBeCopiedAndDeleted(t *testing.T) {
+	var copied string
+	withLinkActions(t, nil, func(value string) error {
+		copied = value
+		return nil
+	})
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, TicketAssist: true, Timeout: time.Second}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 120
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Sanitize this", Status: "To Do"}}
+	model.claudeAssistOpen = true
+	model.claudeAssistKey = "ABC-1"
+	model.claudeAssistDraft = "Summary: Better ticket"
+	model.claudeAssistEditor = newClaudeAssistEditor(model.claudeAssistDraft)
+	model.claudeAssistEditor.MoveToBegin()
+	model.claudeAssistEditorReady = true
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+space"}))
+	next := updated.(Model)
+	for range len("Summary") {
+		updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "right", Code: tea.KeyRight}))
+		next = updated.(Model)
+	}
+	if selected := next.claudeAssistDraftSelection.SelectedText(next.claudeAssistEditor); selected != "Summary" {
+		t.Fatalf("selected = %q", selected)
+	}
+
+	updated, cmd := next.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+y"}))
+	next = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected copy command")
+	}
+	msg := cmd()
+	linkMsg, ok := msg.(linkActionMsg)
+	if !ok {
+		t.Fatalf("message = %#v", msg)
+	}
+	updated, _ = next.Update(linkMsg)
+	next = updated.(Model)
+	if copied != "Summary" {
+		t.Fatalf("copied = %q", copied)
+	}
+
+	updated, _ = next.Update(tea.KeyPressMsg(tea.Key{Text: "delete", Code: tea.KeyDelete}))
+	next = updated.(Model)
+	if got := next.claudeAssistDraftValue(); got != ": Better ticket" {
+		t.Fatalf("draft = %q", got)
+	}
+}
+
+func TestClaudeTicketAssistDraftShiftArrowStartsSelection(t *testing.T) {
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, TicketAssist: true, Timeout: time.Second}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 120
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Sanitize this", Status: "To Do"}}
+	model.claudeAssistOpen = true
+	model.claudeAssistKey = "ABC-1"
+	model.claudeAssistDraft = "Summary: Better ticket"
+	model.claudeAssistEditor = newClaudeAssistEditor(model.claudeAssistDraft)
+	model.claudeAssistEditor.MoveToBegin()
+	model.claudeAssistEditorReady = true
+
+	var updated tea.Model = model
+	for range len("Summary") {
+		updated, _ = updated.Update(tea.KeyPressMsg(tea.Key{Text: "shift+right"}))
+	}
+	next := updated.(Model)
+
+	if selected := next.claudeAssistDraftSelection.SelectedText(next.claudeAssistEditor); selected != "Summary" {
+		t.Fatalf("selected = %q", selected)
+	}
+}
+
 func TestClaudeTicketAssistDraftPrintableLettersStayInEditor(t *testing.T) {
 	model := NewModel(
 		&fakeIssueSearcher{},
@@ -1111,6 +1407,286 @@ func TestClaudeTicketAssistConfirmAppliesSummaryAndDescription(t *testing.T) {
 	}
 	if !strings.Contains(next.detailNotice, "Ticket assist draft applied") {
 		t.Fatalf("detailNotice = %q", next.detailNotice)
+	}
+}
+
+func TestParseClaudeSubtaskReviewItems(t *testing.T) {
+	items := parseClaudeSubtaskReviewItems(strings.Join([]string{
+		"- Keep: ABC-2 because controller installation is still required.",
+		"- Add: Document platform controller ownership.",
+		"- Rescope: ABC-3 to cover Helm release automation only.",
+		"- Remove: ABC-4 from this epic because it belongs to the platform backlog.",
+	}, "\n"))
+
+	if len(items) != 4 {
+		t.Fatalf("items = %#v", items)
+	}
+	if items[0].Kind != claudeSubtaskReviewKeep || items[0].Key != "ABC-2" {
+		t.Fatalf("keep item = %#v", items[0])
+	}
+	if items[1].Kind != claudeSubtaskReviewAdd || items[1].Summary != "Document platform controller ownership" {
+		t.Fatalf("add item = %#v", items[1])
+	}
+	if items[2].Kind != claudeSubtaskReviewModify || items[2].Key != "ABC-3" {
+		t.Fatalf("modify item = %#v", items[2])
+	}
+	if items[3].Kind != claudeSubtaskReviewClose || items[3].Key != "ABC-4" {
+		t.Fatalf("close item = %#v", items[3])
+	}
+}
+
+func TestClaudeTicketAssistApplyOpensSubtaskReview(t *testing.T) {
+	searcher := &fakeIssueSearcher{comments: []jira.Comment{{ID: "20001", Author: "Current User", Body: "recommendations posted"}}}
+	model := NewModel(
+		searcher,
+		"project = ABC",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, TicketAssist: true, Timeout: time.Second, AllowJiraWrites: true, RequireConfirmation: true}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 120
+	model.height = 36
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Original summary", Status: "To Do"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {Issue: jira.Issue{Key: "ABC-1", Summary: "Original summary"}, Description: "Original description"},
+	}
+	model.claudeAssistOpen = true
+	model.claudeAssistKey = "ABC-1"
+	model.claudeAssistDraft = strings.Join([]string{
+		"Summary: Better ticket",
+		"",
+		"Problem / Goal",
+		"Make it clearer.",
+		"",
+		"Acceptance Criteria",
+		"- Clear and testable",
+		"",
+		"Open Questions",
+		"- None",
+		"",
+		"Subtask Recommendations",
+		"- Keep: ABC-2 because controller installation is still required.",
+		"- Add: Document platform controller ownership.",
+		"- Rescope: ABC-3 to cover Helm release automation only.",
+	}, "\n")
+	model.claudeAssistEditor = newClaudeAssistEditor(model.claudeAssistDraft)
+	model.claudeAssistEditorReady = true
+	model.claudeAssistQuestions = []createAIQuestion{
+		{Question: "Which controllers are required?", Answer: "external-dns and cert-manager"},
+	}
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next := updated.(Model)
+	updated, cmd := next.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected apply command")
+	}
+	submitBatch := cmd()
+	batch, ok := submitBatch.(tea.BatchMsg)
+	if !ok || len(batch) != 2 {
+		t.Fatalf("submit command = %#v", submitBatch)
+	}
+	for _, sub := range batch {
+		if msg := sub(); msg == nil {
+			t.Fatal("expected work submitted message")
+		}
+	}
+	for i := 0; i < 2; i++ {
+		msg := next.waitForWorkerResult()()
+		result, ok := msg.(workerResultMsg)
+		if !ok {
+			t.Fatalf("worker message = %#v", msg)
+		}
+		updated, _ = next.Update(result)
+		next = updated.(Model)
+	}
+
+	if searcher.updateSummaryValue != "Better ticket" {
+		t.Fatalf("summary = %q", searcher.updateSummaryValue)
+	}
+	if !strings.Contains(searcher.updateDescriptionValue, "Acceptance Criteria") {
+		t.Fatalf("description = %q", searcher.updateDescriptionValue)
+	}
+	if searcher.addedBody != "" {
+		t.Fatalf("recommendations should not be posted as a parent comment, got %q", searcher.addedBody)
+	}
+	if next.claudeAssistOpen || next.claudeAssistApplying || !next.claudeSubtaskReviewOpen {
+		t.Fatalf("expected subtask review after apply, assistOpen=%v applying=%v reviewOpen=%v", next.claudeAssistOpen, next.claudeAssistApplying, next.claudeSubtaskReviewOpen)
+	}
+	if len(next.claudeSubtaskReviewItems) != 3 {
+		t.Fatalf("review items = %#v", next.claudeSubtaskReviewItems)
+	}
+	if !strings.Contains(next.detailNotice, "Review 3 subtask recommendations") {
+		t.Fatalf("detailNotice = %q", next.detailNotice)
+	}
+	view := next.render()
+	for _, want := range []string{"Review Subtask Changes", "Add child", "Modify", "ABC-3", "enter apply"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in:\n%s", want, view)
+		}
+	}
+}
+
+func TestClaudeSubtaskReviewClosesInvalidWhenSafeTransitionAvailable(t *testing.T) {
+	searcher := &fakeIssueSearcher{
+		transitions: []jira.Transition{{ID: "31", Name: "Close Invalid", ToStatus: "Done", IsAvailable: true}},
+	}
+	model := NewModel(
+		searcher,
+		"project = ABC",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, TicketAssist: true, Timeout: time.Second, AllowJiraWrites: true, RequireConfirmation: true}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 120
+	model.height = 36
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Epic", Status: "To Do"},
+		{Key: "ABC-2", Summary: "Old child", Status: "To Do", ParentKey: "ABC-1"},
+	}
+	model.details = map[string]jira.IssueDetail{"ABC-1": {Issue: model.issues[0], Description: "Parent"}}
+	model = model.openClaudeSubtaskReview("ABC-1", "Epic", "- Remove: ABC-2 from this epic because it is invalid.")
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected transitions command")
+	}
+	submitted := submittedWorkMessagesForTest(t, cmd)
+	if len(submitted) != 1 || submitted[0].kind != worker.KindGetTransitions || submitted[0].key != "ABC-2" {
+		t.Fatalf("transition load submit = %#v", submitted)
+	}
+	updated, cmd = next.Update(workerResultMsg{result: worker.Result{
+		ID:   next.activeClaudeSubtaskReviewReqID,
+		Kind: worker.KindGetTransitions,
+		GetTransitions: &worker.GetTransitionsResult{
+			Key:         "ABC-2",
+			Transitions: searcher.transitions,
+			SyncedAt:    time.Now(),
+		},
+	}})
+	next = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected transition command after loading transitions")
+	}
+	submitted = submittedWorkMessagesForTest(t, cmd)
+	var sawTransition bool
+	for _, msg := range submitted {
+		if msg.kind == worker.KindTransitionIssue && msg.key == "ABC-2" {
+			sawTransition = true
+		}
+	}
+	if !sawTransition {
+		t.Fatalf("transition submit = %#v item=%#v active=%d", submitted, next.claudeSubtaskReviewItems[0], next.activeClaudeSubtaskReviewReqID)
+	}
+	updated, _ = next.Update(workerResultMsg{result: worker.Result{
+		ID:   next.activeClaudeSubtaskReviewReqID,
+		Kind: worker.KindTransitionIssue,
+		TransitionIssue: &worker.TransitionIssueResult{
+			Key:      "ABC-2",
+			ToStatus: "Done",
+		},
+	}})
+	next = updated.(Model)
+
+	if next.issues[1].Status != "Done" {
+		t.Fatalf("child status = %q", next.issues[1].Status)
+	}
+	if !next.claudeSubtaskReviewItems[0].Done || next.claudeSubtaskReviewItems[0].Status != "closed" {
+		t.Fatalf("review item = %#v", next.claudeSubtaskReviewItems[0])
+	}
+}
+
+func TestClaudeSubtaskReviewCommentsWhenCloseNeedsFields(t *testing.T) {
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, TicketAssist: true, Timeout: time.Second, AllowJiraWrites: true, RequireConfirmation: true}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 120
+	model.height = 36
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Epic", Status: "To Do"},
+		{Key: "ABC-2", Summary: "Old child", Status: "To Do", ParentKey: "ABC-1"},
+	}
+	model.details = map[string]jira.IssueDetail{"ABC-1": {Issue: model.issues[0], Description: "Parent"}}
+	model = model.openClaudeSubtaskReview("ABC-1", "Epic", "- Remove: ABC-2 from this epic because it is invalid.")
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+	if len(submittedWorkMessagesForTest(t, cmd)) != 1 {
+		t.Fatal("expected transition load submit")
+	}
+	updated, cmd = next.Update(workerResultMsg{result: worker.Result{
+		ID:   next.activeClaudeSubtaskReviewReqID,
+		Kind: worker.KindGetTransitions,
+		GetTransitions: &worker.GetTransitionsResult{
+			Key: "ABC-2",
+			Transitions: []jira.Transition{{
+				ID:          "31",
+				Name:        "Close Invalid",
+				ToStatus:    "Done",
+				IsAvailable: true,
+				Fields:      []jira.TransitionField{{ID: "resolution", Name: "Resolution", Required: true}},
+			}},
+			SyncedAt: time.Now(),
+		},
+	}})
+	next = updated.(Model)
+	submitted := submittedWorkMessagesForTest(t, cmd)
+	if len(submitted) == 0 || submitted[0].kind != worker.KindAddComment || submitted[0].key != "ABC-2" {
+		t.Fatalf("fallback submit = %#v", submitted)
+	}
+	updated, _ = next.Update(workerResultMsg{result: worker.Result{
+		ID:   next.activeClaudeSubtaskReviewReqID,
+		Kind: worker.KindAddComment,
+		AddComment: &worker.AddCommentResult{
+			Key:     "ABC-2",
+			Comment: jira.Comment{ID: "10001", Body: "commented"},
+		},
+	}})
+	next = updated.(Model)
+
+	if next.issues[1].Status != "To Do" {
+		t.Fatalf("child status should not change, got %q", next.issues[1].Status)
+	}
+	if !next.claudeSubtaskReviewItems[0].Done || next.claudeSubtaskReviewItems[0].Status != "commented" {
+		t.Fatalf("review item = %#v", next.claudeSubtaskReviewItems[0])
+	}
+}
+
+func submittedWorkMessagesForTest(t *testing.T, cmd tea.Cmd) []workSubmittedMsg {
+	t.Helper()
+	if cmd == nil {
+		return nil
+	}
+	msg := cmd()
+	switch typed := msg.(type) {
+	case workSubmittedMsg:
+		return []workSubmittedMsg{typed}
+	case tea.BatchMsg:
+		submitted := make([]workSubmittedMsg, 0, len(typed))
+		for _, sub := range typed {
+			if sub == nil {
+				continue
+			}
+			if submittedMsg, ok := sub().(workSubmittedMsg); ok {
+				submitted = append(submitted, submittedMsg)
+			}
+		}
+		return submitted
+	default:
+		t.Fatalf("command message = %#v", msg)
+		return nil
 	}
 }
 

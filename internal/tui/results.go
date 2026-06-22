@@ -22,6 +22,12 @@ func (m Model) handleWorkerResult(result worker.Result) (Model, tea.Cmd) {
 	case worker.KindGetComments:
 		return m.handleCommentsResult(result), nil
 	case worker.KindAddComment:
+		if result.ID == m.activeClaudeSubtaskReviewReqID {
+			return m.handleClaudeSubtaskReviewResult(result)
+		}
+		if result.ID == m.activeClaudeAssistSubtaskReqID {
+			return m.handleClaudeAssistApplyResult(result), nil
+		}
 		if result.ID == m.activeClaudeAssistCommentReqID {
 			return m.handleClaudeAssistCommentResult(result)
 		}
@@ -41,8 +47,14 @@ func (m Model) handleWorkerResult(result worker.Result) (Model, tea.Cmd) {
 	case worker.KindExpandIssues:
 		return m.handleExpandIssuesResult(result), nil
 	case worker.KindGetTransitions:
+		if result.ID == m.activeClaudeSubtaskReviewReqID {
+			return m.handleClaudeSubtaskReviewResult(result)
+		}
 		return m.handleGetTransitionsResult(result), nil
 	case worker.KindTransitionIssue:
+		if result.ID == m.activeClaudeSubtaskReviewReqID {
+			return m.handleClaudeSubtaskReviewResult(result)
+		}
 		return m.handleTransitionIssueResult(result), nil
 	case worker.KindStartIssue:
 		return m.handleStartIssueResult(result)

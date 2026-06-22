@@ -352,22 +352,41 @@ type Model struct {
 	claudeAssistDraft                  string
 	claudeAssistEditor                 textarea.Model
 	claudeAssistEditorReady            bool
+	claudeAssistDraftSelection         textSelection
 	claudeAssistTarget                 claudeAssistTarget
 	claudeAssistConfirmApply           bool
 	claudeAssistApplying               bool
 	claudeAssistApplySummary           string
 	claudeAssistApplyDescription       string
+	claudeAssistApplySubtasks          string
 	activeClaudeAssistSummaryReqID     int
 	activeClaudeAssistDescriptionReqID int
 	claudeAssistSummaryApplied         bool
 	claudeAssistDescriptionApplied     bool
+	claudeAssistSubtasksApplied        bool
 	claudeAssistConfirmComment         bool
 	claudeAssistPostingComment         bool
 	activeClaudeAssistCommentReqID     int
+	activeClaudeAssistSubtaskReqID     int
 	claudeAssistRefining               bool
 	claudeAssistRefineInstruction      string
 	claudeAssistRefineEditor           textarea.Model
 	claudeAssistRefineEditorReady      bool
+	claudeAssistQuestions              []createAIQuestion
+	selectedClaudeAssistQuestion       int
+	claudeAssistQuestionAnswering      bool
+	claudeAssistQuestionEditor         textarea.Model
+	claudeAssistQuestionEditorReady    bool
+	claudeAssistQuestionSelection      textSelection
+	claudeSubtaskReviewOpen            bool
+	claudeSubtaskReviewParentKey       string
+	claudeSubtaskReviewParentSummary   string
+	claudeSubtaskReviewItems           []claudeSubtaskReviewItem
+	selectedClaudeSubtaskReview        int
+	claudeSubtaskReviewApplying        bool
+	claudeSubtaskReviewPendingIndex    int
+	claudeSubtaskReviewPendingKind     claudeSubtaskReviewRequestKind
+	activeClaudeSubtaskReviewReqID     int
 	activeCreateAIPromptReqID          int
 	now                                func() time.Time
 
@@ -931,6 +950,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case workerStoppedMsg, noDetailRequestMsg:
 		return m, nil
 	case tea.PasteMsg:
+		if m.claudeAssistOpen && !m.claudeAssistLoading {
+			return m.updateClaudeAssistPaste(msg)
+		}
 		if m.createOpen {
 			return m.updateCreatePaste(msg)
 		}
@@ -1016,6 +1038,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.scrollClaudePlanResult(1 << 20)
 				return m, nil
 			}
+		}
+		if m.claudeSubtaskReviewOpen {
+			return m.updateClaudeSubtaskReview(msg)
 		}
 		if m.claudeAssistOpen {
 			if m.claudeAssistLoading && msg.String() == "esc" {

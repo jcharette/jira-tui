@@ -717,6 +717,21 @@ func (m Model) startCreateIssueWithParent(parentKey string, parentSummary string
 	return m, m.submitCreateIssueTypes(m.activeCreateIssueTypesReqID, projectKey)
 }
 
+func (m Model) startCreateIssueWithParentDraft(parentKey string, parentSummary string, summary string, description string) (Model, tea.Cmd) {
+	m, cmd := m.startCreateIssueWithParent(parentKey, parentSummary)
+	if !m.createOpen {
+		return m, cmd
+	}
+	m.createSummaryDraft = strings.TrimSpace(summary)
+	m.createDescriptionDraft = strings.TrimSpace(description)
+	m.createSummaryEditor = newSummaryEditor(m.createSummaryDraft)
+	m.createSummaryEditorReady = true
+	m.createDescriptionEditor = newCommentEditor(m.createDescriptionDraft)
+	m.createDescriptionEditorReady = true
+	m.createFieldFocus = createSummaryFieldIndex
+	return m, cmd
+}
+
 func (m Model) selectableCreateIssueTypes() []jira.CreateIssueType {
 	if strings.TrimSpace(m.createParentKey) == "" {
 		return m.createIssueTypes

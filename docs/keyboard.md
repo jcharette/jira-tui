@@ -52,9 +52,14 @@ Ticket Actions includes Sprint, which lists the active sprint first and future s
 also includes Fix Version, Affects Version, Due Date, Parent, and Estimates when Jira edit metadata
 exposes those fields for the selected issue.
 
-When a Ticket Assist draft modal is open, printable letters stay in the focused draft editor.
-Use `ctrl+r` to refine with Claude, `ctrl+c` to post the draft as a comment, `ctrl+s` to apply when
-Jira writes are enabled, and `ctrl+y` to copy the draft.
+When a Ticket Assist draft modal is open, printable letters stay in the focused draft or answer
+editor. Use `enter` to answer parsed Open Questions, `j`/`k` to select questions, `ctrl+r` to
+refine with Claude or refine with saved answers, `ctrl+c` to post the draft as a comment, `ctrl+s`
+to apply when Jira writes are enabled, and `ctrl+y` to copy the draft. In Ticket Assist text boxes,
+`shift+arrow` selects text when supported by the terminal; `ctrl+space` starts selection everywhere,
+normal arrows extend it, `ctrl+y` copies it, `delete`/`backspace` removes it, and `esc` clears it.
+After applying a whole-ticket draft with Subtask Recommendations, the Review Subtask Changes modal
+uses `j`/`k` to select a recommendation, `enter` to apply it, `s` to skip it, and `esc` to finish.
 
 ## Query
 

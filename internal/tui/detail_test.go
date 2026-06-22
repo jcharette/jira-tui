@@ -95,7 +95,7 @@ func TestRenderFullDetailShowsOverviewControlStrip(t *testing.T) {
 
 	view := model.render()
 
-	for _, want := range []string{"Overview", "Status", "To Do", "Priority", "P3 - Low", "Assignee", "Jon C.", "Description preview"} {
+	for _, want := range []string{"Overview", "Status", "To Do", "Priority", "P3 - Low", "Assignee", "Jon C.", "Description"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q in %q", want, view)
 		}
@@ -125,6 +125,39 @@ func TestOverviewSummarizesCommentsAndHierarchy(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q in %q", want, view)
 		}
+	}
+}
+
+func TestOverviewExpandsDescriptionByDefault(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.width = 140
+	model.height = 40
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Parent epic", Status: "To Do", IssueType: "Epic"}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {
+			Issue: model.issues[0],
+			Description: strings.Join([]string{
+				"## Summary",
+				"Build a reusable EKS platform baseline.",
+				"Install platform controllers.",
+				"Automate Helm chart deployment.",
+				"Document validation and rollback expectations.",
+				"Publish operational runbooks.",
+			}, "\n\n"),
+		},
+	}
+
+	view := model.render()
+
+	for _, want := range []string{"Description", "Build a reusable EKS platform baseline.", "Automate Helm chart deployment.", "Publish operational runbooks."} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing expanded description text %q in:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "Description preview") {
+		t.Fatalf("overview should render expanded description, got preview header in:\n%s", view)
 	}
 }
 
@@ -516,7 +549,7 @@ func TestOverviewAKeyOpensInlineAIPicker(t *testing.T) {
 		t.Fatal("expected inline AI picker open")
 	}
 	view := next.render()
-	for _, want := range []string{"AI for Description", "Improve clarity", "Extract acceptance criteria", "Ask Claude a question", "Draft clarifying comment", "enter run", "esc cancel"} {
+	for _, want := range []string{"Ticket Assist", "Improve ticket", "subtask recommendations", "Extract acceptance criteria", "Ask Claude a question", "Draft clarifying comment", "enter run", "esc cancel"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q in %q", want, view)
 		}
@@ -1471,7 +1504,7 @@ func TestFullDetailContentRendersFocusedSectionWithPreviews(t *testing.T) {
 
 	content := model.fullDetailContent(90)
 
-	for _, want := range []string{"Overview", "Description preview", "First description line."} {
+	for _, want := range []string{"Overview", "Description", "First description line."} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("missing focused detail workspace text %q in %q", want, content)
 		}

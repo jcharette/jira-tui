@@ -4,6 +4,14 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+## 1.0.8 - 2026-06-22
+
+- Added guided Ticket Assist sessions with parsed Open Questions, answer-driven refinement, loaded
+  hierarchy context, and first-class subtask recommendation review for keep/add/modify/close child
+  work after Summary and Description are applied.
+- Expanded ticket Overview descriptions by default and added simple Ticket Assist text selection
+  with Shift+Arrow when available plus a `ctrl+space` fallback.
+
 ## 1.0.7 - 2026-06-22
 
 - Fixed Ticket Assist draft editing so typed letters stay in the editor; refine and comment actions now use `ctrl+r` and `ctrl+c`.

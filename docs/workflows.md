@@ -105,6 +105,19 @@ Comment composition supports basic formatting and detected links.
 
 Subtask creation is available from focused ticket actions and reuses the same metadata-backed form.
 
+## Improve An Epic With Ticket Assist
+
+1. Open the epic detail view.
+2. Press `a`, choose the whole-ticket Ticket Assist action, and review the editable draft.
+3. Answer any Open Questions locally and use `ctrl+r` to refine with those answers.
+4. Press `ctrl+s`, confirm with `ctrl+s`, then review any Subtask Recommendations.
+5. In Review Subtask Changes, use `enter` to apply one recommendation, `s` to skip, and `esc` when done.
+
+Add recommendations open the normal child-ticket create flow. Modify recommendations post a review
+comment to the existing child. Remove or defer recommendations close the child only when Jira exposes
+a safe no-extra-fields close-as-invalid style transition; otherwise the app comments on the child for
+manual review.
+
 ## Start Work From A Ticket
 
 From the TUI:

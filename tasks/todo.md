@@ -1,5 +1,23 @@
 # Task Plan
 
+## Epic Subtask Recommendation Review - 2026-06-22
+
+- [x] Parse Ticket Assist `Subtask Recommendations` into reviewable actions.
+- [x] Add an epic-management review modal for keep/add/modify/close recommendations.
+- [x] For remove/defer actions, safely close the child only when Jira exposes a matching no-extra-fields transition; otherwise add a review comment to the child.
+- [x] For add actions, open the existing child-ticket create flow prefilled from the recommendation.
+- [x] Update footer/help/docs/changelog for the new review flow.
+- [x] Verify focused tests, full checks, docs checks, and installed binary.
+
+### Review
+
+- Added a parsed Review Subtask Changes flow after whole-ticket Ticket Assist apply.
+- Add recommendations open the metadata-backed child-ticket create form prefilled from the recommendation.
+- Modify/Rescope recommendations post a child-ticket review comment.
+- Remove/Defer recommendations attempt a close-as-invalid style transition only when Jira exposes a safe no-extra-fields transition; otherwise they post a child-ticket review comment.
+- Updated the modal footer, keyboard docs, workflow docs, project state, and changelog.
+- Verified with focused Ticket Assist tests, `go test ./internal/tui -count=1`, `go test ./... -count=1`, `make docs-check`, `make check`, `make install-user`, and binary string checks.
+
 ## 1.0.0 Initial Release Baseline
 
 - [x] Consolidate the app into a clean initial release baseline.
@@ -292,3 +310,62 @@ Review results:
 - Assets uploaded: macOS arm64/amd64 tarballs, Linux arm64/amd64 tarballs, Windows amd64 zip, and `checksums.txt`.
 - Formula checksums match the published GitHub asset digests.
 - Verification: `make check`, `make install-user`, `make docs-check`, GitHub release metadata, and `gh release list --limit 5`.
+
+## Guided Ticket Assist Session - 2026-06-22
+
+- [x] Add RED tests for the whole-ticket prompt including loaded children/subtasks and explicit subtask recommendation output.
+- [x] Add RED tests for parsing Ticket Assist Open Questions into local answer state after Claude results.
+- [x] Add RED tests for answering Open Questions in the Ticket Assist modal and refining with the current draft plus answers.
+- [x] Implement minimal Ticket Assist question state, rendering, key handling, and prompt feedback.
+- [x] Update Ticket Assist copy/docs for guided whole-ticket drafting, Open Questions, and Subtask Recommendations.
+- [x] Verify focused Claude Assist tests, full TUI tests, full project checks, and docs checks.
+
+### Proposed Design
+
+- `Ticket Assist` becomes a guided whole-ticket drafting session, entered either from the Claude section or contextual Description AI.
+- Claude output should include one editable draft plus `Open Questions` and `Subtask Recommendations`.
+- Open Questions are parsed into local answer state. Users answer them in the same modal, then run `ctrl+r refine with answers`.
+- Prompt context includes loaded hierarchy rows so Claude can recommend keeping, adding, removing, or rescoping subtasks without directly writing Jira changes.
+- Jira writes remain explicit and limited to the existing apply/comment paths; subtask recommendations are local text only in this slice.
+
+### Review
+
+- Contextual `a` action now opens `Ticket Assist`; the first action starts the same whole-ticket guided session as the Claude section.
+- Ticket Assist prompts include loaded children/subtasks and require `Subtask Recommendations` output without making Jira writes.
+- Parsed `Open Questions` render in the modal, can be answered locally, and `ctrl+r` refines with saved answers while printable answer text stays in the editor.
+- Verified with focused Ticket Assist tests, `go test ./internal/tui -count=1`, `go test ./... -count=1`, `make check`, and `make docs-check`.
+
+## Detail Description Expansion and Simple Text Selection - 2026-06-22
+
+- [x] Add RED detail tests proving Overview renders the full description instead of a fixed three-line preview.
+- [x] Update Overview description rendering to expand by default and rely on the existing detail viewport for overflow.
+- [x] Add RED editor tests for simple mark/select/copy/delete behavior in Ticket Assist text boxes.
+- [x] Implement a minimal selection layer using `shift+arrow` when available, plus `ctrl+space` mark, normal arrows to extend, `ctrl+y` copy, and `delete`/`backspace` delete.
+- [x] Update keyboard/docs/footer copy for expanded descriptions and simple selection keys.
+- [x] Verify focused tests, full TUI tests, full project checks, and docs checks.
+
+### Review
+
+- Root cause: Overview intentionally rendered only a three-line Description preview and Description was not a primary detail tab, so long epics could not expose their full body from the default view.
+- Overview now renders the full Description by default; long bodies use the existing detail viewport and scroll indicator.
+- Ticket Assist draft and Open Question answer editors now support simple local selection with `shift+arrow` when the terminal sends it, or `ctrl+space` plus arrows everywhere.
+- Selection actions: `ctrl+y` copies selected text, `delete`/`backspace` removes it, paste replaces it, and `esc` clears it before closing/canceling the editor.
+- Verification: focused detail/selection tests, `go test ./internal/tui -count=1`, `go test ./... -count=1`, `make check`, and `make docs-check`.
+
+## Ticket Assist Apply Writes and Subtask Recommendations - 2026-06-22
+
+- [x] Add RED tests proving Ticket Assist apply with Open Questions writes Summary and Description after confirmation.
+- [x] Add RED tests proving Subtask Recommendations are carried into Jira instead of being local-only.
+- [x] Make apply confirmation/result copy explicit about Summary, Description, and Subtask Recommendations.
+- [x] Post parsed Subtask Recommendations as a Jira comment during Ticket Assist apply.
+- [x] Update docs/changelog for the non-destructive subtask recommendation apply behavior.
+- [x] Verify focused Ticket Assist tests, full TUI tests, full project checks, docs checks, and reinstall the local binary.
+
+### Review
+
+- Confirmed local config has `allow_jira_writes = true` and `require_confirmation = true`; the write gate was not the blocker.
+- Ticket Assist apply already updated Summary and Description after confirmation, but Subtask Recommendations were never enqueued and remained local-only.
+- Whole-ticket apply now posts parsed Subtask Recommendations as a Jira comment after the Summary and Description worker updates.
+- Apply progress/confirmation now shows Subtask Recommendations as part of the Jira apply operation when present.
+- Destructive child-ticket removal/rebuild remains intentionally manual; the app now persists the recommendation plan in Jira instead of losing it when the modal closes.
+- Verification: focused Ticket Assist tests, `go test ./internal/tui -count=1`, `go test ./... -count=1`, `make check`, `make docs-check`, and `make install-user`.

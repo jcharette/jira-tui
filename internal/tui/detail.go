@@ -171,6 +171,9 @@ func (m Model) renderDetailOverlay(layout browserLayout) string {
 	if m.inlineAIOpen {
 		return m.renderInlineAIDialog(width)
 	}
+	if m.claudeSubtaskReviewOpen {
+		return m.renderClaudeSubtaskReviewDialog(width)
+	}
 	if m.claudeAssistLoading || m.claudeAssistOpen {
 		return m.renderClaudeAssistDialog(width)
 	}
@@ -826,7 +829,7 @@ func (m Model) renderOverviewLatest(key string, width int) string {
 }
 
 func (m Model) renderOverviewDescription(ctx detailRenderContext, width int) string {
-	header := m.theme.Muted.Render("Description preview")
+	header := m.theme.Muted.Render("Description")
 	if !ctx.hasDetail && m.detailLoading && m.detailRequestKey == ctx.selected.Key {
 		return header + "\n" + m.detailStatusBlock("Loading issue detail...", width, false)
 	}
@@ -838,11 +841,7 @@ func (m Model) renderOverviewDescription(ctx detailRenderContext, width int) str
 	if description == "" {
 		return header + "\n" + m.detailEmptyState("No description.", width)
 	}
-	lines := strings.Split(wrapRichText(description, max(24, width)), "\n")
-	if len(lines) > 3 {
-		lines = append(lines[:3], m.theme.Muted.Render("..."))
-	}
-	return header + "\n" + m.renderRichDescriptionBody(strings.Join(lines, "\n"), width)
+	return header + "\n" + m.renderRichDescriptionBody(wrapRichText(description, max(24, width)), width)
 }
 
 func (m Model) renderOverviewHierarchy(issue jira.Issue, width int) string {

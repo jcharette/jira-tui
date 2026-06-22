@@ -1,6 +1,6 @@
 # Project State
 
-Last updated: 2026-06-19
+Last updated: 2026-06-22
 
 ## Goal
 
@@ -33,12 +33,12 @@ support.
 Install a tagged release with Go:
 
 ```bash
-go install github.com/jcharette/jira-tui/cmd/jira@v1.0.7
+go install github.com/jcharette/jira-tui/cmd/jira@v1.0.8
 ```
 
 Release archives are published at
 [GitHub Releases](https://github.com/jcharette/jira-tui/releases) with names such as
-`jira-tui_1.0.7_darwin_arm64.tar.gz` and include a `jira` binary.
+`jira-tui_1.0.8_darwin_arm64.tar.gz` and include a `jira` binary.
 
 Run from the project root:
 
@@ -343,32 +343,51 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   repo context.
 - When Claude is enabled, available, and the `ticket_assist` feature flag is true, focused ticket
   detail also exposes a Ticket Assist action in the Claude section. Ticket Assist sends the current
-  ticket context to the local Claude CLI in read-only mode and asks for review findings plus a
-  structured rewrite draft with Summary, Problem / Goal, Acceptance Criteria, Test / Verification,
-  Implementation Notes, and Open Questions. Returned drafts open in an editable local modal using a
-  textarea editor; the draft receives the majority of modal space and is rendered as a distinct
-  editable block from the bounded review preview. `pgup`/`pgdn` page long drafts and `ctrl+y`
-  copies the edited draft. Printable letters always edit the focused local draft; modal actions use
-  modifier shortcuts so ordinary text entry cannot open another workflow. When `allow_jira_writes`
-  is disabled, `ctrl+s` keeps the draft local and explains that writes are gated. When
-  `allow_jira_writes` and confirmation are enabled, `ctrl+s` opens an apply confirmation and a
-  second `ctrl+s` updates Jira Summary and Description through the worker pool. Pressing `ctrl+r`
-  opens a refinement instruction editor; submitting it sends Claude the original ticket context, the
-  current user-edited draft, and the user's instruction, then replaces the editable draft with the
-  refined result while keeping Jira writes gated. Pressing `ctrl+c` opens a confirmation to post the
-  current draft as a Jira comment without editing Summary or Description, useful for tickets owned
-  by someone else. Ticket Assist result modals render distinct `Claude
-  Review`, `Local Draft`, and `Available Actions` zones so generated review, local edits, and next
-  actions are easier to separate. Acceptance Criteria are treated as a first-class draft section and
-  are written into Description for now. When Description is the focused ticket-detail section and
-  Claude Ticket Assist is enabled and available, `a` opens `AI for Description` instead of jumping
-  to the Claude tab. The picker can improve clarity, extract acceptance criteria, answer a user
-  question, or draft a clarifying comment. Results reuse the Ticket Assist modal, but
-  Description-scoped apply writes only Description through the worker-backed Jira update path.
+  ticket context plus any loaded child/subtask hierarchy to the local Claude CLI in read-only mode
+  and asks for review findings, a structured rewrite draft with Summary, Problem / Goal, Acceptance
+  Criteria, Test / Verification, Implementation Notes, and Open Questions, plus first-class Subtask
+  Recommendations for keeping, adding, removing, or rescoping child work. Returned drafts open in an
+  editable local modal using a textarea editor; the draft receives the majority of modal space and
+  is rendered as a distinct editable block from the bounded review preview. Parsed Open Questions
+  appear below the draft; `enter` opens a local answer editor, `j`/`k` selects questions, and
+  `ctrl+r` refines the current draft with saved answers. `pgup`/`pgdn` page long drafts and
+  `ctrl+y` copies the edited draft. Printable letters always edit the focused local draft or answer
+  editor; modal actions use modifier shortcuts so ordinary text entry cannot open another workflow.
+  When `allow_jira_writes` is disabled, `ctrl+s` keeps the draft local and explains that writes are
+  gated. When `allow_jira_writes` and confirmation are enabled, `ctrl+s` opens an apply confirmation
+  and a second `ctrl+s` updates Jira Summary and Description through the worker pool. Pressing
+  `ctrl+r` without parsed questions opens a refinement instruction editor; submitting it sends
+  Claude the original ticket context, the current user-edited draft, and the user's instruction,
+  then replaces the editable draft with the refined result while keeping Jira writes gated. Pressing
+  `ctrl+c` opens a confirmation to post the current draft as a Jira comment without editing Summary
+  or Description, useful for tickets owned by someone else. Ticket Assist result modals render
+  distinct `Claude Review`, `Local Draft`, Open Questions, and `Available Actions` zones so
+  generated review, local edits, clarifications, and next actions are easier to separate. Acceptance
+  Criteria are treated as a first-class draft section and are written into Description for now.
+  Ticket Assist draft and Open Question answer editors support simple local selection: terminals
+  that report Shift+Arrow can extend a selection directly, and `ctrl+space` starts the same
+  selection mode everywhere; arrows extend, `ctrl+y` copies, `delete`/`backspace` removes, and `esc`
+  clears the selection. When applying a whole-ticket Ticket Assist draft, Summary and Description
+  are updated through the worker pool first, then parsed Subtask Recommendations open a Review
+  Subtask Changes modal for epic child management. The review modal supports keep, add, modify, and
+  close recommendations one at a time: Add opens the existing metadata-backed subtask create flow
+  with the recommendation prefilled, Modify/Rescope posts a review comment to the child ticket, and
+  Remove/Defer attempts a close-as-invalid style transition only when Jira exposes a matching
+  no-extra-fields transition. If the workflow requires fields or has no safe matching transition,
+  the app posts a child-ticket comment instead of forcing a state change. When Description or Overview
+  is the focused ticket-detail section and Claude Ticket Assist is enabled and available, `a` opens
+  the `Ticket Assist` picker instead of jumping to the Claude tab. The first picker action starts the
+  same whole-ticket guided Ticket Assist session; the remaining actions can extract acceptance
+  criteria, answer a user question, or draft a clarifying comment. Description-scoped results still
+  reuse the Ticket Assist modal, but Description-scoped apply writes only Description through the
+  worker-backed Jira update path.
   Future inline AI actions for Comments should reuse this same draft/refine/apply/comment machinery
   without disrupting the existing comment composer. Pressing `a` elsewhere in ticket detail jumps
   to the Claude/AI section when any Claude action is available; otherwise it keeps the old
   add-comment fallback.
+- The ticket Overview renders the full Description by default rather than a fixed preview. Long
+  descriptions use the existing detail viewport and scroll indicator, so large terminals fill with
+  ticket content and smaller panes can still page through the body with normal detail scrolling.
 - The issue table is a compact tree-backed list with a fixed-width hierarchy gutter, icon-only
   issue type column, key, summary, status, priority, shortened assignee, and selected-row metadata.
   Returned child issues are rendered under their parent when both are present in the result set,
