@@ -233,3 +233,28 @@ cache/Diagnostics infrastructure, and the current security model.
 - [x] Create GitHub release v1.0.5.
 - [x] Update Homebrew formula checksums from published assets.
 - [x] Close GitHub issue #12 after release.
+
+## Review Fixes - Parent Cache and Time Tracking - 2026-06-22
+
+- [x] Add failing regression tests for parent cache patching and time tracking read/prefill behavior.
+- [x] Patch parent updates through retained detail and active view cache.
+- [x] Add Jira detail estimate fields and parse current time tracking values.
+- [x] Prefill estimates editor and patch refreshed detail state after successful updates.
+- [x] Run focused tests and full verification.
+- [x] Document review results.
+
+Review results:
+- Parent updates now patch retained issue detail cache and active view cache, matching existing summary/priority/status cache behavior.
+- Ticket detail now reads Jira time tracking estimates through the raw REST detail response, because the upstream typed issue model omits `fields.timetracking`.
+- The estimate editor now prefills current values and patches cached detail state after a successful update.
+- Verification: focused Jira/TUI tests, `go test ./... -count=1`, `GOCACHE=/tmp/jira-tui-gocache go vet ./...`, and `make check` passed.
+
+## Release v1.0.6 - 2026-06-22
+
+- [x] Audit docs for parent cache and time tracking detail fixes before shipping.
+- [x] Move release notes from Unreleased to v1.0.6.
+- [x] Run docs and full project checks.
+- [ ] Push release prep to GitHub.
+- [ ] Create GitHub release v1.0.6.
+- [ ] Update Homebrew formula checksums from published assets.
+- [ ] Verify final main CI.

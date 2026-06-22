@@ -1917,7 +1917,7 @@ func TestMetadataBackedTimeTrackingActionOpensEstimateEditor(t *testing.T) {
 	model.height = 30
 	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do"}}
 	model.details = map[string]jira.IssueDetail{
-		"ABC-1": {Issue: model.issues[0]},
+		"ABC-1": {Issue: model.issues[0], OriginalEstimate: "2d", RemainingEstimate: "3h"},
 	}
 	model.editMetadata = map[string]jira.EditMetadata{
 		"ABC-1": {
@@ -1937,6 +1937,9 @@ func TestMetadataBackedTimeTrackingActionOpensEstimateEditor(t *testing.T) {
 	}
 	if !next.timeTrackingFocus {
 		t.Fatal("expected time tracking focus")
+	}
+	if next.timeTrackingOriginalEditorValue() != "2d" || next.timeTrackingRemainingEditorValue() != "3h" {
+		t.Fatalf("estimate drafts = %q/%q", next.timeTrackingOriginalEditorValue(), next.timeTrackingRemainingEditorValue())
 	}
 	if !strings.Contains(next.render(), "Edit Estimates") {
 		t.Fatalf("missing estimates modal in %q", next.render())

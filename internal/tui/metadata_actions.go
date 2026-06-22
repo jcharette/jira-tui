@@ -156,10 +156,11 @@ func (m Model) startTimeTrackingEditor() (Model, tea.Cmd) {
 	m.assigneeFocus = false
 	m.timeTrackingFocus = true
 	m.timeTrackingField = timeTrackingOriginalField
-	m.timeTrackingOriginalDraft = ""
-	m.timeTrackingRemainingDraft = ""
-	m.timeTrackingOriginalEditor = newEstimateInput("")
-	m.timeTrackingRemainingEditor = newEstimateInput("")
+	original, remaining := currentIssueEstimates(m, selected.Key)
+	m.timeTrackingOriginalDraft = original
+	m.timeTrackingRemainingDraft = remaining
+	m.timeTrackingOriginalEditor = newEstimateInput(original)
+	m.timeTrackingRemainingEditor = newEstimateInput(remaining)
 	m.timeTrackingEditorReady = true
 	m.detailNotice = ""
 	return m, nil
@@ -281,6 +282,7 @@ func (m Model) handleUpdateTimeTrackingResult(result worker.Result) Model {
 	if result.UpdateTimeTracking.Key != m.timeTrackingSubmitKey {
 		return m
 	}
+	m.updateIssueTimeTracking(result.UpdateTimeTracking.Key, result.UpdateTimeTracking.Request)
 	m.closeTimeTrackingEditor()
 	m.detailNotice = "Estimates updated."
 	return m
@@ -310,8 +312,53 @@ func (m *Model) updateIssueParent(key string, request jira.UpdateParentRequest) 
 	}
 	if detail, ok := m.details[key]; ok {
 		detail.ParentKey = parent
+		detail.ParentSummary = ""
+		detail.Issue.ParentKey = parent
+		detail.Issue.ParentSummary = ""
 		m.details[key] = detail
 	}
+	m.patchRetainedIssueDetail(key, func(detail *jira.IssueDetail) {
+		detail.ParentKey = parent
+		detail.ParentSummary = ""
+		detail.Issue.ParentKey = parent
+		detail.Issue.ParentSummary = ""
+	})
+	m.patchCurrentActiveViewIssue(key, func(issue *jira.Issue) {
+		issue.ParentKey = parent
+		issue.ParentSummary = ""
+	})
+}
+
+func currentIssueEstimates(m Model, key string) (string, string) {
+	if detail, ok := m.details[key]; ok {
+		return strings.TrimSpace(detail.OriginalEstimate), strings.TrimSpace(detail.RemainingEstimate)
+	}
+	if record, ok := m.cachedIssueDetail(key); ok {
+		return strings.TrimSpace(record.Value.OriginalEstimate), strings.TrimSpace(record.Value.RemainingEstimate)
+	}
+	return "", ""
+}
+
+func (m *Model) updateIssueTimeTracking(key string, request jira.UpdateTimeTrackingRequest) {
+	original := strings.TrimSpace(request.OriginalEstimate)
+	remaining := strings.TrimSpace(request.RemainingEstimate)
+	if detail, ok := m.details[key]; ok {
+		if original != "" {
+			detail.OriginalEstimate = original
+		}
+		if remaining != "" {
+			detail.RemainingEstimate = remaining
+		}
+		m.details[key] = detail
+	}
+	m.patchRetainedIssueDetail(key, func(detail *jira.IssueDetail) {
+		if original != "" {
+			detail.OriginalEstimate = original
+		}
+		if remaining != "" {
+			detail.RemainingEstimate = remaining
+		}
+	})
 }
 
 func newParentInput(value string) textinput.Model {

@@ -2,6 +2,7 @@ package jira
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -122,15 +123,17 @@ type CreateIssueLinkRequest struct {
 
 type IssueDetail struct {
 	Issue
-	Description string
-	Reporter    string
-	Creator     string
-	Labels      []string
-	Components  []string
-	FixVersions []string
-	IssueLinks  []IssueLink
-	Created     time.Time
-	Updated     time.Time
+	Description       string
+	Reporter          string
+	Creator           string
+	Labels            []string
+	Components        []string
+	FixVersions       []string
+	OriginalEstimate  string
+	RemainingEstimate string
+	IssueLinks        []IssueLink
+	Created           time.Time
+	Updated           time.Time
 }
 
 type Comment struct {
@@ -237,6 +240,28 @@ type fieldOptionSearchItem struct {
 	Value       string `json:"value"`
 	DisplayName string `json:"displayName"`
 	Key         string `json:"key"`
+}
+
+type issueDetailResponse struct {
+	model.IssueScheme
+	RawFields map[string]json.RawMessage
+}
+
+func (r *issueDetailResponse) UnmarshalJSON(data []byte) error {
+	type rawIssueFields struct {
+		Fields map[string]json.RawMessage `json:"fields"`
+	}
+	var issue model.IssueScheme
+	if err := json.Unmarshal(data, &issue); err != nil {
+		return err
+	}
+	var raw rawIssueFields
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	r.IssueScheme = issue
+	r.RawFields = raw.Fields
+	return nil
 }
 
 type CreateIssueType struct {
@@ -532,7 +557,26 @@ func (c *Client) GetIssue(ctx context.Context, key string) (IssueDetail, error) 
 		defer cancel()
 	}
 
-	fields := []string{
+	fields := issueDetailFields()
+	if c.rest != nil {
+		response, err := c.getIssueDetailREST(ctx, key, fields)
+		if err != nil {
+			return IssueDetail{}, err
+		}
+		return c.parseIssueDetail(&response.IssueScheme, response.RawFields), nil
+	}
+	raw, _, err := c.issue.Get(ctx, key, fields, nil)
+	if err != nil {
+		return IssueDetail{}, fmt.Errorf("get jira issue %s: %w", key, err)
+	}
+	if raw == nil {
+		return IssueDetail{}, fmt.Errorf("get jira issue %s: empty response", key)
+	}
+	return c.parseIssueDetail(raw, nil), nil
+}
+
+func issueDetailFields() []string {
+	return []string{
 		"summary",
 		"status",
 		"assignee",
@@ -549,15 +593,28 @@ func (c *Client) GetIssue(ctx context.Context, key string) (IssueDetail, error) 
 		"reporter",
 		"creator",
 		"issuelinks",
+		"timetracking",
 	}
-	raw, _, err := c.issue.Get(ctx, key, fields, nil)
+}
+
+func (c *Client) getIssueDetailREST(ctx context.Context, key string, fields []string) (issueDetailResponse, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return issueDetailResponse{}, fmt.Errorf("get jira issue: empty issue key")
+	}
+	endpoint := "rest/api/3/issue/" + url.PathEscape(key) + "?fields=" + url.QueryEscape(strings.Join(fields, ","))
+	request, err := c.rest.NewRequest(ctx, http.MethodGet, endpoint, "", nil)
 	if err != nil {
-		return IssueDetail{}, fmt.Errorf("get jira issue %s: %w", key, err)
+		return issueDetailResponse{}, fmt.Errorf("get jira issue %s: %w", key, err)
 	}
-	if raw == nil {
-		return IssueDetail{}, fmt.Errorf("get jira issue %s: empty response", key)
+	var response issueDetailResponse
+	if _, err := c.rest.Call(request, &response); err != nil {
+		return issueDetailResponse{}, fmt.Errorf("get jira issue %s: %w", key, err)
 	}
-	return c.parseIssueDetail(raw), nil
+	if strings.TrimSpace(response.Key) == "" {
+		return issueDetailResponse{}, fmt.Errorf("get jira issue %s: empty response", key)
+	}
+	return response, nil
 }
 
 func (c *Client) GetIssueDescriptionADF(ctx context.Context, key string) (*model.CommentNodeScheme, error) {
@@ -1840,7 +1897,7 @@ func (c *Client) parseSubtasks(parentKey string, parentSummary string, rawSubtas
 	return subtasks
 }
 
-func (c *Client) parseIssueDetail(raw *model.IssueScheme) IssueDetail {
+func (c *Client) parseIssueDetail(raw *model.IssueScheme, rawFields map[string]json.RawMessage) IssueDetail {
 	issue := c.parseIssue(raw)
 	detail := IssueDetail{
 		Issue:    issue,
@@ -1856,6 +1913,7 @@ func (c *Client) parseIssueDetail(raw *model.IssueScheme) IssueDetail {
 	detail.Labels = append([]string(nil), fields.Labels...)
 	detail.Components = componentNames(fields.Components)
 	detail.FixVersions = versionNames(fields.FixVersions)
+	detail.OriginalEstimate, detail.RemainingEstimate = parseTimeTracking(rawFields["timetracking"])
 	detail.IssueLinks = c.parseIssueLinks(fields.IssueLinks)
 	detail.Reporter = jiraUserDisplayName(fields.Reporter, detail.Reporter)
 	detail.Creator = jiraUserDisplayName(fields.Creator, detail.Creator)
@@ -1866,6 +1924,20 @@ func (c *Client) parseIssueDetail(raw *model.IssueScheme) IssueDetail {
 		detail.Updated = time.Time(*fields.Updated)
 	}
 	return detail
+}
+
+func parseTimeTracking(raw json.RawMessage) (string, string) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", ""
+	}
+	var payload struct {
+		OriginalEstimate  string `json:"originalEstimate"`
+		RemainingEstimate string `json:"remainingEstimate"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return "", ""
+	}
+	return strings.TrimSpace(payload.OriginalEstimate), strings.TrimSpace(payload.RemainingEstimate)
 }
 
 func (c *Client) parseIssueLinks(rawLinks []*model.IssueLinkScheme) []IssueLink {

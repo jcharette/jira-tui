@@ -643,6 +643,7 @@ func TestIssueWritePatchesRetainedIssueCaches(t *testing.T) {
 		Priority:  "Medium",
 		Assignee:  "Old Person",
 		IssueType: "Story",
+		ParentKey: "ABC-100",
 	}}
 	model.details = map[string]jira.IssueDetail{
 		"ABC-1": {
@@ -658,6 +659,7 @@ func TestIssueWritePatchesRetainedIssueCaches(t *testing.T) {
 	model.updateIssueAssignee("ABC-1", "New Person")
 	model.updateIssueStatus("ABC-1", "In Progress")
 	model.updateIssueDescription("ABC-1", "New description")
+	model.updateIssueParent("ABC-1", jira.UpdateParentRequest{ParentKey: "ABC-200"})
 
 	detailRecord, ok := model.cachedIssueDetail("ABC-1")
 	if !ok {
@@ -678,19 +680,22 @@ func TestIssueWritePatchesRetainedIssueCaches(t *testing.T) {
 	if detailRecord.Value.Description != "New description" {
 		t.Fatalf("detail description was not patched: %#v", detailRecord.Value)
 	}
+	if detailRecord.Value.ParentKey != "ABC-200" || detailRecord.Value.Issue.ParentKey != "ABC-200" {
+		t.Fatalf("detail parent was not patched: %#v", detailRecord.Value)
+	}
 
 	viewRecord, ok := model.cachedActiveIssueView(model.jql)
 	if !ok || len(viewRecord.Issues) != 1 {
 		t.Fatalf("active view record ok=%v record=%#v", ok, viewRecord)
 	}
 	got := viewRecord.Issues[0]
-	if got.Summary != "New summary" || got.Priority != "High" || got.Assignee != "New Person" || got.Status != "In Progress" {
+	if got.Summary != "New summary" || got.Priority != "High" || got.Assignee != "New Person" || got.Status != "In Progress" || got.ParentKey != "ABC-200" {
 		t.Fatalf("active view issue was not patched: %#v", got)
 	}
-	if store.putDetail.Detail.Description != "New description" || store.putDetail.Detail.Issue.Status != "In Progress" {
+	if store.putDetail.Detail.Description != "New description" || store.putDetail.Detail.Issue.Status != "In Progress" || store.putDetail.Detail.Issue.ParentKey != "ABC-200" {
 		t.Fatalf("persistent detail was not patched: %#v", store.putDetail)
 	}
-	if len(store.put.Issues) != 1 || store.put.Issues[0].Summary != "New summary" || store.put.Issues[0].Status != "In Progress" {
+	if len(store.put.Issues) != 1 || store.put.Issues[0].Summary != "New summary" || store.put.Issues[0].Status != "In Progress" || store.put.Issues[0].ParentKey != "ABC-200" {
 		t.Fatalf("persistent active view was not patched: %#v", store.put)
 	}
 }

@@ -4,6 +4,11 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+## 1.0.6 - 2026-06-22
+
+- Fixed parent updates so retained issue detail and active-view caches reflect changed hierarchy state immediately.
+- Fixed time tracking detail behavior so Jira estimates are read from issue detail, prefilled in the editor, and patched locally after updates.
+
 ## 1.0.5 - 2026-06-21
 
 - Added metadata-backed Ticket Actions for setting or clearing Parent and editing Time Tracking

@@ -2,6 +2,7 @@ package jira
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -365,6 +366,7 @@ func TestGetIssueFetchesAndParsesDetail(t *testing.T) {
 		"reporter",
 		"creator",
 		"issuelinks",
+		"timetracking",
 	}
 	if !equalStrings(issue.fields, wantFields) {
 		t.Fatalf("fields = %#v", issue.fields)
@@ -418,6 +420,40 @@ func TestGetIssueFetchesAndParsesDetail(t *testing.T) {
 	}
 	if !reflect.DeepEqual(detail.IssueLinks, wantLinks) {
 		t.Fatalf("IssueLinks = %#v", detail.IssueLinks)
+	}
+}
+
+func TestGetIssueViaRESTParsesTimeTracking(t *testing.T) {
+	rest := &fakeRESTConnector{
+		issueResponse: issueDetailResponse{
+			IssueScheme: model.IssueScheme{
+				Key: "ABC-123",
+				Fields: &model.IssueFieldsScheme{
+					Summary: "Estimate work",
+				},
+			},
+			RawFields: map[string]json.RawMessage{
+				"timetracking": []byte(`{"originalEstimate":"2d","remainingEstimate":"3h"}`),
+			},
+		},
+	}
+	client := &Client{
+		baseURL: "https://example.atlassian.net",
+		rest:    rest,
+	}
+
+	detail, err := client.GetIssue(context.Background(), "ABC-123")
+	if err != nil {
+		t.Fatalf("GetIssue() error = %v", err)
+	}
+	if rest.method != http.MethodGet {
+		t.Fatalf("method = %q", rest.method)
+	}
+	if rest.endpoint != "rest/api/3/issue/ABC-123?fields=summary%2Cstatus%2Cassignee%2Cpriority%2Cissuetype%2Cparent%2Csubtasks%2Cdescription%2Clabels%2Ccomponents%2CfixVersions%2Ccreated%2Cupdated%2Creporter%2Ccreator%2Cissuelinks%2Ctimetracking" {
+		t.Fatalf("endpoint = %q", rest.endpoint)
+	}
+	if detail.OriginalEstimate != "2d" || detail.RemainingEstimate != "3h" {
+		t.Fatalf("estimates = %q/%q", detail.OriginalEstimate, detail.RemainingEstimate)
 	}
 }
 
@@ -2779,6 +2815,7 @@ type fakeRESTConnector struct {
 	method                string
 	endpoint              string
 	body                  interface{}
+	issueResponse         issueDetailResponse
 	transitionResponse    transitionFieldsResponse
 	assignableUsers       []model.UserScheme
 	fieldOptionResponse   fieldOptionSearchResponse
@@ -2814,6 +2851,8 @@ func (f *fakeRESTConnector) Call(_ *http.Request, v interface{}) (*model.Respons
 		return &model.ResponseScheme{}, nil
 	}
 	switch target := v.(type) {
+	case *issueDetailResponse:
+		*target = f.issueResponse
 	case *transitionFieldsResponse:
 		*target = f.transitionResponse
 	case *[]model.UserScheme:

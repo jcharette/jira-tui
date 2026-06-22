@@ -65,15 +65,15 @@ binary somewhere on your `PATH`.
 Apple Silicon example:
 
 ```bash
-curl -LO https://github.com/jcharette/jira-tui/releases/download/v1.0.5/jira-tui_1.0.5_darwin_arm64.tar.gz
-tar -xzf jira-tui_1.0.5_darwin_arm64.tar.gz
+curl -LO https://github.com/jcharette/jira-tui/releases/download/v1.0.6/jira-tui_1.0.6_darwin_arm64.tar.gz
+tar -xzf jira-tui_1.0.6_darwin_arm64.tar.gz
 install -m 0755 jira ~/bin/jira
 ```
 
 Or install with Go:
 
 ```bash
-go install github.com/jcharette/jira-tui/cmd/jira@v1.0.5
+go install github.com/jcharette/jira-tui/cmd/jira@v1.0.6
 ```
 
 Go installs the binary as `jira`.
@@ -288,7 +288,7 @@ make build
 make build-local
 make docs-status
 make milestone-complete M=M1
-make release VERSION=1.0.5
+make release VERSION=1.0.6
 ```
 
 Planning, backlog, release notes, and decisions live in [docs/README.md](docs/README.md). The project
