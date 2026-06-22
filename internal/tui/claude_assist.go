@@ -296,9 +296,9 @@ func (m Model) renderClaudeAssistDialog(width int) string {
 		lines = append(lines, m.renderClaudeAssistError(bodyWidth, m.claudeNow()))
 	default:
 		if m.claudeConfig.AllowJiraWrites {
-			footer = "ctrl+s apply  c comment  r refine  ctrl+y copy  pgup/pgdn page  esc close"
+			footer = "ctrl+s apply  ctrl+c comment  ctrl+r refine  ctrl+y copy  pgup/pgdn page  esc close"
 		} else {
-			footer = "c comment  r refine  ctrl+y copy  pgup/pgdn page  esc close"
+			footer = "ctrl+c comment  ctrl+r refine  ctrl+y copy  pgup/pgdn page  esc close"
 		}
 		lines = append(lines, m.renderClaudeAssistEditor(bodyWidth))
 	}
@@ -392,9 +392,9 @@ func (m Model) renderClaudeAssistEditor(width int) string {
 func (m Model) renderClaudeAssistActionHint(width int) string {
 	var action string
 	if m.claudeConfig.AllowJiraWrites {
-		action = "ctrl+s apply  |  c comment  |  r refine  |  ctrl+y copy"
+		action = "ctrl+s apply  |  ctrl+c comment  |  ctrl+r refine  |  ctrl+y copy"
 	} else {
-		action = "Jira writes disabled  |  c comment  |  r refine  |  ctrl+y copy"
+		action = "Jira writes disabled  |  ctrl+c comment  |  ctrl+r refine  |  ctrl+y copy"
 	}
 	return m.theme.FieldLabel.Render("Available Actions") + "\n" + m.theme.Muted.Render(truncate(action, width))
 }
@@ -1511,7 +1511,7 @@ func (m Model) updateClaudeAssistEditor(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.claudeAssistDraft = m.claudeAssistDraftValue()
 		m.claudeAssistOpen = false
 		return m, nil
-	case "r":
+	case "ctrl+r":
 		m.claudeAssistDraft = m.claudeAssistDraftValue()
 		m.claudeAssistRefineInstruction = ""
 		m.claudeAssistRefineEditor = newClaudeAssistRefineEditor("")
@@ -1519,7 +1519,7 @@ func (m Model) updateClaudeAssistEditor(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.claudeAssistRefining = true
 		m.detailNotice = ""
 		return m, nil
-	case "c":
+	case "ctrl+c":
 		m.claudeAssistDraft = m.claudeAssistDraftValue()
 		if strings.TrimSpace(m.claudeAssistDraft) == "" {
 			m.detailNotice = "No Ticket Assist draft to post as a comment."

@@ -65,15 +65,15 @@ binary somewhere on your `PATH`.
 Apple Silicon example:
 
 ```bash
-curl -LO https://github.com/jcharette/jira-tui/releases/download/v1.0.6/jira-tui_1.0.6_darwin_arm64.tar.gz
-tar -xzf jira-tui_1.0.6_darwin_arm64.tar.gz
+curl -LO https://github.com/jcharette/jira-tui/releases/download/v1.0.7/jira-tui_1.0.7_darwin_arm64.tar.gz
+tar -xzf jira-tui_1.0.7_darwin_arm64.tar.gz
 install -m 0755 jira ~/bin/jira
 ```
 
 Or install with Go:
 
 ```bash
-go install github.com/jcharette/jira-tui/cmd/jira@v1.0.6
+go install github.com/jcharette/jira-tui/cmd/jira@v1.0.7
 ```
 
 Go installs the binary as `jira`.
@@ -257,7 +257,7 @@ For a fuller reference grouped by screen, see [docs/keyboard.md](docs/keyboard.m
 | `ctrl+n` | Notifications |
 | `B` | Report a bug |
 | `?` | Contextual keyboard help |
-| `q`, `ctrl+c` | Quit |
+| `q`, `ctrl+c` | Quit outside focused editors and modals |
 
 The footer shows the most relevant commands for the active screen. Press `?` for the full contextual
 keymap.
@@ -288,7 +288,7 @@ make build
 make build-local
 make docs-status
 make milestone-complete M=M1
-make release VERSION=1.0.6
+make release VERSION=1.0.7
 ```
 
 Planning, backlog, release notes, and decisions live in [docs/README.md](docs/README.md). The project

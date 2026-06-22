@@ -4,6 +4,10 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+## 1.0.7 - 2026-06-22
+
+- Fixed Ticket Assist draft editing so typed letters stay in the editor; refine and comment actions now use `ctrl+r` and `ctrl+c`.
+
 ## 1.0.6 - 2026-06-22
 
 - Fixed parent updates so retained issue detail and active-view caches reflect changed hierarchy state immediately.

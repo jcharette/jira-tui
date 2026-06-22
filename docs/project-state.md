@@ -33,12 +33,12 @@ support.
 Install a tagged release with Go:
 
 ```bash
-go install github.com/jcharette/jira-tui/cmd/jira@v1.0.6
+go install github.com/jcharette/jira-tui/cmd/jira@v1.0.7
 ```
 
 Release archives are published at
 [GitHub Releases](https://github.com/jcharette/jira-tui/releases) with names such as
-`jira-tui_1.0.6_darwin_arm64.tar.gz` and include a `jira` binary.
+`jira-tui_1.0.7_darwin_arm64.tar.gz` and include a `jira` binary.
 
 Run from the project root:
 
@@ -348,14 +348,16 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   Implementation Notes, and Open Questions. Returned drafts open in an editable local modal using a
   textarea editor; the draft receives the majority of modal space and is rendered as a distinct
   editable block from the bounded review preview. `pgup`/`pgdn` page long drafts and `ctrl+y`
-  copies the edited draft. When `allow_jira_writes` is disabled, `ctrl+s` keeps the draft local and
-  explains that writes are gated. When `allow_jira_writes` and confirmation are enabled, `ctrl+s`
-  opens an apply confirmation and a second `ctrl+s` updates Jira Summary and Description through the
-  worker pool. Pressing `r` opens a refinement instruction editor; submitting it sends Claude the
-  original ticket context, the current user-edited draft, and the user's instruction, then replaces
-  the editable draft with the refined result while keeping Jira writes gated. Pressing `c` opens a
-  confirmation to post the current draft as a Jira comment without editing Summary or Description,
-  useful for tickets owned by someone else. Ticket Assist result modals render distinct `Claude
+  copies the edited draft. Printable letters always edit the focused local draft; modal actions use
+  modifier shortcuts so ordinary text entry cannot open another workflow. When `allow_jira_writes`
+  is disabled, `ctrl+s` keeps the draft local and explains that writes are gated. When
+  `allow_jira_writes` and confirmation are enabled, `ctrl+s` opens an apply confirmation and a
+  second `ctrl+s` updates Jira Summary and Description through the worker pool. Pressing `ctrl+r`
+  opens a refinement instruction editor; submitting it sends Claude the original ticket context, the
+  current user-edited draft, and the user's instruction, then replaces the editable draft with the
+  refined result while keeping Jira writes gated. Pressing `ctrl+c` opens a confirmation to post the
+  current draft as a Jira comment without editing Summary or Description, useful for tickets owned
+  by someone else. Ticket Assist result modals render distinct `Claude
   Review`, `Local Draft`, and `Available Actions` zones so generated review, local edits, and next
   actions are easier to separate. Acceptance Criteria are treated as a first-class draft section and
   are written into Description for now. When Description is the focused ticket-detail section and

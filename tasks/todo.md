@@ -258,3 +258,28 @@ Review results:
 - [x] Create GitHub release v1.0.6.
 - [x] Update Homebrew formula checksums from published assets.
 - [x] Verify final main CI.
+
+## Ticket Assist Text Entry Shortcut Safety - 2026-06-22
+
+- [x] Add a failing regression test proving printable letters typed in the Ticket Assist local draft editor are inserted as text and do not open modal actions.
+- [x] Replace bare Ticket Assist draft actions with explicit modifier shortcuts while keeping save/copy/escape behavior intact.
+- [x] Update user-facing AI Ticket Assist docs/changelog and rendered footers for the changed shortcuts.
+- [x] Verify focused Claude Assist tests and the broader project check.
+
+### Review
+
+- Root cause: `updateClaudeAssistEditor` handled bare `r` and `c` before passing keys to the focused textarea, so normal typing could open refine/comment actions.
+- Ticket Assist draft actions now use `ctrl+r refine` and `ctrl+c comment`; printable letters stay in the editor.
+- Updated Ticket Assist modal footers, available-action hints, README key copy, `docs/keyboard.md`, `docs/project-state.md`, and the Unreleased changelog.
+- Verification: RED test failed on `r` opening refine, focused Claude Assist tests passed, `go test ./internal/tui -count=1` passed, `go test ./... -count=1` passed, `make check` passed, and `make docs-check` passed after the final task-review edit.
+
+## Release v1.0.7 - 2026-06-22
+
+- [x] Confirm `v1.0.6` is the latest GitHub release and `v1.0.7` is unused.
+- [x] Move Unreleased changelog entry to `1.0.7`.
+- [x] Update app version, install docs, and Homebrew formula version references for `1.0.7`.
+- [x] Run full release verification.
+- [ ] Commit release changes and push `main`.
+- [ ] Tag and create GitHub release `v1.0.7`.
+- [ ] Update Homebrew formula checksums from published assets.
+- [ ] Verify final release state.

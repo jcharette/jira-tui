@@ -487,7 +487,7 @@ func TestClaudeSectionSubmitsTicketAssistWithSelectedContext(t *testing.T) {
 	updated, _ = next.Update(result)
 	next = updated.(Model)
 	view := next.render()
-	for _, want := range []string{"Claude Ticket Assist", "Review", "Missing acceptance criteria", "Local Draft", "Acceptance Criteria", "r refine"} {
+	for _, want := range []string{"Claude Ticket Assist", "Review", "Missing acceptance criteria", "Local Draft", "Acceptance Criteria", "ctrl+r refine"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q in %q", want, view)
 		}
@@ -587,7 +587,7 @@ func TestClaudeTicketAssistOutputHasDistinctZonesAndActions(t *testing.T) {
 	model.claudeAssistEditorReady = true
 
 	view := model.render()
-	for _, want := range []string{"Claude Review", "Local Draft", "Not Applied", "Available Actions", "ctrl+s apply", "c comment", "r refine", "ctrl+y copy"} {
+	for _, want := range []string{"Claude Review", "Local Draft", "Not Applied", "Available Actions", "ctrl+s apply", "ctrl+c comment", "ctrl+r refine", "ctrl+y copy"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q in %q", want, view)
 		}
@@ -605,7 +605,7 @@ func TestInlineDescriptionAIResultUsesTicketAssistModal(t *testing.T) {
 	model.claudeAssistEditorReady = true
 
 	view := model.render()
-	for _, want := range []string{"Claude Ticket Assist", "Claude Review", "Local Draft", "Available Actions", "ctrl+s apply", "c comment", "r refine"} {
+	for _, want := range []string{"Claude Ticket Assist", "Claude Review", "Local Draft", "Available Actions", "ctrl+s apply", "ctrl+c comment", "ctrl+r refine"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q in %q", want, view)
 		}
@@ -691,7 +691,7 @@ func TestInlineDescriptionAIDraftCanBePostedAsComment(t *testing.T) {
 	model.claudeAssistEditor = newClaudeAssistEditor(model.claudeAssistDraft)
 	model.claudeAssistEditorReady = true
 
-	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "c"}))
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+c"}))
 	next := updated.(Model)
 	if !next.claudeAssistConfirmComment {
 		t.Fatal("expected comment confirmation")
@@ -730,7 +730,7 @@ func TestClaudeTicketAssistDraftCanBePostedAsComment(t *testing.T) {
 	model.claudeAssistEditor = newClaudeAssistEditor(model.claudeAssistDraft)
 	model.claudeAssistEditorReady = true
 
-	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "c"}))
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+c"}))
 	next := updated.(Model)
 	if cmd != nil {
 		t.Fatal("expected confirmation before posting comment")
@@ -819,7 +819,40 @@ func TestClaudeTicketAssistDraftCanBeCopied(t *testing.T) {
 	}
 }
 
-func TestClaudeTicketAssistROpensRefinementEditor(t *testing.T) {
+func TestClaudeTicketAssistDraftPrintableLettersStayInEditor(t *testing.T) {
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, TicketAssist: true, Timeout: time.Second, AllowJiraWrites: true, RequireConfirmation: true}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 120
+	model.height = 36
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Original summary", Status: "To Do"}}
+	model.claudeAssistOpen = true
+	model.claudeAssistKey = "ABC-1"
+	model.claudeAssistDraft = ""
+	model.claudeAssistEditor = newClaudeAssistEditor(model.claudeAssistDraft)
+	model.claudeAssistEditorReady = true
+
+	next := model
+	for _, key := range []string{"o", "u", "r", " ", "c", "o", "n", "t", "e", "x", "t"} {
+		updated, _ := next.Update(tea.KeyPressMsg(tea.Key{Text: key, Code: rune(key[0])}))
+		next = updated.(Model)
+		if next.claudeAssistRefining || next.claudeAssistConfirmComment {
+			t.Fatalf("typing %q changed modal state: refining=%v confirmComment=%v", key, next.claudeAssistRefining, next.claudeAssistConfirmComment)
+		}
+	}
+
+	if got := next.claudeAssistDraftValue(); got != "our context" {
+		t.Fatalf("draft = %q, want typed text", got)
+	}
+}
+
+func TestClaudeTicketAssistCtrlROpensRefinementEditor(t *testing.T) {
 	model := NewModel(
 		&fakeIssueSearcher{},
 		"project = ABC",
@@ -838,7 +871,7 @@ func TestClaudeTicketAssistROpensRefinementEditor(t *testing.T) {
 	model.claudeAssistEditor = newClaudeAssistEditor(model.claudeAssistDraft)
 	model.claudeAssistEditorReady = true
 
-	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "r"}))
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+r"}))
 	next := updated.(Model)
 	if cmd != nil {
 		t.Fatal("opening refinement editor should not run Claude")
@@ -887,7 +920,7 @@ func TestClaudeTicketAssistRefinementPromptIncludesCurrentEditedDraft(t *testing
 	model.claudeAssistEditor = newClaudeAssistEditor(model.claudeAssistDraft)
 	model.claudeAssistEditorReady = true
 
-	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "r"}))
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+r"}))
 	next := updated.(Model)
 	next.claudeAssistRefineInstruction = "make the acceptance criteria measurable"
 	next.claudeAssistRefineEditor = newClaudeAssistRefineEditor(next.claudeAssistRefineInstruction)

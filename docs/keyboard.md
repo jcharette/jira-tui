@@ -52,6 +52,10 @@ Ticket Actions includes Sprint, which lists the active sprint first and future s
 also includes Fix Version, Affects Version, Due Date, Parent, and Estimates when Jira edit metadata
 exposes those fields for the selected issue.
 
+When a Ticket Assist draft modal is open, printable letters stay in the focused draft editor.
+Use `ctrl+r` to refine with Claude, `ctrl+c` to post the draft as a comment, `ctrl+s` to apply when
+Jira writes are enabled, and `ctrl+y` to copy the draft.
+
 ## Query
 
 | Key | Action |
@@ -71,6 +75,7 @@ exposes those fields for the selected issue.
 | `enter` | Continue or activate selected field |
 | `tab` | Move fields or switch create mode when AI is enabled |
 | `ctrl+s` | Generate or submit, depending on mode |
+| `ctrl+r` | Refine a generated draft with answered Open Questions |
 | `esc` | Cancel |
 
 ## Comments
