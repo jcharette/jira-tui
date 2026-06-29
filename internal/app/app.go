@@ -46,6 +46,7 @@ func NewRootCommand() *cobra.Command {
 	root.AddCommand(newStartCommand(&profile))
 	root.AddCommand(newCommitCommand(&profile))
 	root.AddCommand(newFinishCommand(&profile))
+	root.AddCommand(newTicketCommand(&profile))
 
 	return root
 }

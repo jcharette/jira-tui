@@ -37,6 +37,9 @@ func (m Model) handleWorkerResult(result worker.Result) (Model, tea.Cmd) {
 	case worker.KindGetWorklogs:
 		return m.handleGetWorklogsResult(result), nil
 	case worker.KindAddWorklog:
+		if result.ID == m.activeToilAddWorklogReqID {
+			return m.handleToilAddWorklogResult(result)
+		}
 		return m.handleAddWorklogResult(result)
 	case worker.KindUpdateWorklog:
 		return m.handleUpdateWorklogResult(result)
@@ -47,11 +50,17 @@ func (m Model) handleWorkerResult(result worker.Result) (Model, tea.Cmd) {
 	case worker.KindExpandIssues:
 		return m.handleExpandIssuesResult(result), nil
 	case worker.KindGetTransitions:
+		if result.ID == m.activeToilTransitionsReqID {
+			return m.handleToilGetTransitionsResult(result)
+		}
 		if result.ID == m.activeClaudeSubtaskReviewReqID {
 			return m.handleClaudeSubtaskReviewResult(result)
 		}
 		return m.handleGetTransitionsResult(result), nil
 	case worker.KindTransitionIssue:
+		if result.ID == m.activeToilTransitionReqID {
+			return m.handleToilTransitionResult(result), nil
+		}
 		if result.ID == m.activeClaudeSubtaskReviewReqID {
 			return m.handleClaudeSubtaskReviewResult(result)
 		}
@@ -82,6 +91,9 @@ func (m Model) handleWorkerResult(result worker.Result) (Model, tea.Cmd) {
 	case worker.KindUpdateAssignee:
 		return m.handleUpdateAssigneeResult(result), nil
 	case worker.KindGetCreateIssueTypes:
+		if result.ID == m.activeToilIssueTypesReqID {
+			return m.handleToilIssueTypesResult(result), nil
+		}
 		return m.handleGetCreateIssueTypesResult(result), nil
 	case worker.KindGetCreateFields:
 		return m.handleGetCreateFieldsResult(result), nil
@@ -106,6 +118,9 @@ func (m Model) handleWorkerResult(result worker.Result) (Model, tea.Cmd) {
 	case worker.KindDeleteIssueLink:
 		return m.handleDeleteIssueLinkResult(result)
 	case worker.KindCreateIssue:
+		if result.ID == m.activeToilCreateReqID {
+			return m.handleToilCreateIssueResultWithCmd(result)
+		}
 		return m.handleCreateIssueResult(result), nil
 	default:
 		return m, nil

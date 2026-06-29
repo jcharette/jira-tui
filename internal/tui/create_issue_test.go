@@ -76,6 +76,156 @@ func TestCreateShortcutLoadsCreateIssueTypes(t *testing.T) {
 	}
 }
 
+func TestToilShortcutLoadsIssueTypes(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 100
+	model.height = 30
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "T", Code: 'T'}))
+	next := updated.(Model)
+
+	if !next.toilOpen {
+		t.Fatal("expected toil modal to open")
+	}
+	if next.toilProjectKey != "ABC" {
+		t.Fatalf("toilProjectKey = %q", next.toilProjectKey)
+	}
+	if !next.toilIssueTypesLoading {
+		t.Fatal("expected issue type metadata loading")
+	}
+	if cmd == nil {
+		t.Fatal("expected issue type request command")
+	}
+	view := next.render()
+	for _, want := range []string{"Create Toil Ticket", "Loading issue types", "esc cancel"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in %q", want, view)
+		}
+	}
+}
+
+func TestToilCreateLogsWorkAndQueuesClose(t *testing.T) {
+	searcher := &fakeIssueSearcher{}
+	model := NewModel(searcher, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 100
+	model.height = 30
+	model.toilOpen = true
+	model.toilProjectKey = "ABC"
+	model.toilIssueTypes = []jira.CreateIssueType{
+		{ID: "10001", Name: "Task"},
+		{ID: "10002", Name: "Toil"},
+	}
+	model.toilSummaryEditor = newSummaryEditor("Rotate certs")
+	model.toilSummaryEditorReady = true
+	model.toilTimeEditor = newWorklogTimeInput("45m")
+	model.toilTimeEditorReady = true
+	model.toilNoteEditor = newWorklogCommentEditor("prod cert cleanup")
+	model.toilNoteEditorReady = true
+	model.toilCloseAfterCreate = true
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next := updated.(Model)
+
+	if !next.toilSubmitting {
+		t.Fatal("expected toil submission")
+	}
+	if next.toilSubmitIssueType.ID != "10002" {
+		t.Fatalf("toilSubmitIssueType = %#v", next.toilSubmitIssueType)
+	}
+	if cmd == nil {
+		t.Fatal("expected create issue command")
+	}
+
+	msg := cmd()
+	submitted, ok := msg.(workSubmittedMsg)
+	if !ok || submitted.kind != worker.KindCreateIssue {
+		t.Fatalf("create cmd msg = %#v", msg)
+	}
+
+	next = next.handleToilCreateIssueResult(worker.Result{
+		ID:   next.activeToilCreateReqID,
+		Kind: worker.KindCreateIssue,
+		CreateIssue: &worker.CreateIssueResult{
+			Issue: jira.Issue{Key: "ABC-123", Summary: "Rotate certs"},
+		},
+	})
+	if !next.toilLoggingWork || next.toilCreatedKey != "ABC-123" {
+		t.Fatalf("expected worklog queue, logging=%v key=%q", next.toilLoggingWork, next.toilCreatedKey)
+	}
+	if next.toilWorklogRequest.TimeSpent != "45m" || next.toilWorklogRequest.Comment != "prod cert cleanup" {
+		t.Fatalf("toilWorklogRequest = %#v", next.toilWorklogRequest)
+	}
+	queued, queueCmd := next.handleToilCreateIssueResultWithCmd(worker.Result{
+		ID:   next.activeToilCreateReqID,
+		Kind: worker.KindCreateIssue,
+		CreateIssue: &worker.CreateIssueResult{
+			Issue: jira.Issue{Key: "ABC-124", Summary: "Rotate certs"},
+		},
+	})
+	if queueCmd == nil || !queued.toilLoggingWork {
+		t.Fatal("expected worklog command after create result")
+	}
+	msg = queueCmd()
+	submitted, ok = msg.(workSubmittedMsg)
+	if !ok || submitted.kind != worker.KindAddWorklog {
+		t.Fatalf("worklog cmd msg = %#v", msg)
+	}
+
+	updatedModel, closeCmd := next.handleToilAddWorklogResult(worker.Result{
+		ID:   next.activeToilAddWorklogReqID,
+		Kind: worker.KindAddWorklog,
+		AddWorklog: &worker.AddWorklogResult{
+			Key:     "ABC-123",
+			Worklog: jira.Worklog{ID: "10001", TimeSpent: "45m"},
+		},
+	})
+	next = updatedModel
+	if !next.toilLoadingTransitions {
+		t.Fatal("expected transition load after worklog")
+	}
+	if closeCmd == nil {
+		t.Fatal("expected transition metadata command")
+	}
+}
+
+func TestToilCloseSkipsRequiredFieldTransition(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 100
+	model.height = 30
+	model.toilOpen = true
+	model.toilCreatedKey = "ABC-123"
+	model.toilCloseAfterCreate = true
+	model.activeToilTransitionsReqID = 44
+	model.toilLoadingTransitions = true
+
+	updated, cmd := model.handleToilGetTransitionsResult(worker.Result{
+		ID:   44,
+		Kind: worker.KindGetTransitions,
+		GetTransitions: &worker.GetTransitionsResult{
+			Key: "ABC-123",
+			Transitions: []jira.Transition{
+				{ID: "31", Name: "Resolve", ToStatus: "Done", IsAvailable: true, Fields: []jira.TransitionField{{ID: "resolution", Required: true}}},
+			},
+		},
+	})
+
+	if cmd != nil {
+		t.Fatal("required-field transition should not submit")
+	}
+	if updated.toilOpen {
+		t.Fatal("expected toil modal to close")
+	}
+	if !strings.Contains(updated.detailNotice, "Created ABC-123") || !strings.Contains(updated.detailNotice, "no safe terminal transition") {
+		t.Fatalf("detailNotice = %q", updated.detailNotice)
+	}
+}
+
 func TestCreateSubtaskFiltersIssueTypesAndSubmitsParent(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()

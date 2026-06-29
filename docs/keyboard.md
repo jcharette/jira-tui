@@ -28,6 +28,7 @@ Press `?` in the app for context-aware help. This page explains the main keys by
 | `f` | Toggle local active-ticket filter |
 | `o` / `O` | Cycle sort |
 | `n` | Create ticket |
+| `T` | Create toil ticket |
 | `x` | Load open children for selected parent |
 | `X` | Load all children for selected parent |
 | `z` | Collapse or expand loaded descendants |
@@ -45,6 +46,7 @@ Press `?` in the app for context-aware help. This page explains the main keys by
 | `o` | Open Jira issue URL |
 | `c` | Copy Jira issue URL |
 | `n` | Create ticket or subtask from context |
+| `T` | Create toil ticket |
 | `a` | Open AI/Claude actions when enabled |
 | `esc` | Return to issue list |
 
@@ -81,6 +83,15 @@ uses `j`/`k` to select a recommendation, `enter` to apply it, `s` to skip it, an
 | `tab` | Move fields or switch create mode when AI is enabled |
 | `ctrl+s` | Generate or submit, depending on mode |
 | `ctrl+r` | Refine a generated draft with answered Open Questions |
+| `esc` | Cancel |
+
+## Create Toil
+
+| Key | Action |
+| --- | --- |
+| `tab` | Move between Summary, Duration, Note, and Close after create |
+| `space` | Toggle Close after create when focused |
+| `ctrl+s` | Create the toil ticket and log work |
 | `esc` | Cancel |
 
 ## Comments

@@ -65,15 +65,15 @@ binary somewhere on your `PATH`.
 Apple Silicon example:
 
 ```bash
-curl -LO https://github.com/jcharette/jira-tui/releases/download/v1.0.8/jira-tui_1.0.8_darwin_arm64.tar.gz
-tar -xzf jira-tui_1.0.8_darwin_arm64.tar.gz
+curl -LO https://github.com/jcharette/jira-tui/releases/download/v1.0.9/jira-tui_1.0.9_darwin_arm64.tar.gz
+tar -xzf jira-tui_1.0.9_darwin_arm64.tar.gz
 install -m 0755 jira ~/bin/jira
 ```
 
 Or install with Go:
 
 ```bash
-go install github.com/jcharette/jira-tui/cmd/jira@v1.0.8
+go install github.com/jcharette/jira-tui/cmd/jira@v1.0.9
 ```
 
 Go installs the binary as `jira`.
@@ -198,6 +198,13 @@ non-ASCII symbols, then restart the terminal and run `jira config`.
 
 - `n` opens Jira-backed ticket creation with issue type, Summary, Description, and supported
   metadata fields.
+- `T` opens a compact Create Toil Ticket form in the TUI for Summary, Duration, Note, and optional
+  close-after-create.
+- `jira ticket create-toil --summary "rotate certs" --time 45m` creates a labeled toil ticket from
+  the CLI, logs optional time, and can close it immediately with `--close` when Jira exposes a safe
+  terminal transition.
+- `jira ticket update-toil [KEY]` and `jira ticket close-toil [KEY]` log time to toil tickets; omit
+  `KEY` to pick from open assigned tickets matching label `toil` or issue type `Toil`.
 - Ticket detail supports summary, priority, assignee, labels, components, fix/affects versions, due
   date, parent, time tracking estimates, safe generic custom fields, and workflow transitions
   through Jira edit metadata.
@@ -288,7 +295,7 @@ make build
 make build-local
 make docs-status
 make milestone-complete M=M1
-make release VERSION=1.0.8
+make release VERSION=1.0.9
 ```
 
 Planning, backlog, release notes, and decisions live in [docs/README.md](docs/README.md). The project

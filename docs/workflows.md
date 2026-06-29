@@ -105,6 +105,41 @@ Comment composition supports basic formatting and detected links.
 
 Subtask creation is available from focused ticket actions and reuses the same metadata-backed form.
 
+## Account For Toil
+
+From the TUI:
+
+1. Press `T`.
+2. Fill Summary, Duration, and an optional Note.
+3. Toggle Close after create with `space` when the checkbox is focused.
+4. Press `ctrl+s` to create the ticket, log the work, and optionally close it safely.
+
+Create and log a quick toil ticket from the shell:
+
+```bash
+jira ticket create-toil --summary "rotate certs" --time 45m --note "prod cert cleanup"
+```
+
+New toil tickets get label `toil`. If Jira exposes an issue type named `Toil`, the command uses it;
+otherwise it uses the first safe non-subtask issue type in the configured project.
+
+Update an existing toil ticket:
+
+```bash
+jira ticket update-toil DEVOPS-123 --time 30m --note "follow-up validation"
+```
+
+Close a toil ticket after logging final time:
+
+```bash
+jira ticket close-toil DEVOPS-123 --time 15m --note "done"
+```
+
+Omit the ticket key on `update-toil` or `close-toil` to pick from open assigned toil tickets. The
+picker searches `labels = toil OR issuetype = Toil` and keeps close transitions safe: if Jira
+requires extra fields to close the ticket, the command logs time but leaves the ticket open and
+reports the skipped close.
+
 ## Improve An Epic With Ticket Assist
 
 1. Open the epic detail view.

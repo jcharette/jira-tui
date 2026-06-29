@@ -4,6 +4,12 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+## 1.0.9 - 2026-06-29
+
+- Added quick toil-ticket accounting with a TUI `T` form plus `jira ticket create-toil`,
+  `jira ticket update-toil`, `jira ticket close-toil`, and `jira ticket toil` for creation,
+  worklog updates, picker-backed selection, and safe terminal transitions.
+
 ## 1.0.8 - 2026-06-22
 
 - Added guided Ticket Assist sessions with parsed Open Questions, answer-driven refinement, loaded

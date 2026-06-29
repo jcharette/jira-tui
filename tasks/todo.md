@@ -1,5 +1,32 @@
 # Task Plan
 
+## Toil Ticket CLI And Quick Picker - 2026-06-29
+
+- [x] Add a shared toil-ticket helper in the app layer for create, update, close, and picker flows.
+- [x] Add `jira ticket create-toil`, `jira ticket update-toil`, `jira ticket close-toil`, and `jira ticket toil`.
+- [x] Make `create-toil` label new tickets with `toil`, prefer Jira issue type `Toil` when available, and otherwise use the first safe non-subtask issue type.
+- [x] Make `update-toil` and `close-toil` accept an issue key or open a quick picker of open assigned toil tickets using `labels = toil OR issuetype = Toil`.
+- [x] Make `close-toil` log any supplied time first, then apply the best safe terminal transition with no required fields; if no safe transition exists, leave the ticket open and report why.
+- [x] Add a TUI "Create Toil Ticket" fast path that mirrors the same summary/time/note/close-after-create workflow without bypassing Jira metadata.
+- [x] Update footer/help and durable docs for the new commands and shortcuts.
+- [x] Verify the CLI and TUI slices with focused app/TUI tests, `go test ./... -count=1`, `make docs-check`, and `make check`.
+
+### Implementation Notes
+
+- Keep Jira writes on existing client/worker patterns. Do not introduce a second Jira API path.
+- Reuse existing create metadata, worklog validation, worklog payloads, and terminal-transition scoring where possible.
+- CLI commands live under the existing Cobra root as `jira ticket ...`; do not move existing `start`, `commit`, or `finish` commands.
+- The portable toil marker is label `toil`; Jira issue type `Toil` is opportunistic, not required.
+- No standalone binaries named `create-toil`, `update-toil`, or `close-toil` in this slice.
+
+### Review
+
+- Implemented the `jira ticket ...` CLI namespace for toil creation, picker-backed update, and
+  picker-backed close.
+- Added the TUI `T` Create Toil Ticket modal with Summary, Duration, Note, and Close after create.
+- Verified with focused app/TUI tests, `go test ./... -count=1`, `make docs-check`, and
+  `make check`.
+
 ## Epic Subtask Recommendation Review - 2026-06-22
 
 - [x] Parse Ticket Assist `Subtask Recommendations` into reviewable actions.

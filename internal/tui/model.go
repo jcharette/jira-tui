@@ -291,6 +291,29 @@ type Model struct {
 	createFieldOptionsErr              map[string]error
 	createFieldOptionsQuery            map[string]string
 	createSubmitFields                 []jira.CreateIssueFieldValue
+	toilOpen                           bool
+	toilProjectKey                     string
+	toilIssueTypes                     []jira.CreateIssueType
+	toilIssueTypesLoading              bool
+	toilIssueTypesErr                  error
+	toilFieldFocus                     int
+	toilSummaryDraft                   string
+	toilTimeDraft                      string
+	toilNoteDraft                      string
+	toilSummaryEditor                  textarea.Model
+	toilSummaryEditorReady             bool
+	toilTimeEditor                     textinput.Model
+	toilTimeEditorReady                bool
+	toilNoteEditor                     textarea.Model
+	toilNoteEditorReady                bool
+	toilCloseAfterCreate               bool
+	toilSubmitting                     bool
+	toilLoggingWork                    bool
+	toilLoadingTransitions             bool
+	toilClosing                        bool
+	toilCreatedKey                     string
+	toilSubmitIssueType                jira.CreateIssueType
+	toilWorklogRequest                 jira.AddWorklogRequest
 	detailViewport                     viewport.Model
 	detailViewportReady                bool
 	linkFocus                          bool
@@ -497,6 +520,11 @@ type Model struct {
 	activeCreateFieldsReqID           int
 	activeCreateFieldOptionsReqID     int
 	activeCreateIssueReqID            int
+	activeToilIssueTypesReqID         int
+	activeToilCreateReqID             int
+	activeToilAddWorklogReqID         int
+	activeToilTransitionsReqID        int
+	activeToilTransitionReqID         int
 	activeSprintReqID                 int
 	expandLoading                     bool
 	expandRequestKey                  string
@@ -953,6 +981,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.claudeAssistOpen && !m.claudeAssistLoading {
 			return m.updateClaudeAssistPaste(msg)
 		}
+		if m.toilOpen {
+			return m.updateToilPaste(msg)
+		}
 		if m.createOpen {
 			return m.updateCreatePaste(msg)
 		}
@@ -1008,6 +1039,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.queryOpen {
 			return m.updateQueryModal(msg)
+		}
+		if m.toilOpen {
+			return m.updateToilTicket(msg)
 		}
 		if m.claudePlanOpen && msg.String() == "esc" {
 			if m.claudePlanLoading {
@@ -1272,6 +1306,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "n":
 			return m.startCreateIssue()
+		case "T":
+			return m.startToilTicket()
 		case ".":
 			if m.mode == modeDetail {
 				m.openActionPalette()
@@ -1713,6 +1749,13 @@ func (m Model) render() string {
 
 	if m.bugReportOpen {
 		b.WriteString(m.renderBugReport(layout))
+		b.WriteString("\n\n")
+		b.WriteString(m.renderModelFooterHelp(layout))
+		return b.String()
+	}
+
+	if m.toilOpen {
+		b.WriteString(m.renderToilTicket(layout))
 		b.WriteString("\n\n")
 		b.WriteString(m.renderModelFooterHelp(layout))
 		return b.String()

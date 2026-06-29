@@ -34,6 +34,7 @@ const (
 	keyContextNotifications  keyContext = "Notifications"
 	keyContextBugReport      keyContext = "Report Bug"
 	keyContextCreate         keyContext = "Create Ticket"
+	keyContextToil           keyContext = "Create Toil"
 	keyContextQuery          keyContext = "Query"
 )
 
@@ -85,6 +86,8 @@ func activeKeyContext(m Model) keyContext {
 		return keyContextQuery
 	case m.bugReportOpen:
 		return keyContextBugReport
+	case m.toilOpen:
+		return keyContextToil
 	case m.createOpen:
 		return keyContextCreate
 	case m.mode == modeComment:
@@ -189,6 +192,8 @@ func keyBindings(context keyContext) []keyBinding {
 		bindings = append(bindings, bugReportBindings()...)
 	case keyContextCreate:
 		bindings = append(bindings, createBindings()...)
+	case keyContextToil:
+		bindings = append(bindings, toilBindings()...)
 	case keyContextQuery:
 		bindings = append(bindings, queryBindings()...)
 	}
@@ -200,6 +205,12 @@ func globalBindings(context keyContext) []keyBinding {
 		return nil
 	}
 	if context == keyContextCreate {
+		return []keyBinding{
+			{Keys: []string{"?"}, Label: "help", Description: "Open the keyboard help screen.", Group: "Global", Footer: true},
+			{Keys: []string{"ctrl+c"}, Label: "quit", Description: "Quit Jira.", Group: "Global"},
+		}
+	}
+	if context == keyContextToil {
 		return []keyBinding{
 			{Keys: []string{"?"}, Label: "help", Description: "Open the keyboard help screen.", Group: "Global", Footer: true},
 			{Keys: []string{"ctrl+c"}, Label: "quit", Description: "Quit Jira.", Group: "Global"},
@@ -238,6 +249,7 @@ func tableBindings() []keyBinding {
 		{Keys: []string{"g", "G", "home", "end"}, FooterKey: "g/G", Label: "first/last", Description: "Jump to the first or last issue.", Group: "Navigation"},
 		{Keys: []string{"enter"}, Label: "open", Description: "Open focused ticket detail.", Group: "Issue", Footer: true},
 		{Keys: []string{"n"}, Label: "new", Description: "Create a new Jira ticket.", Group: "Issue", Footer: true},
+		{Keys: []string{"T"}, Label: "toil", Description: "Create a quick toil ticket and log time.", Group: "Issue", Footer: true},
 		{Keys: []string{"z"}, Label: "collapse", Description: "Collapse or expand the selected issue subtree.", Group: "Issue"},
 		{Keys: []string{"x"}, Label: "children", Description: "Load open child issues for the selected parent.", Group: "Issue", Footer: true},
 		{Keys: []string{"X"}, Label: "all children", Description: "Load all child issues for the selected parent, including resolved issues.", Group: "Issue"},
@@ -275,6 +287,7 @@ func detailBindings() []keyBinding {
 		{Keys: []string{"enter"}, Label: "select", Description: "Jump to or activate the focused ticket detail section.", Group: "Sections"},
 		{Keys: []string{"."}, Label: "actions", Description: "Open the searchable ticket action palette.", Group: "Issue", Footer: true},
 		{Keys: []string{"n"}, Label: "new", Description: "Create a new Jira ticket.", Group: "Issue", Footer: true},
+		{Keys: []string{"T"}, Label: "toil", Description: "Create a quick toil ticket and log time.", Group: "Issue", Footer: true},
 		{Keys: []string{"d"}, Label: "description", Description: "Jump to the Description section.", Group: "Sections"},
 		{Keys: []string{"m"}, Label: "comments", Description: "Jump to the Comments section.", Group: "Sections"},
 		{Keys: []string{"h"}, Label: "hierarchy", Description: "Jump to the Hierarchy section.", Group: "Sections"},
