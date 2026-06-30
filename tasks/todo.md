@@ -4,8 +4,8 @@
 
 - [x] Update version references and release notes for the notification-center fix.
 - [x] Run release-gate local verification.
-- [ ] Commit and push release prep to `main`.
-- [ ] Dispatch and verify the GitHub Release workflow for v1.0.10.
+- [x] Commit and push release prep to `main`.
+- [x] Dispatch and verify the GitHub Release workflow for v1.0.10.
 - [ ] Update the Homebrew formula from published v1.0.10 checksums and verify follow-up CI.
 
 ### Review
