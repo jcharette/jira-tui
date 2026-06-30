@@ -77,6 +77,44 @@ func TestNotificationPanelStaysVisibleUntilCleared(t *testing.T) {
 	}
 }
 
+func TestNotificationPanelEnterOpensSelectedUnloadedTicket(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithNotificationConfig(NotificationConfig{
+		Enabled:  true,
+		MaxItems: 50,
+	}))
+	defer model.workers.Stop()
+	model.notificationPanelOpen = true
+	model.notifications = []notification{{
+		IssueKey: "ABC-2",
+		Summary:  "Selected from notification",
+	}}
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "First"},
+	}
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	next := updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("expected detail request command")
+	}
+	if next.mode != modeDetail {
+		t.Fatalf("mode = %v, want %v", next.mode, modeDetail)
+	}
+	if next.notificationPanelOpen {
+		t.Fatal("notification panel should close after opening the selected ticket")
+	}
+	if next.selected != 1 {
+		t.Fatalf("selected = %d, want 1", next.selected)
+	}
+	if next.detailRequestKey != "ABC-2" {
+		t.Fatalf("detailRequestKey = %q, want ABC-2", next.detailRequestKey)
+	}
+	if len(next.issues) != 2 || next.issues[1].Key != "ABC-2" {
+		t.Fatalf("issues = %#v, want appended ABC-2", next.issues)
+	}
+}
+
 func TestMainPanelShowsCompactNotificationAlert(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC", WithNotificationConfig(NotificationConfig{
 		Enabled:  true,

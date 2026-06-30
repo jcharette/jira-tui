@@ -33,12 +33,12 @@ support.
 Install a tagged release with Go:
 
 ```bash
-go install github.com/jcharette/jira-tui/cmd/jira@v1.0.9
+go install github.com/jcharette/jira-tui/cmd/jira@v1.0.10
 ```
 
 Release archives are published at
 [GitHub Releases](https://github.com/jcharette/jira-tui/releases) with names such as
-`jira-tui_1.0.9_darwin_arm64.tar.gz` and include a `jira` binary.
+`jira-tui_1.0.10_darwin_arm64.tar.gz` and include a `jira` binary.
 
 Run from the project root:
 
@@ -274,9 +274,10 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   before writing or exporting.
 - Uses request IDs to ignore stale Jira responses.
 - Records new and updated ticket events into a persistent in-app notification queue. The main panel
-  shows a compact notification alert, `ctrl+n` opens the notification center, uncleared
-  notifications remain visible until cleared, and focused ticket detail shows ticket-scoped
-  notifications for the selected issue. Optional system notifications use `beeep`.
+  shows a compact notification alert, `ctrl+n` opens the notification center, `enter` opens the
+  selected ticket, uncleared notifications remain visible until cleared, and focused ticket detail
+  shows ticket-scoped notifications for the selected issue. Optional system notifications use
+  `beeep`.
 - Preserves the selected issue across refreshes when it still exists in the refreshed list.
 - Bounds Jira calls with a configurable request timeout.
 - Displays issues in a styled Bubble Tea alternate-screen TUI with compact control chips for saved

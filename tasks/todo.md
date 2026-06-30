@@ -1,5 +1,32 @@
 # Task Plan
 
+## Release v1.0.10 - 2026-06-30
+
+- [x] Update version references and release notes for the notification-center fix.
+- [x] Run release-gate local verification.
+- [ ] Commit and push release prep to `main`.
+- [ ] Dispatch and verify the GitHub Release workflow for v1.0.10.
+- [ ] Update the Homebrew formula from published v1.0.10 checksums and verify follow-up CI.
+
+### Review
+
+- Pending.
+
+## Notification Center Enter Open Bug - 2026-06-30
+
+- [x] Reproduce the notification-center Enter key bug with a focused regression test.
+- [x] Fix the notification panel key handling so the advertised footer action opens the selected ticket.
+- [x] Verify the focused notification tests, broader TUI package tests, docs check, and full local check.
+
+### Review
+
+- Added regression coverage for opening a notification whose ticket is not in the current issue list.
+- Notification `enter` now selects or appends the notified ticket, closes the notification panel,
+  and reuses the existing detail-loading worker path.
+- Updated notification shortcut docs to include `enter open`.
+- Verified with focused notification tests, `go test ./internal/tui -count=1`, `make docs-check`,
+  `go test ./... -count=1`, and `make check`.
+
 ## Toil Ticket CLI And Quick Picker - 2026-06-29
 
 - [x] Add a shared toil-ticket helper in the app layer for create, update, close, and picker flows.

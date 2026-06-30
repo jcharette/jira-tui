@@ -4,6 +4,11 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+## 1.0.10 - 2026-06-30
+
+- Fixed notification-center `enter` so it opens the selected ticket even when that ticket is not in
+  the current loaded issue list.
+
 ## 1.0.9 - 2026-06-29
 
 - Added quick toil-ticket accounting with a TUI `T` form plus `jira ticket create-toil`,

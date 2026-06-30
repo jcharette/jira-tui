@@ -109,7 +109,7 @@ uses `j`/`k` to select a recommendation, `enter` to apply it, `s` to skip it, an
 | Key | Action |
 | --- | --- |
 | `j/k` | Move selected notification |
-| `enter` | Open related ticket when available |
+| `enter` | Open related ticket |
 | `x` | Clear selected notification |
 | `ctrl+x` | Clear all notifications |
 | `esc` | Close notifications |

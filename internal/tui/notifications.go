@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/jcharette/jira-tui/internal/events"
+	"github.com/jcharette/jira-tui/internal/jira"
 )
 
 type NotificationConfig struct {
@@ -161,7 +162,7 @@ func (m Model) updateNotificationPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.selectedNotification = 0
 		m.notificationPanelOpen = false
 	case "enter":
-		m.openSelectedNotificationIssue()
+		return m.openSelectedNotificationIssue()
 	}
 	return m, nil
 }
@@ -180,18 +181,25 @@ func (m *Model) clearSelectedNotification() {
 	}
 }
 
-func (m *Model) openSelectedNotificationIssue() {
+func (m Model) openSelectedNotificationIssue() (Model, tea.Cmd) {
 	if len(m.notifications) == 0 {
-		return
+		return m, nil
 	}
-	key := m.notifications[clamp(m.selectedNotification, 0, len(m.notifications)-1)].IssueKey
+	notice := m.notifications[clamp(m.selectedNotification, 0, len(m.notifications)-1)]
+	key := notice.IssueKey
 	for index, issue := range m.issues {
 		if issue.Key == key {
 			m.selected = index
 			m.mode = modeDetail
-			return
+			m.notificationPanelOpen = false
+			return m.startDetailRequestForSelected()
 		}
 	}
+	m.issues = append(m.issues, jira.Issue{Key: key, Summary: notice.Summary})
+	m.selected = len(m.issues) - 1
+	m.mode = modeDetail
+	m.notificationPanelOpen = false
+	return m.startDetailRequestForSelected()
 }
 
 func (m Model) renderTicketNotifications(key string, width int) string {

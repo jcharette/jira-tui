@@ -65,15 +65,15 @@ binary somewhere on your `PATH`.
 Apple Silicon example:
 
 ```bash
-curl -LO https://github.com/jcharette/jira-tui/releases/download/v1.0.9/jira-tui_1.0.9_darwin_arm64.tar.gz
-tar -xzf jira-tui_1.0.9_darwin_arm64.tar.gz
+curl -LO https://github.com/jcharette/jira-tui/releases/download/v1.0.10/jira-tui_1.0.10_darwin_arm64.tar.gz
+tar -xzf jira-tui_1.0.10_darwin_arm64.tar.gz
 install -m 0755 jira ~/bin/jira
 ```
 
 Or install with Go:
 
 ```bash
-go install github.com/jcharette/jira-tui/cmd/jira@v1.0.9
+go install github.com/jcharette/jira-tui/cmd/jira@v1.0.10
 ```
 
 Go installs the binary as `jira`.
@@ -232,7 +232,8 @@ non-ASCII symbols, then restart the terminal and run `jira config`.
 ### Notifications
 
 - Ticket new/update events are kept in an in-app notification center until cleared.
-- `ctrl+n` opens the notification center; `x` clears the selected item and `ctrl+x` clears all.
+- `ctrl+n` opens the notification center; `enter` opens the selected ticket, `x` clears the
+  selected item, and `ctrl+x` clears all.
 - When configured, incoming ticket events auto-open the notification center and keep it visible for
   side-terminal use until the user clears the notifications.
 - Optional system notifications use `github.com/gen2brain/beeep`.
@@ -295,7 +296,7 @@ make build
 make build-local
 make docs-status
 make milestone-complete M=M1
-make release VERSION=1.0.9
+make release VERSION=1.0.10
 ```
 
 Planning, backlog, release notes, and decisions live in [docs/README.md](docs/README.md). The project

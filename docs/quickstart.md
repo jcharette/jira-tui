@@ -66,6 +66,7 @@ Open a ticket with `enter`, then:
 Notifications stay in the app until cleared.
 
 - Press `ctrl+n` to open notifications.
+- Press `enter` to open the selected ticket.
 - Press `x` to clear the selected notification.
 - Press `ctrl+x` to clear all notifications.
 

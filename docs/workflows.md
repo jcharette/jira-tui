@@ -187,6 +187,7 @@ avoid duplicate Jira progress notes for already-reported commits.
 ## Use Notifications
 
 - Press `ctrl+n` to open the notification center.
+- Press `enter` to open the selected ticket.
 - Press `x` to clear one notification.
 - Press `ctrl+x` to clear all notifications.
 
