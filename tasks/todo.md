@@ -6,11 +6,13 @@
 - [x] Run release-gate local verification.
 - [x] Commit and push release prep to `main`.
 - [x] Dispatch and verify the GitHub Release workflow for v1.0.10.
-- [ ] Update the Homebrew formula from published v1.0.10 checksums and verify follow-up CI.
+- [x] Update the Homebrew formula from published v1.0.10 checksums and verify follow-up CI.
 
 ### Review
 
-- Pending.
+- Released v1.0.10 from `main` via GitHub Actions run `28437020463`.
+- Updated `Formula/jira-tui.rb` from the published v1.0.10 `checksums.txt`.
+- Verified local release gates, release publication, and formula follow-up CI run `28437306320`.
 
 ## Notification Center Enter Open Bug - 2026-06-30
 
