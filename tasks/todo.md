@@ -1,5 +1,17 @@
 # Task Plan
 
+## Claude AI Workflow Cleanup - 2026-07-06
+
+- [ ] Sync the local backlog and roadmap with the decision to backburner provider-neutral AI.
+- [ ] Add optional Claude-assisted Jira note drafting to `jira commit`.
+- [ ] Verify focused tests, docs checks, and full local checks.
+
+### Implementation Notes
+
+- Keep Claude as the only execution provider in this slice.
+- Keep `ai.task.*` event names for Diagnostics, but do not add Codex execution.
+- Keep generated Jira notes reviewable before posting.
+
 ## Release v1.0.10 - 2026-06-30
 
 - [x] Update version references and release notes for the notification-center fix.

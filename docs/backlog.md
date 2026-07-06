@@ -10,13 +10,9 @@ engineering context that should stay close to the codebase.
 
 ## Public Backlog Index
 
-### AI Workflows
+### Claude AI Workflows
 
-- [#6 Expand AI workflows behind provider-neutral ai.task events](https://github.com/jcharette/jira-tui/issues/6)
-
-### Ticket Actions
-
-- [#12 Expand metadata-backed Ticket Actions](https://github.com/jcharette/jira-tui/issues/12)
+- [#6 Polish existing Claude AI workflows before provider-neutral expansion](https://github.com/jcharette/jira-tui/issues/6)
 
 ## Local-Only Backlog Guidance
 

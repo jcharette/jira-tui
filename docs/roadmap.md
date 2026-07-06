@@ -27,15 +27,15 @@ Status: complete (2026-06-19).
 
 Status: complete (2026-06-19).
 
-### M2: Provider-Neutral AI Workflows
+### M2: Claude AI Workflow Polish
 
 Status: planned.
 
-### AI Provider Expansion
+### Claude AI Workflow Cleanup
 
-Issue #6 tracks the next significant product direction: make AI workflows provider-neutral behind
-`ai.task` events so Claude, Codex, or future providers can share the same request/progress/result
-surface.
+Issue #6 tracks the next product direction: make the existing Claude-backed AI workflows clearer and
+more useful before adding provider-neutral execution. Provider-neutral routing, Codex support, and
+future providers stay deferred until the Claude-only workflow stack is cohesive.
 
 ### Security And Auth
 

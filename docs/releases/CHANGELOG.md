@@ -4,6 +4,9 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Reframed the active AI roadmap around polishing existing Claude workflows before provider-neutral
+  provider expansion.
+
 ## 1.0.10 - 2026-06-30
 
 - Fixed notification-center `enter` so it opens the selected ticket even when that ticket is not in
