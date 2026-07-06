@@ -106,6 +106,7 @@ uses `j`/`k` to select a recommendation, `enter` to apply it, `s` to skip it, an
 | `enter` | Add or focus comment action |
 | `e` | Edit selected comment when focused |
 | `@` | Open mention picker while composing |
+| `ctrl+r` | Refine the local comment draft with Claude when enabled |
 | `ctrl+s` | Submit after review |
 | `esc` | Cancel or leave comment focus |
 

@@ -1,5 +1,26 @@
 # Task Plan
 
+## Claude Comment Draft Refinement - 2026-07-06
+
+- [x] Add focused failing tests for comment composer `ctrl+r` Claude refinement.
+- [x] Implement local comment draft refinement in Add/Edit Comment without changing post/update paths.
+- [x] Update footer/help/docs/changelog.
+- [x] Verify focused tests, full tests, docs check, project check, and install.
+
+### Implementation Notes
+
+- Reuse the existing comment composer and `submitAIRequest` path.
+- Keep Claude behind the existing `ticket_assist` feature flag.
+- Keep Jira writes behind the existing comment review/post confirmation.
+
+### Review
+
+- Added `ctrl+r` Claude refinement for local Add/Edit Comment drafts.
+- Kept Jira comment post/update writes behind the existing review confirmation.
+- Updated keyboard help, workflows, project state, and Unreleased changelog.
+- Verification: focused comment composer tests passed, `go test ./... -count=1` passed,
+  `make docs-check` passed, `make check` passed, and `make install-user` passed.
+
 ## Claude Tooling Expansion - 2026-07-06
 
 - [x] Add Claude drafting to `jira finish` PR title/body and final Jira note.

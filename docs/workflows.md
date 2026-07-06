@@ -92,9 +92,11 @@ those fields. Estimate edits update Jira time tracking estimates; they do not cr
 2. Move to Comments.
 3. Press `enter` to add a comment.
 4. Use `@` mentions from the mention picker when needed.
-5. Review before submitting.
+5. Use `ctrl+r` to refine the local draft with Claude when Ticket Assist is enabled.
+6. Review before submitting.
 
-Comment composition supports basic formatting and detected links.
+Comment composition supports basic formatting, detected links, and Claude refinement before the
+normal Jira post/update confirmation.
 
 ## Create A Ticket
 

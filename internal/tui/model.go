@@ -478,6 +478,8 @@ type Model struct {
 	commentEditorReady                bool
 	commentConfirm                    bool
 	commentSubmitting                 bool
+	commentAILoading                  bool
+	activeCommentAIReqID              int
 	commentRequestKey                 string
 	commentEditing                    bool
 	commentEditIssueKey               string
@@ -957,6 +959,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleCreateAIPromptResult(msg)
 	case bugReportPolishResultMsg:
 		return m.handleBugReportPolishResult(msg)
+	case commentAIResultMsg:
+		return m.handleCommentAIResult(msg)
 	case startRepoDetectedMsg:
 		return m.handleStartRepoDetected(msg)
 	case startPlanResultMsg:

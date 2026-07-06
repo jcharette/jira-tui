@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -8,9 +9,17 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/jcharette/jira-tui/internal/events"
 	"github.com/jcharette/jira-tui/internal/jira"
 	"github.com/jcharette/jira-tui/internal/mentiondetect"
 )
+
+type commentAIResultMsg struct {
+	id   int
+	key  string
+	text string
+	err  error
+}
 
 func (m Model) commentEditorRows() int {
 	reserved := 7
@@ -18,6 +27,9 @@ func (m Model) commentEditorRows() int {
 		reserved = 9
 	}
 	if m.detailNotice != "" {
+		reserved += 2
+	}
+	if m.commentAILoading {
 		reserved += 2
 	}
 	reserved += m.commentLinkPreviewRows()
@@ -67,6 +79,10 @@ func (m Model) renderCommentComposer(layout browserLayout) string {
 			b.WriteString("\n\n")
 			b.WriteString(picker)
 		}
+	}
+	if m.commentAILoading {
+		b.WriteString("\n\n")
+		b.WriteString(m.detailStatusBlock("Refining with Claude...", bodyWidth, false))
 	}
 	if m.detailNotice != "" {
 		b.WriteString("\n\n")
@@ -282,6 +298,8 @@ func (m *Model) startCommentComposer() {
 	m.commentEditorReady = true
 	m.commentConfirm = false
 	m.commentSubmitting = false
+	m.commentAILoading = false
+	m.activeCommentAIReqID = 0
 	m.commentEditing = false
 	m.commentEditIssueKey = ""
 	m.commentEditID = ""
@@ -312,6 +330,8 @@ func (m Model) startSelectedCommentEditor() (Model, tea.Cmd) {
 	m.commentEditorReady = true
 	m.commentConfirm = false
 	m.commentSubmitting = false
+	m.commentAILoading = false
+	m.activeCommentAIReqID = 0
 	m.commentEditing = true
 	m.commentEditIssueKey = selected.Key
 	m.commentEditID = comment.ID
@@ -338,6 +358,8 @@ func (m Model) updateCommentComposer(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.commentEditorReady = true
 			m.commentConfirm = false
 			m.commentSubmitting = false
+			m.commentAILoading = false
+			m.activeCommentAIReqID = 0
 			m.commentEditing = false
 			m.commentEditIssueKey = ""
 			m.commentEditID = ""
@@ -349,6 +371,9 @@ func (m Model) updateCommentComposer(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	if m.commentSubmitting {
+		return m, nil
+	}
+	if m.commentAILoading {
 		return m, nil
 	}
 	if m.commentConfirm {
@@ -385,6 +410,8 @@ func (m Model) updateCommentComposer(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+l":
 			m.insertCommentBullet()
 			return m, nil
+		case "ctrl+r":
+			return m.refineCommentDraft()
 		case "@":
 			m.openMentionPicker()
 			return m, nil
@@ -411,6 +438,104 @@ func (m Model) updateCommentComposer(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.detailNotice = ""
 	}
 	return m, cmd
+}
+
+func (m Model) refineCommentDraft() (Model, tea.Cmd) {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		m.detailNotice = "No issue selected."
+		return m, nil
+	}
+	draft := strings.TrimSpace(m.commentEditorValue())
+	if draft == "" {
+		m.detailNotice = "Write a comment before refining with Claude."
+		return m, nil
+	}
+	if !m.claudeCommentRefineAvailable() {
+		m.detailNotice = "Claude comment refinement is currently unavailable."
+		return m, nil
+	}
+	m.nextRequestID++
+	m.activeCommentAIReqID = m.nextRequestID
+	m.commentAILoading = true
+	m.detailNotice = ""
+	ctx, cancel := context.WithTimeout(context.Background(), startWorkflowTimeout(m.claudeConfig.Timeout))
+	return m, m.submitAIRequest(ctx, aiTaskRequest{
+		RequestID: m.activeCommentAIReqID,
+		Operation: events.AIOperationRefineDraft,
+		IssueKey:  selected.Key,
+		Prompt:    m.buildCommentRefinementPrompt(selected, draft),
+		ResultMsg: func(id int, key string, text string, err error) tea.Msg {
+			cancel()
+			return commentAIResultMsg{id: id, key: key, text: text, err: err}
+		},
+	})
+}
+
+func (m Model) handleCommentAIResult(msg commentAIResultMsg) (Model, tea.Cmd) {
+	if msg.id != m.activeCommentAIReqID || m.mode != modeComment {
+		return m, nil
+	}
+	m.commentAILoading = false
+	m.activeCommentAIReqID = 0
+	if msg.err != nil {
+		m.detailNotice = "Claude comment refinement failed: " + msg.err.Error()
+		return m, nil
+	}
+	text := strings.TrimSpace(msg.text)
+	if text == "" {
+		m.detailNotice = "Claude comment refinement failed: empty result"
+		return m, nil
+	}
+	m.commentDraft = text
+	m.commentEditor = newCommentEditor(text)
+	m.commentEditorReady = true
+	m.commentConfirm = false
+	m.detailNotice = "Claude refined the local comment draft."
+	return m, nil
+}
+
+func (m Model) claudeCommentRefineAvailable() bool {
+	return m.claudeConfig.Enabled &&
+		m.claudeConfig.TicketAssist &&
+		m.claudeStatus.Enabled &&
+		m.claudeStatus.Available
+}
+
+func (m Model) buildCommentRefinementPrompt(issue jira.Issue, draft string) string {
+	var b strings.Builder
+	b.WriteString("Refine this local Jira comment draft for the selected ticket.\n")
+	b.WriteString("Do not update Jira, create tickets, edit files, create branches, run git commands, call GitHub, or make external changes.\n")
+	b.WriteString("Return only the refined Jira comment text. The user will review and edit it before posting.\n")
+	b.WriteString("Preserve the user's intent, keep it concise, and do not invent product decisions.\n\n")
+	b.WriteString("Ticket:\n")
+	b.WriteString("Key: " + issue.Key + "\n")
+	if strings.TrimSpace(issue.Summary) != "" {
+		b.WriteString("Summary: " + strings.TrimSpace(issue.Summary) + "\n")
+	}
+	if strings.TrimSpace(issue.Status) != "" {
+		b.WriteString("Status: " + strings.TrimSpace(issue.Status) + "\n")
+	}
+	if detail, ok := m.details[issue.Key]; ok && strings.TrimSpace(detail.Description) != "" {
+		b.WriteString("\nDescription:\n")
+		b.WriteString(truncate(strings.TrimSpace(detail.Description), 2000))
+		b.WriteString("\n")
+	}
+	if comments := m.comments[issue.Key]; len(comments) > 0 {
+		b.WriteString("\nRecent Comments:\n")
+		start := max(0, len(comments)-3)
+		for _, comment := range comments[start:] {
+			body := strings.TrimSpace(comment.Body)
+			if body == "" {
+				continue
+			}
+			author := displayValue(comment.Author, "Unknown")
+			b.WriteString("- " + author + ": " + truncate(singleLine(body), 500) + "\n")
+		}
+	}
+	b.WriteString("\nCurrent comment draft:\n")
+	b.WriteString(draft)
+	return strings.TrimSpace(b.String())
 }
 
 func (m Model) updateMentionPicker(msg tea.Msg) (tea.Model, tea.Cmd) {

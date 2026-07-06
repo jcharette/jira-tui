@@ -3,8 +3,10 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/jcharette/jira-tui/internal/claude"
 	"github.com/jcharette/jira-tui/internal/jira"
 	"github.com/jcharette/jira-tui/internal/worker"
 )
@@ -359,6 +361,82 @@ func TestCommentComposerTabReviewsDraft(t *testing.T) {
 	}
 	if !next.commentEditor.Focused() {
 		t.Fatal("expected editor to refocus after returning to edit")
+	}
+}
+
+func TestCommentComposerCtrlRRefinesDraftWithClaude(t *testing.T) {
+	runner := &fakeClaudeRunner{result: claude.Result{Text: "Please confirm whether this should include rollout validation."}}
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, TicketAssist: true, Timeout: time.Second}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
+		WithClaudeRunner(runner),
+	)
+	defer model.workers.Stop()
+	model.mode = modeComment
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Rollout controls", Status: "To Do"}}
+	model.details = map[string]jira.IssueDetail{"ABC-1": {Issue: model.issues[0], Description: "Add safer rollout controls."}}
+	model.comments = map[string][]jira.Comment{"ABC-1": {{Author: "Rae", Body: "Please clarify scope."}}}
+	model.commentDraft = "what about validation?"
+	model.commentEditor = newCommentEditor(model.commentDraft)
+	model.commentEditorReady = true
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+r"}))
+	next := updated.(Model)
+	if cmd == nil || !next.commentAILoading {
+		t.Fatalf("expected Claude refine command loading=%v cmd=%v", next.commentAILoading, cmd)
+	}
+	resultMsg := <-runClaudePlanCommandAsyncForTest(cmd)
+	updated, cmd = next.Update(resultMsg)
+	next = updated.(Model)
+	if cmd != nil || next.commentAILoading {
+		t.Fatalf("refine result loading=%v cmd=%v", next.commentAILoading, cmd)
+	}
+	if next.commentDraft != "Please confirm whether this should include rollout validation." {
+		t.Fatalf("commentDraft = %q", next.commentDraft)
+	}
+	if runner.request.Prompt == "" || !strings.Contains(runner.request.Prompt, "Current comment draft") || !strings.Contains(runner.request.Prompt, "Please clarify scope.") {
+		t.Fatalf("prompt = %q", runner.request.Prompt)
+	}
+}
+
+func TestCommentComposerCtrlRRequiresDraftAndClaudeAvailability(t *testing.T) {
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, TicketAssist: true, Timeout: time.Second}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: false, Command: "claude"}),
+	)
+	defer model.workers.Stop()
+	model.mode = modeComment
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story"}}
+	model.commentDraft = "Needs polish"
+	model.commentEditor = newCommentEditor(model.commentDraft)
+	model.commentEditorReady = true
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+r"}))
+	next := updated.(Model)
+	if cmd != nil || next.commentAILoading {
+		t.Fatalf("unavailable Claude should not submit cmd=%v loading=%v", cmd, next.commentAILoading)
+	}
+	if !strings.Contains(next.detailNotice, "Claude comment refinement is currently unavailable") {
+		t.Fatalf("detailNotice = %q", next.detailNotice)
+	}
+
+	next.claudeStatus = ClaudeStatus{Enabled: true, Available: true, Command: "claude"}
+	next.commentDraft = ""
+	next.commentEditor = newCommentEditor("")
+	next.commentEditorReady = true
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+r"}))
+	next = updated.(Model)
+	if cmd != nil || next.commentAILoading {
+		t.Fatalf("empty draft should not submit cmd=%v loading=%v", cmd, next.commentAILoading)
+	}
+	if !strings.Contains(next.detailNotice, "Write a comment before refining") {
+		t.Fatalf("detailNotice = %q", next.detailNotice)
 	}
 }
 

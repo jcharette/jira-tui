@@ -397,10 +397,11 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   criteria, answer a user question, or draft a clarifying comment. Description-scoped results still
   reuse the Ticket Assist modal, but Description-scoped apply writes only Description through the
   worker-backed Jira update path.
-  Future inline AI actions for Comments should reuse this same draft/refine/apply/comment machinery
-  without disrupting the existing comment composer. Pressing `a` elsewhere in ticket detail jumps
-  to the Claude/AI section when any Claude action is available; otherwise it keeps the old
-  add-comment fallback.
+  The comment composer also reuses the same local Claude refinement path: `ctrl+r` refines the
+  Add/Edit Comment draft with selected issue context and loaded comments, then leaves Jira writes
+  behind the existing review/post confirmation. Pressing `a` elsewhere in ticket detail jumps to
+  the Claude/AI section when any Claude action is available; otherwise it keeps the old add-comment
+  fallback.
 - The ticket Overview renders the full Description by default rather than a fixed preview. Long
   descriptions use the existing detail viewport and scroll indicator, so large terminals fill with
   ticket content and smaller panes can still page through the body with normal detail scrolling.
@@ -466,8 +467,9 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
 - Focused ticket detail loads the latest Jira comments for the selected issue through the worker
   pool and renders them with the same ADF-aware terminal formatting as descriptions.
 - Focused ticket detail can add a Jira comment from the Comments section by pressing `enter`, or
-  from the Ticket Actions palette. The composer uses `ctrl+s` to review, `y` to post, `n` to return
-  to editing, and `esc` to cancel. Successful posts refresh the issue comments.
+  from the Ticket Actions palette. The composer uses `ctrl+r` to refine the local draft with
+  Claude when Ticket Assist is enabled, `ctrl+s` to review, `y` to post, `n` to return to editing,
+  and `esc` to cancel. Successful posts refresh the issue comments.
 - Focused ticket detail can edit loaded comments from the Comments section. Pressing `enter` on a
   loaded Comments section focuses the comment list, `j`/`k` selects a comment, `e` opens the
   selected comment in the same editor surface, and the review flow updates Jira explicitly with

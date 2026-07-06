@@ -425,6 +425,7 @@ func commentBindings() []keyBinding {
 		{Keys: []string{"ctrl+e"}, Label: "italic", Description: "Insert italic formatting tokens.", Group: "Formatting", Footer: true},
 		{Keys: []string{"ctrl+g"}, Label: "code", Description: "Insert inline-code formatting tokens.", Group: "Formatting"},
 		{Keys: []string{"ctrl+l"}, Label: "bullet", Description: "Insert a bullet list marker.", Group: "Formatting"},
+		{Keys: []string{"ctrl+r"}, Label: "refine", Description: "Refine the local comment draft with Claude before review.", Group: "Comments", Footer: true},
 		{Keys: []string{"@"}, Label: "mention", Description: "Open Jira user search and insert a selected user mention.", Group: "Editing", Footer: true},
 		{Keys: []string{"tab", "ctrl+s"}, FooterKey: "tab/ctrl+s", Label: "review", Description: "Review the draft before posting.", Group: "Comments", Footer: true},
 		{Keys: []string{"esc"}, Label: "cancel", Description: "Cancel the comment draft.", Group: "Comments", Footer: true},
