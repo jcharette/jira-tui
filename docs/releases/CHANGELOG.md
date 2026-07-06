@@ -10,6 +10,7 @@ All notable changes to this project should be recorded here.
   existing deterministic note.
 - Added optional Claude-assisted pull request text and final Jira note drafting to `jira finish`.
 - Added Claude ticket-detail Quality Review and Draft Comment actions.
+- Added optional read-only Claude Branch Plans to Start Work review before branch or Jira writes.
 
 ## 1.0.10 - 2026-06-30
 

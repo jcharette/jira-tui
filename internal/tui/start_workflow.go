@@ -7,16 +7,27 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/jcharette/jira-tui/internal/config"
+	"github.com/jcharette/jira-tui/internal/events"
 	"github.com/jcharette/jira-tui/internal/gitworkflow"
 	"github.com/jcharette/jira-tui/internal/jira"
 	"github.com/jcharette/jira-tui/internal/startworkflow"
 	"github.com/jcharette/jira-tui/internal/worker"
 )
 
+const maxStartPlanBytes = 3000
+
 type startRepoDetectedMsg struct {
 	id    int
 	issue jira.Issue
 	repo  gitworkflow.RepoStatus
+	err   error
+}
+
+type startPlanResultMsg struct {
+	id    int
+	issue jira.Issue
+	repo  gitworkflow.RepoStatus
+	text  string
 	err   error
 }
 
@@ -37,6 +48,7 @@ func (m Model) startSelectedIssueWorkflow() (Model, tea.Cmd) {
 	m.activeStartRepoReqID = m.nextRequestID
 	m.startWorkflowOpen = true
 	m.startWorkflowPreparing = true
+	m.startWorkflowPlanning = false
 	m.startWorkflowApplying = false
 	m.startWorkflowIssue = selected
 	m.startWorkflowResult = startworkflow.Result{}
@@ -63,10 +75,39 @@ func (m Model) handleStartRepoDetected(msg startRepoDetectedMsg) (Model, tea.Cmd
 	m.startWorkflowPreparing = false
 	m.startWorkflowErr = msg.err
 	cfg := configDefaultsForStart(m.gitConfig)
+	if m.claudeStartPlanAvailable() {
+		m.startWorkflowPreparing = true
+		m.startWorkflowPlanning = true
+		return m, m.submitStartPlan(msg.id, msg.issue, msg.repo, cfg)
+	}
 	m.startWorkflow = startworkflow.NewModel(startworkflow.Options{
 		Config:        cfg,
 		Issue:         &msg.issue,
 		PreferredRepo: msg.repo,
+	})
+	return m, nil
+}
+
+func (m Model) handleStartPlanResult(msg startPlanResultMsg) (Model, tea.Cmd) {
+	if msg.id != m.activeStartRepoReqID {
+		return m, nil
+	}
+	m.startWorkflowPreparing = false
+	m.startWorkflowPlanning = false
+	cfg := configDefaultsForStart(m.gitConfig)
+	planText := cleanStartPlanText(msg.text)
+	planErr := ""
+	if msg.err != nil {
+		planErr = msg.err.Error()
+	} else if strings.TrimSpace(msg.text) != "" && planText == "" {
+		planErr = "empty plan"
+	}
+	m.startWorkflow = startworkflow.NewModel(startworkflow.Options{
+		Config:        cfg,
+		Issue:         &msg.issue,
+		PreferredRepo: msg.repo,
+		PlanText:      planText,
+		PlanErr:       planErr,
 	})
 	return m, nil
 }
@@ -185,7 +226,11 @@ func (m Model) handleStartIssueResult(result worker.Result) (Model, tea.Cmd) {
 func (m Model) renderStartWorkflowDialog(width int) string {
 	selectedKey := displayValue(m.startWorkflowIssue.Key, "selected ticket")
 	if m.startWorkflowPreparing {
-		body := m.detailStatusBlock("Detecting repository...", max(24, min(width-12, 64)), false)
+		label := "Detecting repository..."
+		if m.startWorkflowPlanning {
+			label = "Asking Claude for start plan..."
+		}
+		body := m.detailStatusBlock(label, max(24, min(width-12, 64)), false)
 		return m.renderDetailDialogWithLimit(width, "Start Work", selectedKey, body, "esc cancel", 84)
 	}
 	if m.startWorkflowApplying {
@@ -228,6 +273,7 @@ func (m Model) renderStartWorkflowOutcomes(width int) string {
 func (m *Model) closeStartWorkflow() {
 	m.startWorkflowOpen = false
 	m.startWorkflowPreparing = false
+	m.startWorkflowPlanning = false
 	m.startWorkflowApplying = false
 	m.startWorkflow = startworkflow.Model{}
 	m.startWorkflowIssue = jira.Issue{}
@@ -238,6 +284,54 @@ func (m *Model) closeStartWorkflow() {
 	m.activeStartRepoReqID = 0
 	m.activeStartBranchReqID = 0
 	m.activeStartIssueReqID = 0
+}
+
+func (m Model) claudeStartPlanAvailable() bool {
+	return m.claudeConfig.Enabled &&
+		m.claudeConfig.BranchPlan &&
+		m.claudeStatus.Enabled &&
+		m.claudeStatus.Available
+}
+
+func (m Model) submitStartPlan(id int, issue jira.Issue, repo gitworkflow.RepoStatus, cfg config.Config) tea.Cmd {
+	branch := gitworkflow.RenderBranchName(cfg.Git.BranchTemplate, issue)
+	prompt := startworkflow.BuildPlanDraftPrompt(startworkflow.PlanDraftRequest{
+		Issue:      issue,
+		RepoPath:   repo.Path,
+		BranchName: branch,
+		Actions:    startworkflow.DefaultActions(branch),
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), startWorkflowTimeout(m.claudeConfig.Timeout))
+	return tea.Sequence(
+		m.submitAIRequest(ctx, aiTaskRequest{
+			RequestID: id,
+			Operation: events.AIOperationImplementationPlan,
+			IssueKey:  issue.Key,
+			Prompt:    prompt,
+			ResultMsg: func(id int, _ string, text string, err error) tea.Msg {
+				cancel()
+				return startPlanResultMsg{id: id, issue: issue, repo: repo, text: text, err: err}
+			},
+		}),
+	)
+}
+
+func cleanStartPlanText(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if len([]byte(value)) <= maxStartPlanBytes {
+		return value
+	}
+	var b strings.Builder
+	for _, r := range value {
+		if b.Len()+len(string(r)) > maxStartPlanBytes {
+			break
+		}
+		b.WriteRune(r)
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func configDefaultsForStart(git config.Git) config.Config {

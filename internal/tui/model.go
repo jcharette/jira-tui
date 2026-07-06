@@ -126,6 +126,7 @@ type Model struct {
 	selectedActionPalette              int
 	startWorkflowOpen                  bool
 	startWorkflowPreparing             bool
+	startWorkflowPlanning              bool
 	startWorkflowApplying              bool
 	startWorkflow                      startworkflow.Model
 	startWorkflowIssue                 jira.Issue
@@ -954,6 +955,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleCreateAIPromptResult(msg)
 	case startRepoDetectedMsg:
 		return m.handleStartRepoDetected(msg)
+	case startPlanResultMsg:
+		return m.handleStartPlanResult(msg)
 	case startBranchResultMsg:
 		return m.handleStartBranchResult(msg)
 	case createAIPromptTickMsg:

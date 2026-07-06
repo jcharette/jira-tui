@@ -43,6 +43,8 @@ type Options struct {
 	Issue         *jira.Issue
 	Issues        []jira.Issue
 	PreferredRepo gitworkflow.RepoStatus
+	PlanText      string
+	PlanErr       string
 }
 
 type Result struct {
@@ -70,6 +72,9 @@ type Model struct {
 	actions        []ActionPlan
 	selectedAction int
 
+	planText string
+	planErr  string
+
 	result Result
 }
 
@@ -86,6 +91,8 @@ func NewModel(options Options) Model {
 		step:        StepTicket,
 		repoInput:   repo,
 		branchInput: branch,
+		planText:    strings.TrimSpace(options.PlanText),
+		planErr:     strings.TrimSpace(options.PlanErr),
 	}
 	if options.Issue != nil && strings.TrimSpace(options.Issue.Key) != "" {
 		model.issue = *options.Issue
@@ -290,18 +297,73 @@ func (m Model) render() string {
 			}
 			fmt.Fprintf(&b, "%s [%s] %s - %s\n", cursor, state, action.Label, action.Detail)
 		}
+		if m.planText != "" {
+			b.WriteString("\nClaude plan:\n")
+			b.WriteString(m.planText)
+			b.WriteString("\n")
+		} else if m.planErr != "" {
+			b.WriteString("\nClaude plan unavailable: ")
+			b.WriteString(m.planErr)
+			b.WriteString("\n")
+		}
 		b.WriteString("\nspace skip optional  enter start  esc cancel")
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
 
 func (m Model) reviewActions() []ActionPlan {
+	return DefaultActions(m.branchInput.Value())
+}
+
+func DefaultActions(branch string) []ActionPlan {
 	return []ActionPlan{
-		{Kind: ActionBranch, Label: "Create or switch branch", Detail: strings.TrimSpace(m.branchInput.Value()), Required: true},
+		{Kind: ActionBranch, Label: "Create or switch branch", Detail: strings.TrimSpace(branch), Required: true},
 		{Kind: ActionAssign, Label: "Assign to me", Detail: "Use current Jira user"},
 		{Kind: ActionTransition, Label: "Move to In Progress", Detail: "Use best matching Jira transition"},
 		{Kind: ActionComment, Label: "Add branch comment", Detail: "Post compact branch note"},
 	}
+}
+
+type PlanDraftRequest struct {
+	Issue      jira.Issue
+	RepoPath   string
+	BranchName string
+	Actions    []ActionPlan
+}
+
+func BuildPlanDraftPrompt(request PlanDraftRequest) string {
+	var b strings.Builder
+	b.WriteString("Create a read-only start-work implementation plan for this Jira ticket.\n")
+	b.WriteString("Do not edit files, create branches, call Jira, run git commands, or make external changes.\n")
+	b.WriteString("Return only the plan. Keep it concise and focused on first implementation steps, risks, and verification.\n\n")
+	b.WriteString("Ticket:\n")
+	writePromptField(&b, "Key", request.Issue.Key)
+	writePromptField(&b, "Summary", request.Issue.Summary)
+	writePromptField(&b, "Status", request.Issue.Status)
+	writePromptField(&b, "Issue Type", request.Issue.IssueType)
+	writePromptField(&b, "Priority", request.Issue.Priority)
+	writePromptField(&b, "Assignee", request.Issue.Assignee)
+	writePromptField(&b, "Repo", request.RepoPath)
+	writePromptField(&b, "Branch", request.BranchName)
+	if len(request.Actions) > 0 {
+		b.WriteString("\nRequested writes after user confirmation:\n")
+		for _, action := range request.Actions {
+			state := "optional"
+			if action.Required {
+				state = "required"
+			}
+			fmt.Fprintf(&b, "- %s (%s): %s\n", action.Label, state, action.Detail)
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func writePromptField(b *strings.Builder, label string, value string) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return
+	}
+	fmt.Fprintf(b, "- %s: %s\n", label, value)
 }
 
 func (m *Model) focusStepInput() {

@@ -79,9 +79,11 @@ Run tests:
 make test
 ```
 
-When Claude is enabled and the Branch Plan feature is on, `jira commit` can draft the Jira progress
-note with Claude and still shows the generated note in the normal confirmation prompt. If Claude is
-unavailable, disabled, times out, or returns an empty note, the command uses the deterministic note.
+When Claude is enabled and the Branch Plan feature is on, Start Work can include a read-only Claude
+implementation plan in the normal review before branch or Jira writes. `jira commit` can draft the
+Jira progress note with Claude and still shows the generated note in the normal confirmation prompt.
+If Claude is unavailable, disabled, times out, or returns an empty note, the command uses the
+deterministic note.
 When Claude is enabled and the PR Creation feature is on, `jira finish` can draft the pull request
 title/body and final Jira note with the same review-before-write behavior.
 
@@ -312,11 +314,12 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   marked as subtasks, keeps required-field validation in the create form, and submits the selected
   issue key as the Jira parent only when the user explicitly creates the ticket.
 - `jira start [ticket]` and focused ticket detail Ticket Actions -> Start Work share the same
-  Bubble Tea workflow for selecting a ticket, choosing a local repo, editing the branch name, and
-  reviewing writes before anything changes. The Git branch action runs through the single
-  `internal/gitworkflow` adapter boundary. Confirmed Jira follow-ups assign to the current user,
-  choose the best available In Progress-like transition when no required unsupported fields are
-  present, and add a compact branch comment only after branch creation/switch succeeds.
+  Bubble Tea workflow for selecting a ticket, choosing a local repo, optionally showing a read-only
+  Claude Branch Plan, editing the branch name, and reviewing writes before anything changes. The Git
+  branch action runs through the single `internal/gitworkflow` adapter boundary. Confirmed Jira
+  follow-ups assign to the current user, choose the best available In Progress-like transition when
+  no required unsupported fields are present, and add a compact branch comment only after branch
+  creation/switch succeeds.
 - `jira commit [ticket]` analyzes the current Git repo through `internal/gitworkflow`, detects the
   Jira issue from the branch when possible, separates dirty work from already-reported and
   unreported local commits, previews the commit/Jira/push writes, stores reported commit SHAs under

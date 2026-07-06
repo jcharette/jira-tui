@@ -138,6 +138,52 @@ func TestRenderReviewShowsActionsAndFooter(t *testing.T) {
 	}
 }
 
+func TestRenderReviewShowsClaudePlanAndUnavailableState(t *testing.T) {
+	issue := jira.Issue{Key: "PROJ-123", Summary: "Add setup wizard"}
+	model := NewModel(Options{
+		Config:        config.Defaults(),
+		Issue:         &issue,
+		PreferredRepo: gitworkflow.RepoStatus{Path: "/tmp/repo", Detected: true},
+		PlanText:      "1. Inspect setup flow.\n2. Run focused tests.",
+	})
+	model = updateTest(t, model, "enter")
+	model = updateTest(t, model, "enter")
+
+	view := model.render()
+	for _, want := range []string{"Claude plan:", "Inspect setup flow", "Run focused tests"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in %q", want, view)
+		}
+	}
+
+	model = NewModel(Options{
+		Config:        config.Defaults(),
+		Issue:         &issue,
+		PreferredRepo: gitworkflow.RepoStatus{Path: "/tmp/repo", Detected: true},
+		PlanErr:       "claude unavailable",
+	})
+	model = updateTest(t, model, "enter")
+	model = updateTest(t, model, "enter")
+	if view := model.render(); !strings.Contains(view, "Claude plan unavailable: claude unavailable") {
+		t.Fatalf("missing unavailable state in %q", view)
+	}
+}
+
+func TestBuildPlanDraftPromptIncludesRequestedWrites(t *testing.T) {
+	prompt := BuildPlanDraftPrompt(PlanDraftRequest{
+		Issue:      jira.Issue{Key: "PROJ-123", Summary: "Add setup wizard", Status: "To Do"},
+		RepoPath:   "/tmp/repo",
+		BranchName: "proj-123-add-setup-wizard",
+		Actions:    DefaultActions("proj-123-add-setup-wizard"),
+	})
+
+	for _, want := range []string{"read-only start-work", "PROJ-123", "/tmp/repo", "proj-123-add-setup-wizard", "Requested writes", "Assign to me"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("missing %q in %q", want, prompt)
+		}
+	}
+}
+
 func updateTest(t *testing.T, model Model, key string) Model {
 	t.Helper()
 	msg := tea.KeyPressMsg(tea.Key{Text: key})

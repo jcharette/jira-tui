@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jcharette/jira-tui/internal/claude"
 	"github.com/jcharette/jira-tui/internal/config"
 	"github.com/jcharette/jira-tui/internal/gitworkflow"
 	"github.com/jcharette/jira-tui/internal/jira"
@@ -17,6 +18,16 @@ import (
 const startIssueSearchLimit = 25
 
 var runStartWorkflow = startworkflow.Run
+
+const maxStartPlanBytes = 3000
+
+type startOptions struct {
+	PlanDrafter startPlanDrafter
+}
+
+type startPlanDrafter interface {
+	DraftStartPlan(context.Context, startworkflow.PlanDraftRequest) (string, error)
+}
 
 func newStartCommand(profile *string) *cobra.Command {
 	cmd := &cobra.Command{
@@ -44,11 +55,15 @@ func runStart(profile string, args []string, out io.Writer, gitClient gitworkflo
 		return err
 	}
 	repo, _ := gitClient.DetectRepo(ctx, ".")
+	options := startOptions{PlanDrafter: startPlanDrafterFromConfig(cfg)}
+	planText, planErr := draftStartPlan(ctx, options.PlanDrafter, issue, repo, cfg)
 	result, err := runStartWorkflow(startworkflow.Options{
 		Config:        cfg,
 		Issue:         issue,
 		Issues:        issues,
 		PreferredRepo: repo,
+		PlanText:      planText,
+		PlanErr:       planErr,
 	})
 	if err != nil {
 		return fmt.Errorf("start workflow: %w", err)
@@ -80,6 +95,54 @@ func startIssues(ctx context.Context, client *jira.Client, cfg config.Config, ar
 		return nil, nil, fmt.Errorf("load start ticket picker: %w", err)
 	}
 	return nil, issues, nil
+}
+
+func draftStartPlan(ctx context.Context, drafter startPlanDrafter, issue *jira.Issue, repo gitworkflow.RepoStatus, cfg config.Config) (string, string) {
+	if drafter == nil || issue == nil {
+		return "", ""
+	}
+	branch := gitworkflow.RenderBranchName(cfg.Git.BranchTemplate, *issue)
+	text, err := drafter.DraftStartPlan(ctx, startworkflow.PlanDraftRequest{
+		Issue:      *issue,
+		RepoPath:   repo.Path,
+		BranchName: branch,
+		Actions:    startworkflow.DefaultActions(branch),
+	})
+	if err != nil {
+		return "", err.Error()
+	}
+	text = cleanBoundedText(text, maxStartPlanBytes)
+	if text == "" {
+		return "", "empty plan"
+	}
+	return text, ""
+}
+
+type claudeStartPlanDrafter struct {
+	Config claude.Config
+	Runner claude.LocalRunner
+}
+
+func (d claudeStartPlanDrafter) DraftStartPlan(ctx context.Context, request startworkflow.PlanDraftRequest) (string, error) {
+	result, err := d.Runner.Run(ctx, claude.Request{
+		Config: d.Config,
+		Prompt: startworkflow.BuildPlanDraftPrompt(request),
+	})
+	if err != nil {
+		return "", err
+	}
+	return result.Text, nil
+}
+
+func startPlanDrafterFromConfig(cfg config.Config) startPlanDrafter {
+	if !cfg.Claude.Enabled || !cfg.Claude.Features.BranchPlan {
+		return nil
+	}
+	claudeConfig, ok := checkedClaudeConfig(cfg)
+	if !ok {
+		return nil
+	}
+	return claudeStartPlanDrafter{Config: claudeConfig}
 }
 
 type startActionOutcome = startworkflow.Outcome

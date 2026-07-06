@@ -29,6 +29,7 @@ type ClaudeConfig struct {
 	TicketPlan          bool
 	TicketAssist        bool
 	DraftTicket         bool
+	BranchPlan          bool
 	Command             string
 	Timeout             time.Duration
 	RequireConfirmation bool

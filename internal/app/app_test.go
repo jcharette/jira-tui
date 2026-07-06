@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -148,6 +149,36 @@ func TestChooseStartTransitionRanksInProgressWithoutRequiredFields(t *testing.T)
 	if !ok || transition.ID != "12" {
 		t.Fatalf("transition = %#v ok=%v", transition, ok)
 	}
+}
+
+func TestDraftStartPlanUsesDrafterAndFallsBackOnFailure(t *testing.T) {
+	issue := jira.Issue{Key: "PROJ-123", Summary: "Start workflow"}
+	drafter := &fakeStartPlanDrafter{text: "1. Inspect workflow.\n2. Verify tests."}
+
+	text, errText := draftStartPlan(context.Background(), drafter, &issue, gitworkflow.RepoStatus{Path: "/tmp/repo"}, config.Defaults())
+	if errText != "" || !strings.Contains(text, "Inspect workflow") {
+		t.Fatalf("text=%q err=%q", text, errText)
+	}
+	if len(drafter.requests) != 1 || drafter.requests[0].Issue.Key != "PROJ-123" || drafter.requests[0].RepoPath != "/tmp/repo" {
+		t.Fatalf("requests = %#v", drafter.requests)
+	}
+
+	drafter = &fakeStartPlanDrafter{err: errors.New("claude unavailable")}
+	text, errText = draftStartPlan(context.Background(), drafter, &issue, gitworkflow.RepoStatus{Path: "/tmp/repo"}, config.Defaults())
+	if text != "" || errText != "claude unavailable" {
+		t.Fatalf("text=%q err=%q", text, errText)
+	}
+}
+
+type fakeStartPlanDrafter struct {
+	text     string
+	err      error
+	requests []startworkflow.PlanDraftRequest
+}
+
+func (f *fakeStartPlanDrafter) DraftStartPlan(_ context.Context, request startworkflow.PlanDraftRequest) (string, error) {
+	f.requests = append(f.requests, request)
+	return f.text, f.err
 }
 
 type fakeGitClient struct {

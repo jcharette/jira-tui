@@ -25,8 +25,8 @@ data loads.
   add tickets to active/future sprints, and add/edit/delete worklogs through worker-backed Jira
   requests.
 - **Ticket-to-branch start flow:** run `jira start ABC-123` or use Ticket Actions -> Start Work to
-  choose a repo, edit the branch name, and explicitly confirm branch, assignee, status, and comment
-  updates.
+  choose a repo, optionally review a Claude Branch Plan, edit the branch name, and explicitly
+  confirm branch, assignee, status, and comment updates.
 - **Rich comments and readable details:** Jira ADF descriptions and comments render in the terminal,
   links are detected, comments support basic formatting controls, and Jira mentions use account IDs
   selected through search.
@@ -179,6 +179,8 @@ non-ASCII symbols, then restart the terminal and run `jira config`.
 - Ticket Actions -> Start Work launches the flow for the selected ticket inside the TUI.
 - The flow detects the current Git repo, lets you edit the repo path and branch name, then shows a
   review screen before any writes happen.
+- When Claude is enabled and the Branch Plan feature is on, the review can include a read-only
+  Claude start-work plan. If Claude is unavailable, the flow continues with the normal review.
 - Confirmed writes create or switch the local branch, optionally assign the ticket to you, move it to
   the best available In Progress-like transition, and add a compact branch comment.
 

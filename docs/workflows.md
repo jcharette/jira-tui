@@ -164,7 +164,7 @@ From the TUI:
 1. Open or focus a ticket.
 2. Press `.` for Ticket Actions.
 3. Choose Start Work.
-4. Review the repo, branch, assignment, status, and comment actions.
+4. Review the repo, branch, optional Claude Branch Plan, assignment, status, and comment actions.
 5. Confirm only when the preview looks correct.
 
 From the shell:
@@ -175,6 +175,11 @@ jira start
 ```
 
 `jira start` without a ticket opens a picker from your default query.
+
+When Claude is enabled and the Branch Plan feature is on, Start Work asks Claude for a read-only
+implementation plan before the review screen. The generated plan is advisory only; branch and Jira
+writes still require the normal confirmation, and the workflow falls back to the deterministic
+review when Claude is unavailable.
 
 ## Commit And Finish Work
 

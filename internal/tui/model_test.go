@@ -190,6 +190,68 @@ func TestStartWorkActionLaunchesSharedWorkflowAndSubmitsWrites(t *testing.T) {
 	}
 }
 
+func TestStartWorkActionShowsClaudePlanBeforeWrites(t *testing.T) {
+	runner := &fakeClaudeRunner{result: claude.Result{Text: "1. Inspect start flow.\n2. Run focused tests."}}
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithGitConfig(config.Git{BranchTemplate: "{key}-{summary_slug}"}),
+		WithGitWorkflowClient(&fakeGitWorkflowClient{
+			repo: gitworkflow.RepoStatus{Path: "/tmp/example-repo", CurrentBranch: "main", Detected: true},
+		}),
+		WithClaudeConfig(ClaudeConfig{Enabled: true, BranchPlan: true, Timeout: time.Second}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
+		WithClaudeRunner(runner),
+	)
+	t.Cleanup(func() { model.workers.Stop() })
+	model.loading = false
+	model.mode = modeDetail
+	model.width = 120
+	model.height = 35
+	model.issues = []jira.Issue{{Key: "ABC-123", Summary: "Prepare release", Status: "To Do"}}
+	model.selected = 0
+
+	next, cmd := model.startSelectedIssueWorkflow()
+	if cmd == nil {
+		t.Fatal("expected repo detection command")
+	}
+	updated, cmd := next.Update(cmd())
+	next = updated.(Model)
+	if cmd == nil || !next.startWorkflowPreparing || !next.startWorkflowPlanning {
+		t.Fatalf("plan state preparing=%v planning=%v cmd=%v", next.startWorkflowPreparing, next.startWorkflowPlanning, cmd)
+	}
+	if view := next.renderStartWorkflowDialog(100); !strings.Contains(view, "Asking Claude for start plan") {
+		t.Fatalf("planning dialog = %q", view)
+	}
+
+	resultMsg := <-runClaudePlanCommandAsyncForTest(cmd)
+	updated, cmd = next.Update(resultMsg)
+	next = updated.(Model)
+	if cmd != nil || next.startWorkflowPreparing {
+		t.Fatalf("plan result preparing=%v cmd=%v", next.startWorkflowPreparing, cmd)
+	}
+
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next = updated.(Model)
+	if cmd != nil {
+		t.Fatalf("repo step returned cmd = %v", cmd)
+	}
+	updated, cmd = next.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next = updated.(Model)
+	if cmd != nil {
+		t.Fatalf("branch step returned cmd = %v", cmd)
+	}
+	review := next.renderStartWorkflowDialog(100)
+	for _, want := range []string{"Claude plan:", "Inspect start flow", "abc-123-prepare-release"} {
+		if !strings.Contains(review, want) {
+			t.Fatalf("missing %q in %q", want, review)
+		}
+	}
+	if !strings.Contains(runner.request.Prompt, "Requested writes") {
+		t.Fatalf("runner request = %#v", runner.request)
+	}
+}
+
 func TestExpandSelectedIssueLoadsOpenChildren(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()
