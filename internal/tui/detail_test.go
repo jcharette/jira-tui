@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -112,6 +113,45 @@ func TestDeveloperWorkbenchSectionShowsDeveloperLoopActions(t *testing.T) {
 	for _, unwanted := range []string{"Edit Components", "Set Fix Version", "metadata"} {
 		if strings.Contains(view, unwanted) {
 			t.Fatalf("workbench should not show low-frequency metadata action %q in:\n%s", unwanted, view)
+		}
+	}
+}
+
+func TestDetailActionsPrioritizeDeveloperWorkflowGroups(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.width = 120
+	model.height = 34
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Story", Status: "To Do", Priority: "Medium"}}
+	model.details = map[string]jira.IssueDetail{"ABC-1": {Issue: model.issues[0]}}
+
+	actions := model.detailActions()
+	gotIDs := make([]string, 0, 8)
+	for index := 0; index < min(8, len(actions)); index++ {
+		gotIDs = append(gotIDs, actions[index].ID)
+	}
+	wantIDs := []string{"start-work", "comment", "log-work", "browser", "copy-key", "copy-url", "transition", "assign"}
+	if !reflect.DeepEqual(gotIDs, wantIDs) {
+		t.Fatalf("first action IDs = %#v, want %#v", gotIDs, wantIDs)
+	}
+
+	groups := map[string]string{}
+	for _, action := range actions {
+		groups[action.ID] = detailActionGroup(action.ID)
+	}
+	for id, want := range map[string]string{
+		"start-work": "Developer",
+		"comment":    "Developer",
+		"log-work":   "Developer",
+		"browser":    "Open/Copy",
+		"copy-key":   "Open/Copy",
+		"transition": "Jira",
+		"summary":    "Jira Field",
+		"subtask":    "Create",
+	} {
+		if got := groups[id]; got != want {
+			t.Fatalf("detailActionGroup(%q) = %q, want %q", id, got, want)
 		}
 	}
 }

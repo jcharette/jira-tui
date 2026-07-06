@@ -136,7 +136,7 @@ func (m Model) filteredActionPaletteActions() []actionPaletteAction {
 	filter := strings.ToLower(strings.TrimSpace(m.actionPaletteEditorValue()))
 	filtered := make([]actionPaletteAction, 0, len(actions))
 	for index, action := range actions {
-		group := actionPaletteGroup(action.ID)
+		group := detailActionGroup(action.ID)
 		if filter != "" {
 			haystack := strings.ToLower(strings.Join([]string{action.ID, action.Label, group, action.Description}, " "))
 			if !strings.Contains(haystack, filter) {
@@ -150,26 +150,6 @@ func (m Model) filteredActionPaletteActions() []actionPaletteAction {
 		})
 	}
 	return filtered
-}
-
-func actionPaletteGroup(id string) string {
-	if strings.HasPrefix(id, "field:") {
-		return "Field"
-	}
-	switch id {
-	case "comment":
-		return "Comment"
-	case "browser", "copy-key", "copy-url":
-		return "Open/Copy"
-	case "summary", "priority", "labels", "components", "assign":
-		return "Field"
-	case "start-work", "transition":
-		return "Workflow"
-	case "subtask":
-		return "Create"
-	default:
-		return "Action"
-	}
 }
 
 func (m *Model) configureActionPaletteEditor(width int) {

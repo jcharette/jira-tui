@@ -1460,26 +1460,27 @@ func (m Model) renderActionsSection(width int) string {
 	for index, action := range actions {
 		marker := " "
 		labelStyle := m.theme.Text
-		stateStyle := m.theme.Success
+		groupStyle := m.theme.FieldLabel
 		descStyle := m.theme.Muted
-		state := "ready"
+		group := detailActionGroup(action.ID)
 		if m.actionFocus && index == cursor {
 			marker = ">"
 			labelStyle = m.theme.Selected
+			groupStyle = m.theme.Selected
 		} else if !action.Enabled {
 			labelStyle = m.theme.Muted
-			stateStyle = m.theme.Muted
+			groupStyle = m.theme.Muted
 			descStyle = m.theme.Muted
-			state = "metadata"
+			group = displayValue(action.DisabledState, "Needs Metadata")
 		}
 		rows = append(rows, []string{
 			labelStyle.Render(marker),
+			groupStyle.Render(group),
 			labelStyle.Render(action.Label),
-			stateStyle.Render(state),
-			descStyle.Render(truncate(action.Description, max(16, width-46))),
+			descStyle.Render(truncate(action.Description, max(16, width-48))),
 		})
 	}
-	lines = append(lines, m.detailTable(0, []string{"", "ACTION", "STATE", "DETAIL"}, rows, nil))
+	lines = append(lines, m.detailTable(0, []string{"", "GROUP", "ACTION", "DETAIL"}, rows, nil))
 	return strings.Join(lines, "\n")
 }
 
@@ -1540,23 +1541,43 @@ func (m Model) renderStatusSection(issue jira.Issue, width int) string {
 func (m Model) detailActions() []detailAction {
 	actions := []detailAction{
 		{ID: "start-work", Label: "Start Work", Description: "Choose repo, create branch, and apply confirmed Jira updates.", Enabled: true},
-		{ID: "comment", Label: "Add Comment", Description: "Write a Jira comment.", Enabled: true},
+		{ID: "comment", Label: "Add Comment", Description: "Write or refine a Jira comment before review and post.", Enabled: true},
+		{ID: "log-work", Label: "Log Work", Description: "Add a Jira worklog entry.", Enabled: true},
 		{ID: "browser", Label: "Open In Browser", Description: "Open this ticket in Jira.", Enabled: true},
 		{ID: "copy-key", Label: "Copy Key", Description: "Copy the ticket key.", Enabled: true},
 		{ID: "copy-url", Label: "Copy URL", Description: "Copy the Jira URL.", Enabled: true},
+		{ID: "transition", Label: "Transition Status", Description: "Load available Jira transitions and change status.", Enabled: true},
+		{ID: "assign", Label: "Assign", Description: "Search assignable Jira users and change assignee.", Enabled: true},
 		{ID: "summary", Label: "Edit Summary", Description: "Load Jira edit metadata and update summary.", Enabled: true},
 		{ID: "priority", Label: "Change Priority", Description: "Load Jira priority options and update priority.", Enabled: true},
 		{ID: "labels", Label: "Edit Labels", Description: "Edit comma-separated Jira labels.", Enabled: true},
 		{ID: "components", Label: "Edit Components", Description: "Select Jira components from edit metadata.", Enabled: true},
 		{ID: "sprint", Label: "Sprint", Description: "Add this ticket to an active or future Jira sprint.", Enabled: true},
-		{ID: "transition", Label: "Transition Status", Description: "Load available Jira transitions and change status.", Enabled: true},
-		{ID: "assign", Label: "Assign", Description: "Search assignable Jira users and change assignee.", Enabled: true},
 		{ID: "link-issue", Label: "Link Issue", Description: "Create a Jira issue link to another ticket.", Enabled: true},
-		{ID: "log-work", Label: "Log Work", Description: "Add a Jira worklog entry.", Enabled: true},
 		{ID: "subtask", Label: "Create Subtask", Description: "Use Jira create metadata for required fields.", Enabled: true},
 	}
 	actions = append(actions, m.genericEditFieldActions()...)
 	return actions
+}
+
+func detailActionGroup(id string) string {
+	if strings.HasPrefix(id, "field:") {
+		return "Jira Field"
+	}
+	switch id {
+	case "start-work", "comment", "log-work":
+		return "Developer"
+	case "browser", "copy-key", "copy-url":
+		return "Open/Copy"
+	case "transition", "assign", "sprint", "link-issue":
+		return "Jira"
+	case "summary", "priority", "labels", "components":
+		return "Jira Field"
+	case "subtask":
+		return "Create"
+	default:
+		return "Action"
+	}
 }
 
 func (m Model) unsupportedEditFieldActions() []detailAction {
