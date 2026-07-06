@@ -7,7 +7,7 @@
 - [x] Add read-only Claude start-work plans before branch/Jira writes.
 - [x] Add create-ticket draft refinement.
 - [x] Add Claude cleanup for bug report title/body.
-- [ ] Verify focused tests, docs checks, full local checks, and install.
+- [x] Verify focused tests, docs checks, full local checks, and install.
 
 ### Implementation Notes
 
@@ -26,6 +26,8 @@
 - Added `ctrl+r` Claude polish for local bug report title/body drafts.
 - Kept GitHub issue opening unchanged behind the existing `ctrl+s` submit.
 - Verified focused bug-report polish tests.
+- Final verification passed: focused tests for each slice, `go test ./... -count=1`, `make docs-check`,
+  `make check`, and `make install-user`.
 
 ## Claude AI Workflow Cleanup - 2026-07-06
 
