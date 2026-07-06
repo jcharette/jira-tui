@@ -20,6 +20,7 @@
 - Pass 1 added Developer Workbench and developer-first Ticket Actions.
 - Follow-up cockpit slice kept the existing detail sections but made Workbench summarize developer
   actions plus Comments, Worklog, Hierarchy, and Links state.
+- Initial ticket-list follow-up added a selected-ticket orientation strip under the view controls.
 - Next useful slice is search/filter clarity or deeper related-work detail polish.
 
 ## Release v1.0.11 - 2026-07-06

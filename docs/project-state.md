@@ -661,6 +661,8 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
 - `enter` opens a focused ticket detail view; `esc` returns to the table.
 - Uses saved appearance skins and color overrides for the config editor and issue list.
 - Each appearance skin provides a matching default issue-list symbol style.
+- Shows a selected-ticket strip under the issue-list controls with the focused key, status,
+  priority, owner, and next open action when the terminal has room.
 - Uses `display.symbol_mode` to override issue-list symbols. `auto` is the default and detects
   supported Nerd-capable terminal setups before falling back to colored terminal-safe glyphs, with
   explicit `plain`, `symbols`, `emoji`, and `nerd` overrides available in config. `nerd` is the

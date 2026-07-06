@@ -36,6 +36,9 @@ In the bug report composer, use `ctrl+r` to polish the local draft with Claude w
 | `X` | Load all children for selected parent |
 | `z` | Collapse or expand loaded descendants |
 
+On normal-height terminals, the issue list shows a selected-ticket strip under the view controls
+with the focused key, status, priority, owner, and next `enter open` action.
+
 ## Ticket Detail
 
 | Key | Action |

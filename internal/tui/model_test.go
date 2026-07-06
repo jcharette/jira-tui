@@ -46,12 +46,18 @@ func assertFocusedDetailSection(t *testing.T, model Model, title string) {
 }
 
 func lineContaining(value string, needle string) string {
+	first := ""
 	for _, line := range strings.Split(value, "\n") {
 		if strings.Contains(line, needle) {
-			return line
+			if first == "" {
+				first = line
+			}
+			if !strings.Contains(line, "Selected ") {
+				return line
+			}
 		}
 	}
-	return ""
+	return first
 }
 
 func dialogBorderWidth(value string) int {

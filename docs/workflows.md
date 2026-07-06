@@ -10,6 +10,8 @@ Use these as short recipes for common tasks.
 4. Press `esc` to return to the issue list.
 5. Press `?` if the current screen is unclear.
 
+The selected-ticket strip under the view controls summarizes the focused ticket before you open it.
+
 ## Switch Views
 
 - Press `tab` for the next saved view.

@@ -203,6 +203,32 @@ func TestIssueListControlStripShowsViewFilterLayoutAndSort(t *testing.T) {
 	}
 }
 
+func TestIssueListShowsSelectedIssueOrientationStrip(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.mode = modeTable
+	model.width = 120
+	model.height = 34
+	model.loading = false
+	model.issueLayout = issueLayoutLanes
+	model.issues = []jira.Issue{{
+		Key:       "ABC-1",
+		Summary:   "Tighten deployment review flow",
+		Status:    "In Progress",
+		Priority:  "High",
+		Assignee:  "Jon",
+		IssueType: "Story",
+	}}
+
+	view := model.render()
+
+	for _, want := range []string{"Selected ABC-1", "In Progress", "!!", "Jon", "enter open"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("issue list missing orientation %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestWorkbenchLayoutRendersSelectedContextPanelOnWideTerminals(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()

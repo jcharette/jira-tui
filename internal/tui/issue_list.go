@@ -526,7 +526,37 @@ func (m Model) issueListTitleLine(title string, layout browserLayout) string {
 	if m.useCompactIssueListChrome(layout) {
 		return line
 	}
+	if selected := m.issueListSelectedStrip(layout); selected != "" {
+		return line + "\n" + selected + "\n"
+	}
 	return line + "\n"
+}
+
+func (m Model) issueListSelectedStrip(layout browserLayout) string {
+	if m.issueLayout == issueLayoutWorkbench {
+		return ""
+	}
+	issue, ok := m.selectedIssue()
+	if !ok || strings.TrimSpace(issue.Key) == "" {
+		return ""
+	}
+	parts := []string{
+		m.issueListChip("Selected", issue.Key, true),
+		statusStyle(m.theme, issue.Status).Render(displayValue(issue.Status, "Unknown")),
+		priorityStyle(m.theme, issue.Priority).Render(priorityBadge(issue.Priority)),
+	}
+	if assignee := strings.TrimSpace(shortName(issue.Assignee)); assignee != "" && assignee != "Unknown" {
+		parts = append(parts, m.theme.Text.Render(assignee))
+	}
+	parts = append(parts, m.theme.Muted.Render("enter open"))
+	for len(parts) > 0 {
+		line := strings.Join(parts, m.theme.Muted.Render("  "))
+		if lipgloss.Width(line) <= layout.listWidth {
+			return line
+		}
+		parts = parts[:len(parts)-1]
+	}
+	return ""
 }
 
 func (m Model) issueListControlStrip(title string, layout browserLayout) string {
