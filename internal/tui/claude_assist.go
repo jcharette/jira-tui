@@ -263,7 +263,8 @@ func (m Model) renderClaudePlanDialog(width int) string {
 	default:
 		lines = append(lines, m.detailEmptyState("No Claude plan yet.", bodyWidth))
 	}
-	return m.renderDetailDialogWithLimit(width, "Claude Ticket Plan", selected.Key, strings.Join(lines, "\n"), footer, dialogWidth)
+	title := displayValue(m.claudePlanTitle, "Claude Ticket Plan")
+	return m.renderDetailDialogWithLimit(width, title, selected.Key, strings.Join(lines, "\n"), footer, dialogWidth)
 }
 
 func (m Model) renderClaudeAssistDialog(width int) string {
@@ -702,6 +703,8 @@ func (m Model) claudeActions() []claudeAction {
 	actions := []claudeAction{
 		{ID: "ticket_plan", Label: "Ticket Plan", Description: "Create a read-only implementation and verification plan.", Enabled: m.claudeTicketPlanAvailable()},
 		{ID: "ticket_assist", Label: "Ticket Assist", Description: "Guide a whole-ticket draft with questions and subtask recommendations.", Enabled: m.claudeTicketAssistAvailable()},
+		{ID: "quality_review", Label: "Quality Review", Description: "Find missing acceptance criteria, assumptions, and questions.", Enabled: m.claudeTicketAssistAvailable()},
+		{ID: "draft_comment", Label: "Draft Comment", Description: "Draft a clarifying Jira comment for review before posting.", Enabled: m.claudeTicketAssistAvailable()},
 	}
 	filtered := make([]claudeAction, 0, len(actions))
 	for _, action := range actions {
@@ -774,6 +777,7 @@ func (m Model) startClaudeTicketPlan() (Model, tea.Cmd) {
 	reqID := m.nextRequestID
 	m.activeClaudePlanReqID = reqID
 	m.claudePlanKey = key
+	m.claudePlanTitle = "Claude Ticket Plan"
 	m.claudePlanText = ""
 	m.claudePlanErr = nil
 	m.claudePlanOffset = 0
@@ -788,6 +792,43 @@ func (m Model) startClaudeTicketPlan() (Model, tea.Cmd) {
 	m.recordDiagnosticEvent(diagnosticKindClaude, "ticket_plan", "submit", workerDiagnosticDetail(reqID, key, nil))
 	return m, tea.Batch(
 		m.submitClaudeTicketPlan(runCtx, reqID, key, m.buildClaudeTicketPlanPrompt(ctx), m.claudePlanEvents),
+		m.waitForClaudePlanProgress(reqID, key),
+		m.scheduleClaudePlanTick(reqID),
+	)
+}
+
+func (m Model) startClaudeQualityReview() (Model, tea.Cmd) {
+	ctx, ok := m.detailRenderContext()
+	if !ok {
+		return m, nil
+	}
+	if !m.claudeTicketAssistAvailable() {
+		m.detailNotice = "Claude ticket assistance is not enabled or available."
+		return m, nil
+	}
+	key := ctx.display.Key
+	if key == "" {
+		key = ctx.selected.Key
+	}
+	m.nextRequestID++
+	reqID := m.nextRequestID
+	m.activeClaudePlanReqID = reqID
+	m.claudePlanKey = key
+	m.claudePlanTitle = "Claude Quality Review"
+	m.claudePlanText = ""
+	m.claudePlanErr = nil
+	m.claudePlanOffset = 0
+	m.claudePlanLoading = true
+	m.claudePlanOpen = true
+	m.claudePlanStartedAt = m.claudeNow()
+	m.claudePlanProgress = nil
+	m.claudePlanEvents = make(chan claude.Event, 16)
+	runCtx, cancel := context.WithCancel(context.Background())
+	m.claudePlanCancel = cancel
+	m.detailNotice = ""
+	m.recordDiagnosticEvent(diagnosticKindClaude, "quality_review", "submit", workerDiagnosticDetail(reqID, key, nil))
+	return m, tea.Batch(
+		m.submitClaudeTicketPlan(runCtx, reqID, key, m.buildClaudeQualityReviewPrompt(ctx), m.claudePlanEvents),
 		m.waitForClaudePlanProgress(reqID, key),
 		m.scheduleClaudePlanTick(reqID),
 	)
@@ -829,6 +870,47 @@ func (m Model) startClaudeTicketAssist() (Model, tea.Cmd) {
 	m.recordDiagnosticEvent(diagnosticKindClaude, "ticket_assist", "submit", workerDiagnosticDetail(reqID, key, nil))
 	return m, tea.Batch(
 		m.submitClaudeTicketAssist(runCtx, reqID, key, m.buildClaudeTicketAssistPrompt(ctx), m.claudeAssistEvents),
+		m.waitForClaudeAssistProgress(reqID, key),
+		m.scheduleClaudeAssistTick(reqID),
+	)
+}
+
+func (m Model) startClaudeDraftComment() (Model, tea.Cmd) {
+	ctx, ok := m.detailRenderContext()
+	if !ok {
+		return m, nil
+	}
+	if !m.claudeTicketAssistAvailable() {
+		m.detailNotice = "Claude ticket assistance is not enabled or available."
+		return m, nil
+	}
+	key := ctx.display.Key
+	if key == "" {
+		key = ctx.selected.Key
+	}
+	m.nextRequestID++
+	reqID := m.nextRequestID
+	m.activeClaudeAssistReqID = reqID
+	m.claudeAssistKey = key
+	m.claudeAssistText = ""
+	m.claudeAssistErr = nil
+	m.claudeAssistLoading = true
+	m.claudeAssistOpen = true
+	m.claudeAssistStartedAt = m.claudeNow()
+	m.claudeAssistProgress = nil
+	m.claudeAssistDraft = ""
+	m.claudeAssistEditor = newClaudeAssistEditor("")
+	m.claudeAssistEditorReady = true
+	m.claudeAssistDraftSelection.Clear()
+	m.resetClaudeAssistQuestions()
+	m.claudeAssistTarget = claudeAssistTargetDescription
+	m.claudeAssistEvents = make(chan claude.Event, 16)
+	runCtx, cancel := context.WithCancel(context.Background())
+	m.claudeAssistCancel = cancel
+	m.detailNotice = ""
+	m.recordDiagnosticEvent(diagnosticKindClaude, "draft_comment", "submit", workerDiagnosticDetail(reqID, key, nil))
+	return m, tea.Batch(
+		m.submitClaudeTicketAssistOperation(runCtx, reqID, key, m.buildClaudeDraftCommentPrompt(ctx), m.claudeAssistEvents, events.AIOperationInlineAssist),
 		m.waitForClaudeAssistProgress(reqID, key),
 		m.scheduleClaudeAssistTick(reqID),
 	)
@@ -1192,7 +1274,7 @@ func (m Model) buildClaudeTicketPlanPrompt(ctx detailRenderContext) string {
 	}
 	comments := m.comments[issue.Key]
 	if len(comments) > 0 {
-		b.WriteString("\nLoaded comments:\n")
+		b.WriteString("\nRecent Comments:\n")
 		for index, comment := range comments {
 			author := displayValue(comment.Author, "Unknown")
 			body := strings.TrimSpace(comment.Body)
@@ -1232,6 +1314,32 @@ func (m Model) buildClaudeTicketAssistPrompt(ctx detailRenderContext) string {
 	b.WriteString("- Add: <suggested subtask title and scope>\n")
 	b.WriteString("- Remove / Defer: <existing issue key and why>\n")
 	b.WriteString("- Rescope: <existing issue key and suggested scope>\n\n")
+	b.WriteString("Ticket:\n")
+	m.writeClaudeTicketContext(&b, ctx)
+	return strings.TrimSpace(b.String())
+}
+
+func (m Model) buildClaudeQualityReviewPrompt(ctx detailRenderContext) string {
+	var b strings.Builder
+	b.WriteString("Review this Jira ticket for quality and readiness.\n")
+	b.WriteString("Do not update Jira, create tickets, edit files, create branches, run git commands, call GitHub, or make external changes.\n")
+	b.WriteString("Return read-only feedback only.\n")
+	b.WriteString("Use these sections:\n")
+	b.WriteString("Acceptance Criteria\n- Missing, unclear, or untestable criteria\n\n")
+	b.WriteString("Risks And Assumptions\n- Risk or assumption\n\n")
+	b.WriteString("Open Questions\n- Question or None\n\n")
+	b.WriteString("Suggested Follow-Up\n- Comment, edit, or subtask suggestion\n\n")
+	b.WriteString("Ticket:\n")
+	m.writeClaudeTicketContext(&b, ctx)
+	return strings.TrimSpace(b.String())
+}
+
+func (m Model) buildClaudeDraftCommentPrompt(ctx detailRenderContext) string {
+	var b strings.Builder
+	b.WriteString("Draft a concise Jira comment for this ticket.\n")
+	b.WriteString("Do not update Jira, create tickets, edit files, create branches, run git commands, call GitHub, or make external changes.\n")
+	b.WriteString("Return only the Jira comment draft. The user will review and edit it before posting.\n")
+	b.WriteString("The comment should clarify scope, ask useful questions, or summarize the next step without inventing product decisions.\n")
 	b.WriteString("Ticket:\n")
 	m.writeClaudeTicketContext(&b, ctx)
 	return strings.TrimSpace(b.String())
@@ -1345,7 +1453,7 @@ func (m Model) writeClaudeTicketContext(b *strings.Builder, ctx detailRenderCont
 	}
 	comments := m.comments[issue.Key]
 	if len(comments) > 0 {
-		b.WriteString("\nLoaded comments:\n")
+		b.WriteString("\nRecent Comments:\n")
 		for index, comment := range comments {
 			author := displayValue(comment.Author, "Unknown")
 			body := strings.TrimSpace(comment.Body)
@@ -1437,6 +1545,10 @@ func (m Model) runSelectedClaudeAction() (Model, tea.Cmd) {
 	switch action.ID {
 	case "ticket_plan":
 		return m.startClaudeTicketPlan()
+	case "quality_review":
+		return m.startClaudeQualityReview()
+	case "draft_comment":
+		return m.startClaudeDraftComment()
 	case "ticket_assist":
 		return m.startClaudeTicketAssist()
 	default:

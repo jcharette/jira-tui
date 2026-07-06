@@ -153,6 +153,10 @@ comment to the existing child. Remove or defer recommendations close the child o
 a safe no-extra-fields close-as-invalid style transition; otherwise the app comments on the child for
 manual review.
 
+The Claude detail section also has Quality Review for read-only ticket readiness feedback and Draft
+Comment for an editable Jira comment draft. Drafted comments still require the normal post
+confirmation.
+
 ## Start Work From A Ticket
 
 From the TUI:

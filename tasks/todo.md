@@ -3,7 +3,7 @@
 ## Claude Tooling Expansion - 2026-07-06
 
 - [x] Add Claude drafting to `jira finish` PR title/body and final Jira note.
-- [ ] Add ticket-detail Claude Quality Review and Draft Comment actions.
+- [x] Add ticket-detail Claude Quality Review and Draft Comment actions.
 - [ ] Add read-only Claude start-work plans before branch/Jira writes.
 - [ ] Add create-ticket draft refinement.
 - [ ] Add Claude cleanup for bug report title/body.

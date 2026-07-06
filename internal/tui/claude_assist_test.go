@@ -67,6 +67,59 @@ func TestClaudeSectionVisibleWithTicketAssistOnly(t *testing.T) {
 	}
 }
 
+func TestClaudeSectionShowsQualityReviewAndDraftComment(t *testing.T) {
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, TicketAssist: true, Timeout: time.Second}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
+	)
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	issue := jira.Issue{Key: "ABC-1", Summary: "Unclear rollout"}
+	model.details = map[string]jira.IssueDetail{"ABC-1": {Issue: issue}}
+
+	view := model.renderClaudeSection(detailRenderContext{selected: issue, display: issue}, 100)
+
+	for _, want := range []string{"Quality Review", "Draft Comment"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("Claude section missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestClaudeQualityReviewPromptIncludesTicketReviewSections(t *testing.T) {
+	model := newInlineDescriptionAIModel(t)
+	ctx, ok := model.detailRenderContext()
+	if !ok {
+		t.Fatal("expected detail context")
+	}
+
+	prompt := model.buildClaudeQualityReviewPrompt(ctx)
+
+	for _, want := range []string{"Acceptance Criteria", "Open Questions", "Recent Comments", "Do not update Jira"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestClaudeDraftCommentPromptIncludesRecentComments(t *testing.T) {
+	model := newInlineDescriptionAIModel(t)
+	ctx, ok := model.detailRenderContext()
+	if !ok {
+		t.Fatal("expected detail context")
+	}
+
+	prompt := model.buildClaudeDraftCommentPrompt(ctx)
+
+	for _, want := range []string{"Jira comment draft", "Recent Comments", "Please clarify done.", "Return only"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestInlineAIPickerCanCancel(t *testing.T) {
 	model := newInlineDescriptionAIModel(t)
 	model.jumpDetailSection("Description")

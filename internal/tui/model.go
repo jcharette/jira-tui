@@ -353,6 +353,7 @@ type Model struct {
 	inlineAIInstructionReady           bool
 	claudePlanLoading                  bool
 	claudePlanOpen                     bool
+	claudePlanTitle                    string
 	claudePlanText                     string
 	claudePlanErr                      error
 	claudePlanKey                      string

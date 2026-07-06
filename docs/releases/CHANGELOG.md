@@ -9,6 +9,7 @@ All notable changes to this project should be recorded here.
 - Added optional Claude-assisted Jira progress note drafting to `jira commit`, with fallback to the
   existing deterministic note.
 - Added optional Claude-assisted pull request text and final Jira note drafting to `jira finish`.
+- Added Claude ticket-detail Quality Review and Draft Comment actions.
 
 ## 1.0.10 - 2026-06-30
 
