@@ -1,5 +1,18 @@
 # Task Plan
 
+## Release v1.0.11 - 2026-07-06
+
+- [x] Move Unreleased changelog entries to v1.0.11.
+- [x] Update app version and install docs for v1.0.11.
+- [x] Verify docs, tests, project check, and install.
+- [ ] Switch GitHub auth to personal account, push release prep, dispatch and verify Release workflow.
+- [ ] Update Homebrew formula from published checksums and verify CI.
+- [ ] Switch GitHub auth back to joncha_floqast.
+
+### Review
+
+- Pending.
+
 ## UX Snapshot Harness - 2026-07-06
 
 - [x] Add failing UX snapshot coverage for representative TUI states.

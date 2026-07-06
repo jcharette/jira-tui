@@ -33,12 +33,12 @@ support.
 Install a tagged release with Go:
 
 ```bash
-go install github.com/jcharette/jira-tui/cmd/jira@v1.0.10
+go install github.com/jcharette/jira-tui/cmd/jira@v1.0.11
 ```
 
 Release archives are published at
 [GitHub Releases](https://github.com/jcharette/jira-tui/releases) with names such as
-`jira-tui_1.0.10_darwin_arm64.tar.gz` and include a `jira` binary.
+`jira-tui_1.0.11_darwin_arm64.tar.gz` and include a `jira` binary.
 
 Run from the project root:
 
