@@ -3,8 +3,8 @@
 ## Developer Workbench UX - 2026-07-06
 
 - [x] Write the approved UX direction as a scoped design spec.
-- [ ] Review and approve the written spec.
-- [ ] Write the implementation plan for Pass 1: Developer Flow Polish.
+- [x] Review and approve the written spec.
+- [x] Write the implementation plan for Pass 1: Developer Flow Polish.
 - [ ] Implement Pass 1 in small verified slices.
 - [ ] Reassess Pass 2 and Pass 3 sequencing after Pass 1 lands.
 
