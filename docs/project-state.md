@@ -82,6 +82,8 @@ make test
 When Claude is enabled and the Branch Plan feature is on, `jira commit` can draft the Jira progress
 note with Claude and still shows the generated note in the normal confirmation prompt. If Claude is
 unavailable, disabled, times out, or returns an empty note, the command uses the deterministic note.
+When Claude is enabled and the PR Creation feature is on, `jira finish` can draft the pull request
+title/body and final Jira note with the same review-before-write behavior.
 
 Run the standard verification loop:
 

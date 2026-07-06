@@ -9,12 +9,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jcharette/jira-tui/internal/claude"
+	"github.com/jcharette/jira-tui/internal/config"
 	"github.com/jcharette/jira-tui/internal/gitstate"
 	"github.com/jcharette/jira-tui/internal/gitworkflow"
 	"github.com/jcharette/jira-tui/internal/jira"
 	"github.com/jcharette/jira-tui/internal/prprovider"
 	"github.com/spf13/cobra"
 )
+
+const maxFinishAIBodyBytes = 4000
 
 type finishJiraClient interface {
 	commitJiraClient
@@ -27,9 +31,30 @@ type finishReview struct {
 	Transition     jira.Transition
 	HasTransition  bool
 	TransitionSkip string
+	AIDrafted      bool
+	AIDraftErr     string
 }
 
 type finishConfirmFunc func(out io.Writer, review finishReview) bool
+
+type finishOptions struct {
+	Drafter finishDrafter
+}
+
+type finishDrafter interface {
+	DraftFinishText(context.Context, finishDraftRequest) (finishDraft, error)
+}
+
+type finishDraftRequest struct {
+	Plan  gitworkflow.FinishPlan
+	Issue jira.Issue
+}
+
+type finishDraft struct {
+	PRTitle       string
+	PRBody        string
+	FinalJiraNote string
+}
 
 func newFinishCommand(profile *string) *cobra.Command {
 	cmd := &cobra.Command{
@@ -55,10 +80,16 @@ func runFinish(profile string, args []string, out io.Writer, gitClient gitworkfl
 	if err != nil {
 		return fmt.Errorf("open git workflow state: %w", err)
 	}
-	return runFinishWithDeps(ctx, args, out, gitClient, jira.NewClient(cfg), stateStore, prProvider, defaultFinishConfirm)
+	return runFinishWithDepsAndOptions(ctx, args, out, gitClient, jira.NewClient(cfg), stateStore, prProvider, defaultFinishConfirm, finishOptions{
+		Drafter: finishDrafterFromConfig(cfg),
+	})
 }
 
 func runFinishWithDeps(ctx context.Context, args []string, out io.Writer, gitClient gitworkflow.Client, jiraClient finishJiraClient, stateStore commitStateStore, prProvider prprovider.Provider, confirm finishConfirmFunc) error {
+	return runFinishWithDepsAndOptions(ctx, args, out, gitClient, jiraClient, stateStore, prProvider, confirm, finishOptions{})
+}
+
+func runFinishWithDepsAndOptions(ctx context.Context, args []string, out io.Writer, gitClient gitworkflow.Client, jiraClient finishJiraClient, stateStore commitStateStore, prProvider prprovider.Provider, confirm finishConfirmFunc, options finishOptions) error {
 	analysis, err := gitClient.Analyze(ctx, ".")
 	if err != nil {
 		return fmt.Errorf("analyze git repo: %w", err)
@@ -76,12 +107,29 @@ func runFinishWithDeps(ctx context.Context, args []string, out io.Writer, gitCli
 		return fmt.Errorf("load reported commit state: %w", err)
 	}
 	plan := gitworkflow.BuildFinishPlan(analysis, detail.Issue, reportedSHAs(reported))
+	aiDrafted := false
+	aiDraftErr := ""
+	if options.Drafter != nil {
+		draft, err := options.Drafter.DraftFinishText(ctx, finishDraftRequest{Plan: plan, Issue: detail.Issue})
+		if err != nil {
+			aiDraftErr = err.Error()
+		} else if cleaned, ok := cleanFinishDraft(draft); ok {
+			plan.PRTitle = cleaned.PRTitle
+			plan.PRBody = cleaned.PRBody
+			plan.FinalJiraNote = cleaned.FinalJiraNote
+			aiDrafted = true
+		} else {
+			aiDraftErr = "empty finish draft"
+		}
+	}
 	transition, hasTransition, transitionSkip := finishTransition(ctx, jiraClient, plan.CommitPlan.IssueKey)
 	review := finishReview{
 		Plan:           plan,
 		Transition:     transition,
 		HasTransition:  hasTransition,
 		TransitionSkip: transitionSkip,
+		AIDrafted:      aiDrafted,
+		AIDraftErr:     aiDraftErr,
 	}
 	if confirm == nil {
 		confirm = defaultFinishConfirm
@@ -174,6 +222,11 @@ func writeFinishReview(out io.Writer, review finishReview) {
 		_, _ = fmt.Fprintln(out, "Jira progress note:")
 		_, _ = fmt.Fprintln(out, plan.CommitPlan.JiraNote)
 	}
+	if review.AIDrafted {
+		_, _ = fmt.Fprintln(out, "AI drafted finish text: yes")
+	} else if strings.TrimSpace(review.AIDraftErr) != "" {
+		_, _ = fmt.Fprintf(out, "AI drafted finish text: no (%s)\n", review.AIDraftErr)
+	}
 	_, _ = fmt.Fprintf(out, "Pull request title: %s\n", plan.PRTitle)
 	_, _ = fmt.Fprintln(out, "Pull request body:")
 	_, _ = fmt.Fprintln(out, plan.PRBody)
@@ -184,6 +237,96 @@ func writeFinishReview(out io.Writer, review finishReview) {
 	} else if review.TransitionSkip != "" {
 		_, _ = fmt.Fprintf(out, "Transition: skipped (%s)\n", review.TransitionSkip)
 	}
+}
+
+type claudeFinishDrafter struct {
+	Config claude.Config
+	Runner claude.LocalRunner
+}
+
+func (d claudeFinishDrafter) DraftFinishText(ctx context.Context, request finishDraftRequest) (finishDraft, error) {
+	result, err := d.Runner.Run(ctx, claude.Request{
+		Config: d.Config,
+		Prompt: buildFinishDraftPrompt(request),
+	})
+	if err != nil {
+		return finishDraft{}, err
+	}
+	return parseFinishDraft(result.Text)
+}
+
+func buildFinishDraftPrompt(request finishDraftRequest) string {
+	plan := request.Plan
+	var b strings.Builder
+	fmt.Fprintf(&b, "Draft reviewed finish text for %s.\n", plan.CommitPlan.IssueKey)
+	fmt.Fprintf(&b, "Ticket summary: %s\n", displayValue(plan.CommitPlan.IssueSummary, request.Issue.Summary))
+	b.WriteString("Return plain text in this exact format:\n")
+	b.WriteString("PR Title: <concise pull request title>\n")
+	b.WriteString("PR Body:\n<summary and verification notes>\n")
+	b.WriteString("Final Jira Note:\n<compact final Jira completion note>\n")
+	b.WriteString("Do not run commands, edit files, call Jira, or call GitHub. Return only the requested text.\n")
+	if plan.CommitPlan.ShouldCommit {
+		fmt.Fprintf(&b, "Pending commit message: %s\n", plan.CommitPlan.DefaultCommitMessage)
+	}
+	if len(plan.CommitPlan.Changes.Files) > 0 {
+		b.WriteString("Changed files:\n")
+		for _, file := range plan.CommitPlan.Changes.Files {
+			fmt.Fprintf(&b, "- %s %s\n", strings.TrimSpace(file.Status), file.Path)
+		}
+	}
+	if len(plan.CommitPlan.UnreportedCommits) > 0 {
+		b.WriteString("Unreported commits:\n")
+		for _, commit := range plan.CommitPlan.UnreportedCommits {
+			fmt.Fprintf(&b, "- %s %s\n", shortCommitSHA(commit.SHA), displayValue(commit.Subject, "(no subject)"))
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func parseFinishDraft(text string) (finishDraft, error) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return finishDraft{}, fmt.Errorf("empty finish draft")
+	}
+	title, rest, ok := strings.Cut(text, "PR Body:")
+	if !ok {
+		return finishDraft{}, fmt.Errorf("missing PR Body")
+	}
+	title = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(title), "PR Title:"))
+	body, note, ok := strings.Cut(rest, "Final Jira Note:")
+	if !ok {
+		return finishDraft{}, fmt.Errorf("missing Final Jira Note")
+	}
+	draft, ok := cleanFinishDraft(finishDraft{
+		PRTitle:       title,
+		PRBody:        body,
+		FinalJiraNote: note,
+	})
+	if !ok {
+		return finishDraft{}, fmt.Errorf("empty finish draft")
+	}
+	return draft, nil
+}
+
+func cleanFinishDraft(draft finishDraft) (finishDraft, bool) {
+	draft.PRTitle = oneLineBounded(draft.PRTitle, 180)
+	draft.PRBody = cleanBoundedText(draft.PRBody, maxFinishAIBodyBytes)
+	draft.FinalJiraNote = cleanBoundedText(draft.FinalJiraNote, maxCommitAINoteBytes)
+	if draft.PRTitle == "" || draft.PRBody == "" || draft.FinalJiraNote == "" {
+		return finishDraft{}, false
+	}
+	return draft, true
+}
+
+func finishDrafterFromConfig(cfg config.Config) finishDrafter {
+	if !cfg.Claude.Enabled || !cfg.Claude.Features.PRCreation {
+		return nil
+	}
+	claudeConfig, ok := checkedClaudeConfig(cfg)
+	if !ok {
+		return nil
+	}
+	return claudeFinishDrafter{Config: claudeConfig}
 }
 
 func finishTransition(ctx context.Context, jiraClient finishJiraClient, issueKey string) (jira.Transition, bool, string) {

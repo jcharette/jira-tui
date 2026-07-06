@@ -239,16 +239,24 @@ func buildCommitNotePrompt(request commitNoteDraftRequest) string {
 }
 
 func cleanCommitAINote(note string) string {
-	note = strings.TrimSpace(note)
-	if note == "" {
+	return cleanBoundedText(note, maxCommitAINoteBytes)
+}
+
+func oneLineBounded(value string, maxBytes int) string {
+	return cleanBoundedText(strings.Join(strings.Fields(value), " "), maxBytes)
+}
+
+func cleanBoundedText(value string, maxBytes int) string {
+	value = strings.TrimSpace(value)
+	if value == "" || maxBytes <= 0 {
 		return ""
 	}
-	if len([]byte(note)) <= maxCommitAINoteBytes {
-		return note
+	if len([]byte(value)) <= maxBytes {
+		return value
 	}
 	var b strings.Builder
-	for _, r := range note {
-		if b.Len()+len(string(r)) > maxCommitAINoteBytes {
+	for _, r := range value {
+		if b.Len()+len(string(r)) > maxBytes {
 			break
 		}
 		b.WriteRune(r)
@@ -260,6 +268,14 @@ func commitNoteDrafterFromConfig(cfg config.Config) commitNoteDrafter {
 	if !cfg.Claude.Enabled || !cfg.Claude.Features.BranchPlan {
 		return nil
 	}
+	claudeConfig, ok := checkedClaudeConfig(cfg)
+	if !ok {
+		return nil
+	}
+	return claudeCommitNoteDrafter{Config: claudeConfig}
+}
+
+func checkedClaudeConfig(cfg config.Config) (claude.Config, bool) {
 	claudeConfig := claude.Config{
 		Enabled: cfg.Claude.Enabled,
 		Command: cfg.Claude.Command,
@@ -267,12 +283,12 @@ func commitNoteDrafterFromConfig(cfg config.Config) commitNoteDrafter {
 	}
 	status := claude.LocalRunner{}.Check(context.Background(), claudeConfig)
 	if !status.Enabled || !status.Available {
-		return nil
+		return claude.Config{}, false
 	}
 	if status.Command != "" {
 		claudeConfig.Command = status.Command
 	}
-	return claudeCommitNoteDrafter{Config: claudeConfig}
+	return claudeConfig, true
 }
 
 func resolveCommitIssueKey(args []string, analysis gitworkflow.Analysis) string {

@@ -189,9 +189,10 @@ non-ASCII symbols, then restart the terminal and run `jira config`.
   use enabled Claude branch-planning assistance to draft the Jira progress note, and offers to push
   the branch after confirmation.
 - `jira finish [ABC-123]` reuses the same commit/report state, pushes the branch, creates or reuses a
-  GitHub draft pull request through `gh`, posts a compact final Jira note with the PR URL, and moves
-  the ticket through the safest available terminal transition when Jira metadata has no required
-  extra fields.
+  GitHub draft pull request through `gh`, can use enabled Claude PR-creation assistance to draft the
+  PR title/body and final Jira note, posts a compact final Jira note with the PR URL, and moves the
+  ticket through the safest available terminal transition when Jira metadata has no required extra
+  fields.
 - Git operations stay behind the app's Git adapter, GitHub operations stay behind a provider
   interface, and Jira/Git/GitHub writes are previewed before they run.
 

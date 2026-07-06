@@ -8,6 +8,7 @@ All notable changes to this project should be recorded here.
   provider expansion.
 - Added optional Claude-assisted Jira progress note drafting to `jira commit`, with fallback to the
   existing deterministic note.
+- Added optional Claude-assisted pull request text and final Jira note drafting to `jira finish`.
 
 ## 1.0.10 - 2026-06-30
 

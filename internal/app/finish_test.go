@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -112,6 +113,72 @@ func TestRunFinishUsesExistingPRAndSkipsRequiredFieldTransition(t *testing.T) {
 	}
 }
 
+func TestRunFinishUsesClaudeDraftedPRAndFinalNote(t *testing.T) {
+	gitClient := &fakeCommitGitClient{
+		analysis: gitworkflow.Analysis{
+			Repo:       gitworkflow.RepoStatus{Path: "/repo", CurrentBranch: "feature/ABC-123-work", Detected: true},
+			BaseBranch: "main",
+			IssueKey:   "ABC-123",
+			Commits:    []gitworkflow.Commit{{SHA: "2222222", Subject: "ABC-123: tighten checks"}},
+		},
+	}
+	jiraClient := &fakeFinishJiraClient{issue: jira.Issue{Key: "ABC-123", Summary: "Prepare release"}}
+	stateStore := &fakeCommitStateStore{}
+	prProvider := &fakePRProvider{pr: prprovider.PullRequest{URL: "https://github.com/acme/repo/pull/13", Created: true}}
+	drafter := &fakeFinishDrafter{draft: finishDraft{
+		PRTitle:       "ABC-123: Prepare release validation",
+		PRBody:        "Summary:\n- Tightened release checks.\n\nVerification:\n- go test ./...",
+		FinalJiraNote: "Ready for review:\n- Release validation tightened.",
+	}}
+	var out bytes.Buffer
+
+	err := runFinishWithDepsAndOptions(context.Background(), nil, &out, gitClient, jiraClient, stateStore, prProvider, confirmAndWriteFinishReview, finishOptions{Drafter: drafter})
+
+	if err != nil {
+		t.Fatalf("runFinishWithDepsAndOptions() error = %v", err)
+	}
+	if len(prProvider.requests) != 1 {
+		t.Fatalf("requests = %#v", prProvider.requests)
+	}
+	if prProvider.requests[0].Title != "ABC-123: Prepare release validation" {
+		t.Fatalf("PR title = %q", prProvider.requests[0].Title)
+	}
+	if !strings.Contains(prProvider.requests[0].Body, "Verification") {
+		t.Fatalf("PR body = %q", prProvider.requests[0].Body)
+	}
+	if len(jiraClient.comments) != 2 || !strings.Contains(jiraClient.comments[1], "Release validation tightened") {
+		t.Fatalf("final note = %#v", jiraClient.comments)
+	}
+	if !strings.Contains(out.String(), "AI drafted finish text: yes") {
+		t.Fatalf("output = %q", out.String())
+	}
+}
+
+func TestRunFinishFallsBackWhenClaudeDraftFails(t *testing.T) {
+	gitClient := &fakeCommitGitClient{
+		analysis: gitworkflow.Analysis{
+			Repo:     gitworkflow.RepoStatus{Path: "/repo", CurrentBranch: "feature/ABC-123-work", Detected: true},
+			IssueKey: "ABC-123",
+		},
+	}
+	jiraClient := &fakeFinishJiraClient{issue: jira.Issue{Key: "ABC-123", Summary: "Prepare release"}}
+	prProvider := &fakePRProvider{pr: prprovider.PullRequest{URL: "https://github.com/acme/repo/pull/13", Created: true}}
+	drafter := &fakeFinishDrafter{err: errors.New("claude unavailable")}
+	var out bytes.Buffer
+
+	err := runFinishWithDepsAndOptions(context.Background(), nil, &out, gitClient, jiraClient, &fakeCommitStateStore{}, prProvider, confirmAndWriteFinishReview, finishOptions{Drafter: drafter})
+
+	if err != nil {
+		t.Fatalf("runFinishWithDepsAndOptions() error = %v", err)
+	}
+	if prProvider.requests[0].Title != "ABC-123: Prepare release" {
+		t.Fatalf("PR title = %q", prProvider.requests[0].Title)
+	}
+	if !strings.Contains(out.String(), "AI drafted finish text: no (claude unavailable)") {
+		t.Fatalf("output = %q", out.String())
+	}
+}
+
 func TestRunFinishCancelsBeforeWrites(t *testing.T) {
 	gitClient := &fakeCommitGitClient{
 		analysis: gitworkflow.Analysis{
@@ -188,6 +255,17 @@ func (f *fakeFinishJiraClient) TransitionIssue(_ context.Context, _ string, requ
 	return nil
 }
 
+type fakeFinishDrafter struct {
+	draft    finishDraft
+	err      error
+	requests []finishDraftRequest
+}
+
+func (f *fakeFinishDrafter) DraftFinishText(_ context.Context, request finishDraftRequest) (finishDraft, error) {
+	f.requests = append(f.requests, request)
+	return f.draft, f.err
+}
+
 type fakePRProvider struct {
 	pr       prprovider.PullRequest
 	requests []prprovider.Request
@@ -210,6 +288,11 @@ func (f *fakePRProvider) CreateOrUpdatePR(_ context.Context, request prprovider.
 }
 
 func alwaysConfirmFinish(io.Writer, finishReview) bool {
+	return true
+}
+
+func confirmAndWriteFinishReview(out io.Writer, review finishReview) bool {
+	writeFinishReview(out, review)
 	return true
 }
 

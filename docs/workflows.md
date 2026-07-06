@@ -186,6 +186,10 @@ When Claude is enabled and the Branch Plan feature is on, `jira commit` asks Cla
 Jira progress note and shows it in the normal review prompt. If Claude is unavailable or returns an
 empty result, the workflow uses the existing deterministic note.
 
+When Claude is enabled and the PR Creation feature is on, `jira finish` asks Claude for a pull
+request title/body and final Jira note. The generated text is shown in the normal review prompt
+before any push, pull request, Jira comment, or transition runs.
+
 `jira finish` can push and create or reuse a GitHub draft pull request through `gh`.
 
 ## Use Notifications
