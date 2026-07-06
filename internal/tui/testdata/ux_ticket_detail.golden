@@ -6,19 +6,22 @@ Filter  ABC · updated desc
 │  ABC-1 In Progress Story                                                                                         │
 │  Tighten deployment review flow                                                                                  │
 │  Status In Progress v   Priority High v   Assignee Jon v   Updated 2026-07-06 05:30   Reporter Rae               │
-│  Overview   > Developer Workbench   Comments 1   Worklog 1   Hierarchy   Claude                                  │
+│  Overview   > Ticket Dashboard   Comments 1   Worklog 1   Hierarchy   Claude                                     │
 │                                                                                                                  │
-│  Developer Workbench ───────────────────────────────────────────────────────────────────────── next actions      │
+│  Ticket Dashboard ──────────────────────────────────────────────────────────────────────────── next actions      │
+│                                                                                                                  │
+│  Issue ABC-1   Owner Jon   Status In Progress   Priority High                                                    │
+│  Recent Rae: Please make the write gates obvious before posting.                                                 │
 │                                                                                                                  │
 │                                                                                                                  │
-│   SURFACE   STATE              NEXT                                                                              │
+│   NEXT ACTION STATE              WHY                                                                             │
 │                                                                                                                  │
-│   Work      ready              Start Work from Ticket Actions after branch/Jira review.                          │
-│   Claude    ready              Claude Plan, Quality Review, or Draft Comment from Claude actions.                │
-│   Comments  1 loaded           Add Comment or tab to Comments for review/edit.                                   │
-│   Worklog   1 logged           Log Work from Ticket Actions or tab to Worklog.                                   │
-│   Hierarchy No loaded children tab to Hierarchy; x/X loads children from the issue list.                         │
-│   Links     none               tab to Links when present; Open Jira, Copy Key, copy URLs.                        │
+│   Start Work  ready              Review branch and Jira updates before writes.                                   │
+│   Claude Plan ready              Read-only plan, Quality Review, or Draft Comment from Claude actions.           │
+│   Add Comment 1 loaded           Respond from Comments after review/edit.                                        │
+│   Log Work    1 logged           Record time without leaving the ticket.                                         │
+│   Hierarchy   No loaded children Inspect related work; x/X loads children from the issue list.                   │
+│   Open Jira   none               Open Jira, Copy Key, or copy detected URLs.                                     │
 │                                                                                                                  │
 │                                                                                                                  │
 │    Use . for Ticket Actions, a for Claude actions, or tab to move through ticket sections.                       │

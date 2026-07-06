@@ -96,7 +96,13 @@ func TestDeveloperWorkbenchSectionShowsDeveloperLoopActions(t *testing.T) {
 	model.jumpDetailSection("Workbench")
 	view := model.render()
 	for _, want := range []string{
-		"Developer Workbench",
+		"Ticket Dashboard",
+		"Issue ABC-1",
+		"Owner Jon",
+		"Priority High",
+		"Recent Rae: Please make write gates obvious.",
+		"NEXT ACTION",
+		"WHY",
 		"Start Work",
 		"Claude Plan",
 		"Quality Review",
@@ -105,7 +111,6 @@ func TestDeveloperWorkbenchSectionShowsDeveloperLoopActions(t *testing.T) {
 		"Log Work",
 		"Open Jira",
 		"Copy Key",
-		"SURFACE",
 		"Comments",
 		"1 loaded",
 		"Worklog",
@@ -118,6 +123,9 @@ func TestDeveloperWorkbenchSectionShowsDeveloperLoopActions(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Fatalf("workbench missing %q in:\n%s", want, view)
 		}
+	}
+	if strings.Contains(view, "SURFACE") {
+		t.Fatalf("dashboard should not use old surface table heading:\n%s", view)
 	}
 	for _, unwanted := range []string{"Edit Components", "Set Fix Version", "metadata"} {
 		if strings.Contains(view, unwanted) {

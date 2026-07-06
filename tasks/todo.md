@@ -6,6 +6,7 @@
 - [x] Review and approve the written spec.
 - [x] Write the implementation plan for Pass 1: Developer Flow Polish.
 - [x] Implement Pass 1 in small verified slices.
+- [x] Reframe Developer Workbench as a ticket dashboard using existing Jira/Git/Claude context.
 - [x] Reassess Pass 2 and Pass 3 sequencing after Pass 1 lands.
 
 ### Implementation Notes
@@ -20,6 +21,8 @@
 - Pass 1 added Developer Workbench and developer-first Ticket Actions.
 - Follow-up cockpit slice kept the existing detail sections but made Workbench summarize developer
   actions plus Comments, Worklog, Hierarchy, and Links state.
+- Ticket Dashboard slice reframed the Workbench detail section around ownership, latest comment
+  signal, and next-action rows.
 - Initial ticket-list follow-up added a selected-ticket orientation strip under the view controls.
 - Search/filter clarity follow-up renamed the local issue-list filter chip to `Status All/Active`.
 - Next useful slice is query modal clarity or deeper related-work detail polish.

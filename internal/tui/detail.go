@@ -809,8 +809,12 @@ func (m Model) renderOverviewSection(ctx detailRenderContext, width int) string 
 }
 
 func (m Model) renderDeveloperWorkbenchSection(ctx detailRenderContext, width int) string {
-	lines := []string{m.detailSectionHeader("workbench", "Developer Workbench", "next actions", width), ""}
-	lines = append(lines, m.detailTable(0, []string{"SURFACE", "STATE", "NEXT"}, m.developerWorkbenchRows(ctx, width), nil))
+	lines := []string{m.detailSectionHeader("workbench", "Ticket Dashboard", "next actions", width), ""}
+	lines = append(lines, m.workbenchTicketSummary(ctx))
+	if recent := m.workbenchRecentLine(ctx.display.Key, width); recent != "" {
+		lines = append(lines, recent)
+	}
+	lines = append(lines, "", m.detailTable(0, []string{"NEXT ACTION", "STATE", "WHY"}, m.developerWorkbenchRows(ctx, width), nil))
 	lines = append(lines, "", m.detailEmptyState("Use . for Ticket Actions, a for Claude actions, or tab to move through ticket sections.", width))
 	return strings.Join(lines, "\n")
 }
@@ -818,13 +822,36 @@ func (m Model) renderDeveloperWorkbenchSection(ctx detailRenderContext, width in
 func (m Model) developerWorkbenchRows(ctx detailRenderContext, width int) [][]string {
 	key := ctx.display.Key
 	return [][]string{
-		{m.theme.FieldLabel.Render("Work"), m.theme.Success.Render("ready"), m.theme.Muted.Render("Start Work from Ticket Actions after branch/Jira review.")},
-		{m.theme.FieldLabel.Render("Claude"), m.claudeWorkbenchState(), m.theme.Muted.Render("Claude Plan, Quality Review, or Draft Comment from Claude actions.")},
-		{m.theme.FieldLabel.Render("Comments"), m.theme.Text.Render(m.workbenchCommentsState(key)), m.theme.Muted.Render("Add Comment or tab to Comments for review/edit.")},
-		{m.theme.FieldLabel.Render("Worklog"), m.theme.Text.Render(m.workbenchWorklogState(key)), m.theme.Muted.Render("Log Work from Ticket Actions or tab to Worklog.")},
-		{m.theme.FieldLabel.Render("Hierarchy"), m.theme.Text.Render(m.workbenchHierarchyState(key)), m.theme.Muted.Render("tab to Hierarchy; x/X loads children from the issue list.")},
-		{m.theme.FieldLabel.Render("Links"), m.theme.Text.Render(m.workbenchLinksState(ctx)), m.theme.Muted.Render(truncate("tab to Links when present; Open Jira, Copy Key, copy URLs.", max(24, width-30)))},
+		{m.theme.FieldLabel.Render("Start Work"), m.theme.Success.Render("ready"), m.theme.Muted.Render("Review branch and Jira updates before writes.")},
+		{m.theme.FieldLabel.Render("Claude Plan"), m.claudeWorkbenchState(), m.theme.Muted.Render("Read-only plan, Quality Review, or Draft Comment from Claude actions.")},
+		{m.theme.FieldLabel.Render("Add Comment"), m.theme.Text.Render(m.workbenchCommentsState(key)), m.theme.Muted.Render("Respond from Comments after review/edit.")},
+		{m.theme.FieldLabel.Render("Log Work"), m.theme.Text.Render(m.workbenchWorklogState(key)), m.theme.Muted.Render("Record time without leaving the ticket.")},
+		{m.theme.FieldLabel.Render("Hierarchy"), m.theme.Text.Render(m.workbenchHierarchyState(key)), m.theme.Muted.Render("Inspect related work; x/X loads children from the issue list.")},
+		{m.theme.FieldLabel.Render("Open Jira"), m.theme.Text.Render(m.workbenchLinksState(ctx)), m.theme.Muted.Render(truncate("Open Jira, Copy Key, or copy detected URLs.", max(24, width-30)))},
 	}
+}
+
+func (m Model) workbenchTicketSummary(ctx detailRenderContext) string {
+	parts := []string{
+		m.detailMetaPart("Issue", ctx.display.Key),
+		m.detailMetaPart("Owner", displayValue(shortName(ctx.display.Assignee), "Unassigned")),
+		m.detailMetaPart("Status", displayValue(ctx.display.Status, "Unknown")),
+		m.detailMetaPart("Priority", displayValue(ctx.display.Priority, "Unknown")),
+	}
+	return strings.Join(parts, m.theme.Muted.Render("   "))
+}
+
+func (m Model) workbenchRecentLine(key string, width int) string {
+	comments, ok := m.comments[key]
+	if !ok || len(comments) == 0 {
+		return ""
+	}
+	comment := comments[len(comments)-1]
+	body := singleLine(comment.Body)
+	if body == "" {
+		body = "Comment has no text."
+	}
+	return m.detailMetaPart("Recent", truncate(shortName(comment.Author)+": "+body, max(24, width-8)))
 }
 
 func (m Model) workbenchCommentsState(key string) string {
@@ -936,7 +963,7 @@ func (m Model) renderOverviewHierarchy(issue jira.Issue, width int) string {
 func (m Model) detailSections() []detailSection {
 	sections := []detailSection{
 		{ID: "overview", Label: "Overview", Short: "Over"},
-		{ID: "workbench", Label: "Developer Workbench", Short: "Dev"},
+		{ID: "workbench", Label: "Ticket Dashboard", Short: "Dash"},
 		{ID: "comments", Label: "Comments", Short: "Com"},
 		{ID: "worklog", Label: "Worklog", Short: "Work"},
 		{ID: "hierarchy", Label: "Hierarchy", Short: "Tree"},

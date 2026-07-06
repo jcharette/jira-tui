@@ -116,8 +116,9 @@ scroll memory, context-specific footer hints, focused Links / Hierarchy / Action
 overlay rendering, and minimum-terminal warnings. New TUI surfaces should keep adding focused
 regression tests in the same workflow test files.
 
-Ticket detail now includes a Developer Workbench section that summarizes the Jira/Git/Claude daily
-loop plus nearby Jira surfaces before lower-frequency metadata edits.
+Ticket detail now includes a Ticket Dashboard section that summarizes the Jira/Git/Claude daily
+loop, ownership, latest comment signal, and nearby Jira surfaces before lower-frequency metadata
+edits.
 
 Sprint-oriented saved views now load Jira Agile metadata in the background through the worker pool:
 boards are discovered for the configured default project, then active/future sprints are loaded for

@@ -8,6 +8,8 @@ All notable changes to this project should be recorded here.
   Work, Claude planning/review, comments, worklogs, and Jira open/copy actions are easier to find.
 - Tightened Developer Workbench into a compact cockpit summary for developer actions plus Comments,
   Worklog, Hierarchy, and Links state.
+- Reframed the ticket detail Workbench as a Ticket Dashboard with ownership, recent comment signal,
+  and next-action rows.
 - Added a selected-ticket strip to the issue list so the initial screen shows the focused key,
   status, priority, owner, and next action.
 - Renamed the issue-list local filter chip to `Status All/Active` so it is not confused with the
