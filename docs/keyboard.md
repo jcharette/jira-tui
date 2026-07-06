@@ -40,10 +40,10 @@ In the bug report composer, use `ctrl+r` to polish the local draft with Claude w
 
 | Key | Action |
 | --- | --- |
-| `tab` / `shift+tab` | Move through fields and sections |
+| `tab` / `shift+tab` | Move through fields and sections, including the Developer Workbench |
 | `j/k` | Scroll detail content or move inside focused lists |
 | `enter` | Edit or activate focused field/section |
-| `.` | Open Ticket Actions |
+| `.` | Open grouped Ticket Actions |
 | `d` / `m` / `h` / `l` | Jump to Overview, Comments, Hierarchy, or Links |
 | `s` | Edit Summary |
 | `p` | Edit Priority |
@@ -58,6 +58,10 @@ In the bug report composer, use `ctrl+r` to polish the local draft with Claude w
 Ticket Actions includes Sprint, which lists the active sprint first and future sprints below it. It
 also includes Fix Version, Affects Version, Due Date, Parent, and Estimates when Jira edit metadata
 exposes those fields for the selected issue.
+
+The Developer Workbench section groups the daily ticket loop: Start Work, Claude planning/review
+when enabled, comments, worklogs, Jira open/copy actions, and the safest next Jira workflow actions.
+Ticket Actions uses the same developer-first grouping before lower-frequency Jira metadata edits.
 
 The Claude detail section includes Ticket Plan, Ticket Assist, Quality Review, and Draft Comment
 actions when the matching feature flags are enabled. When a Ticket Assist draft modal is open,

@@ -4,6 +4,9 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+- Added a Developer Workbench detail section and developer-first Ticket Actions grouping so Start
+  Work, Claude planning/review, comments, worklogs, and Jira open/copy actions are easier to find.
+
 ## 1.0.11 - 2026-07-06
 
 - Reframed the active AI roadmap around polishing existing Claude workflows before provider-neutral

@@ -51,6 +51,10 @@ This does not rewrite your JQL. It loads hierarchy around the selected issue.
 Jira writes use Jira metadata before submitting, so required transition fields and supported edit
 fields are discovered from the configured site/project/issue.
 
+The Workbench section is the fastest orientation point for developer work. It keeps Start Work,
+Claude planning/review, comments, worklogs, Jira open/copy actions, and workflow updates together
+without bypassing the existing review prompts.
+
 ## Add A Ticket To A Sprint
 
 1. Open ticket detail.
@@ -182,6 +186,8 @@ From the shell:
 jira start ABC-123
 jira start
 ```
+
+The same entry point appears in the Developer Workbench section and grouped Ticket Actions.
 
 `jira start` without a ticket opens a picker from your default query.
 

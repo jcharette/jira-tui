@@ -6,20 +6,24 @@ Filter  ABC · updated desc
 │  ABC-1 In Progress Story                                                                                         │
 │  Tighten deployment review flow                                                                                  │
 │  Status In Progress v   Priority High v   Assignee Jon v   Updated 2026-07-06 05:30   Reporter Rae               │
-│  > Overview   Comments 1   Worklog 1   Hierarchy   Claude                                                        │
+│  Overview   > Developer Workbench   Comments 1   Worklog 1   Hierarchy   Claude                                  │
 │                                                                                                                  │
-│  Overview ────────────────────────────────────────────────────────────────────────────────────────────────       │
+│  Developer Workbench ───────────────────────────────────────────────────────────────────────── next actions      │
 │                                                                                                                  │
-│  Latest                                                                                                          │
-│  Rae: Please make the write gates obvious before posting.                                                        │
 │                                                                                                                  │
-│  Description                                                                                                     │
-│  Improve the review flow so generated text, local edits, and Jira writes are easy to distinguish.                │
+│   ACTION         STATE DETAIL                                                                                    │
 │                                                                                                                  │
-│  Hierarchy                                                                                                       │
-│    No parent, child, or subtask issues loaded in the current view.                                               │
+│   Start Work     ready Ticket Actions -> Start Work creates/switches branch after review.                        │
+│   Claude Plan    ready Open Claude actions for a read-only implementation plan.                                  │
+│   Quality Review ready Ask Claude for readiness gaps before writing Jira.                                        │
+│   Draft Comment  ready Draft an editable Jira comment before post confirmation.                                  │
+│   Add Comment    ready Write or refine a Jira comment, then review before posting.                               │
+│   Log Work       ready Add a Jira worklog entry for this ticket.                                                 │
+│   Open Jira      ready Open the issue in the browser.                                                            │
+│   Copy Key       ready Copy the ticket key for branch names, commits, and notes.                                 │
 │                                                                                                                  │
-│    Press . for Ticket Actions.                                                                                   │
+│                                                                                                                  │
+│    Use . for Ticket Actions, a for Claude actions, or tab to move through ticket sections.                       │
 │                                                                                                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 

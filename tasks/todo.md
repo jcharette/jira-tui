@@ -5,7 +5,7 @@
 - [x] Write the approved UX direction as a scoped design spec.
 - [x] Review and approve the written spec.
 - [x] Write the implementation plan for Pass 1: Developer Flow Polish.
-- [ ] Implement Pass 1 in small verified slices.
+- [x] Implement Pass 1 in small verified slices.
 - [ ] Reassess Pass 2 and Pass 3 sequencing after Pass 1 lands.
 
 ### Implementation Notes

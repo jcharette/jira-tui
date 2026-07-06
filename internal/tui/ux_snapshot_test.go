@@ -93,6 +93,7 @@ func uxSnapshotDetailModel(t *testing.T) Model {
 	t.Helper()
 	model := uxSnapshotBaseModel(t)
 	model.mode = modeDetail
+	model.jumpDetailSection("Workbench")
 	return model
 }
 
