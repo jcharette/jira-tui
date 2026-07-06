@@ -5,11 +5,16 @@ import (
 	"time"
 
 	"github.com/jcharette/jira-tui/internal/claude"
+	"github.com/jcharette/jira-tui/internal/config"
 	"github.com/jcharette/jira-tui/internal/events"
 	"github.com/jcharette/jira-tui/internal/jira"
 )
 
 func TestUXSnapshots(t *testing.T) {
+	originalLocal := time.Local
+	time.Local = time.FixedZone("EDT", -4*60*60)
+	t.Cleanup(func() { time.Local = originalLocal })
+
 	cases := []struct {
 		name  string
 		model func(t *testing.T) Model
@@ -53,6 +58,7 @@ func uxSnapshotBaseModel(t *testing.T) Model {
 		}),
 		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude", Version: "test"}),
 		WithClaudeRunner(&fakeClaudeRunner{result: claude.Result{Text: "Draft output"}}),
+		WithDisplay(config.Display{SymbolMode: "symbols"}),
 	)
 	model.width = 120
 	model.height = 34
