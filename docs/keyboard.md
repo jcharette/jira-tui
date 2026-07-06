@@ -13,6 +13,9 @@ Press `?` in the app for context-aware help. This page explains the main keys by
 | `ctrl+n` | Open Notifications |
 | `B` | Open bug report composer |
 
+In the bug report composer, use `ctrl+r` to polish the local draft with Claude when enabled,
+`ctrl+s` to open GitHub, `space` to toggle Diagnostics when focused, and `esc` to cancel.
+
 ## Issue List
 
 | Key | Action |

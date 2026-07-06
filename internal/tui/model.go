@@ -334,6 +334,8 @@ type Model struct {
 	bugReportBodyEditor                textarea.Model
 	bugReportBodyEditorReady           bool
 	bugReportIncludeDiagnostics        bool
+	bugReportPolishing                 bool
+	activeBugReportAIReqID             int
 	workerRequestStartedAt             map[int]time.Time
 	eventStream                        eventStream
 	eventInbox                         <-chan events.Event
@@ -953,6 +955,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case createAIPromptResultMsg:
 		return m.handleCreateAIPromptResult(msg)
+	case bugReportPolishResultMsg:
+		return m.handleBugReportPolishResult(msg)
 	case startRepoDetectedMsg:
 		return m.handleStartRepoDetected(msg)
 	case startPlanResultMsg:

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"github.com/jcharette/jira-tui/internal/events"
 )
 
 const (
@@ -17,6 +19,12 @@ const (
 	bugReportDiagnosticsCharLimit  = 2600
 	bugReportBodyCharLimit         = 1800
 )
+
+type bugReportPolishResultMsg struct {
+	id   int
+	text string
+	err  error
+}
 
 func (m Model) startBugReport() Model {
 	m.bugReportOpen = true
@@ -28,6 +36,8 @@ func (m Model) startBugReport() Model {
 	m.bugReportTitleEditorReady = true
 	m.bugReportBodyEditor = newBugReportBodyEditor("")
 	m.bugReportBodyEditorReady = true
+	m.bugReportPolishing = false
+	m.activeBugReportAIReqID = 0
 	m.detailNotice = ""
 	return m
 }
@@ -41,9 +51,17 @@ func (m *Model) closeBugReport() {
 	m.bugReportTitleEditorReady = false
 	m.bugReportBodyEditor = textarea.Model{}
 	m.bugReportBodyEditorReady = false
+	m.bugReportPolishing = false
+	m.activeBugReportAIReqID = 0
 }
 
 func (m Model) updateBugReport(msg tea.KeyMsg) (Model, tea.Cmd) {
+	if m.bugReportPolishing {
+		if msg.String() == "esc" {
+			m.closeBugReport()
+		}
+		return m, nil
+	}
 	switch msg.String() {
 	case "esc":
 		m.closeBugReport()
@@ -54,6 +72,8 @@ func (m Model) updateBugReport(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "shift+tab", "backtab", "up":
 		m.moveBugReportFocus(-1)
 		return m, nil
+	case "ctrl+r":
+		return m.polishBugReport()
 	case "ctrl+s":
 		return m.submitBugReport()
 	case "space":
@@ -79,8 +99,73 @@ func (m Model) updateBugReport(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) handleBugReportPolishResult(msg bugReportPolishResultMsg) (Model, tea.Cmd) {
+	if msg.id != m.activeBugReportAIReqID || !m.bugReportOpen {
+		return m, nil
+	}
+	m.bugReportPolishing = false
+	m.activeBugReportAIReqID = 0
+	if msg.err != nil {
+		m.detailNotice = "Claude bug report cleanup failed: " + msg.err.Error()
+		return m, nil
+	}
+	title, body := parseBugReportPolish(msg.text)
+	if title == "" && body == "" {
+		m.detailNotice = "Claude bug report cleanup failed: empty result"
+		return m, nil
+	}
+	if title == "" {
+		title = strings.TrimSpace(m.bugReportTitleValue())
+	}
+	if body == "" {
+		body = strings.TrimSpace(m.bugReportBodyValue())
+	}
+	m.bugReportTitleDraft = truncate(strings.Join(strings.Fields(title), " "), 100)
+	m.bugReportBodyDraft = truncate(strings.TrimSpace(body), bugReportBodyCharLimit)
+	m.bugReportTitleEditor = newBugReportTitleInput(m.bugReportTitleDraft)
+	m.bugReportTitleEditorReady = true
+	m.bugReportBodyEditor = newBugReportBodyEditor(m.bugReportBodyDraft)
+	m.bugReportBodyEditorReady = true
+	m.detailNotice = "Claude polished the local bug report draft."
+	return m, nil
+}
+
 func (m *Model) moveBugReportFocus(delta int) {
 	m.bugReportFieldFocus = clamp(m.bugReportFieldFocus+delta, 0, 2)
+}
+
+func (m Model) polishBugReport() (Model, tea.Cmd) {
+	title := strings.TrimSpace(m.bugReportTitleValue())
+	body := strings.TrimSpace(m.bugReportBodyValue())
+	if title == "" && body == "" {
+		m.detailNotice = "Add a short title or description before polishing with Claude."
+		return m, nil
+	}
+	if !m.claudeBugReportPolishAvailable() {
+		m.detailNotice = "Claude bug report cleanup is currently unavailable."
+		return m, nil
+	}
+	m.nextRequestID++
+	m.activeBugReportAIReqID = m.nextRequestID
+	m.bugReportPolishing = true
+	m.detailNotice = ""
+	ctx, cancel := context.WithTimeout(context.Background(), startWorkflowTimeout(m.claudeConfig.Timeout))
+	return m, m.submitAIRequest(ctx, aiTaskRequest{
+		RequestID: m.activeBugReportAIReqID,
+		Operation: events.AIOperationRefineDraft,
+		Prompt:    m.buildBugReportPolishPrompt(title, body),
+		ResultMsg: func(id int, _ string, text string, err error) tea.Msg {
+			cancel()
+			return bugReportPolishResultMsg{id: id, text: text, err: err}
+		},
+	})
+}
+
+func (m Model) claudeBugReportPolishAvailable() bool {
+	return m.claudeConfig.Enabled &&
+		m.claudeConfig.DraftTicket &&
+		m.claudeStatus.Enabled &&
+		m.claudeStatus.Available
 }
 
 func (m Model) submitBugReport() (Model, tea.Cmd) {
@@ -125,7 +210,17 @@ func (m Model) renderBugReport(layout browserLayout) string {
 	if m.detailNotice != "" {
 		lines = append(lines, "", m.renderDetailNotice(m.detailNotice, bodyWidth))
 	}
-	return m.renderDetailDialogWithLimit(layout.contentWidth, "Report Bug", "GitHub Issues", strings.Join(lines, "\n"), "ctrl+s open  tab field  space diagnostics  esc cancel", 84)
+	if m.bugReportPolishing {
+		lines = append(lines, "", m.detailStatusBlock("Polishing with Claude...", bodyWidth, false))
+	}
+	footer := "ctrl+s open  tab field  space diagnostics  esc cancel"
+	if m.claudeBugReportPolishAvailable() {
+		footer = "ctrl+s open  ctrl+r polish  tab field  space diagnostics  esc cancel"
+	}
+	if m.bugReportPolishing {
+		footer = "polishing  esc cancel"
+	}
+	return m.renderDetailDialogWithLimit(layout.contentWidth, "Report Bug", "GitHub Issues", strings.Join(lines, "\n"), footer, 84)
 }
 
 func (m Model) renderBugReportDiagnosticsToggle(width int) string {
@@ -158,6 +253,37 @@ func (m Model) buildBugReportURL(title string, body string) string {
 	values.Set("body", body)
 	values.Set("labels", "bug")
 	return bugReportIssueURL + "?" + values.Encode()
+}
+
+func (m Model) buildBugReportPolishPrompt(title string, body string) string {
+	var b strings.Builder
+	b.WriteString("Polish this local GitHub bug report draft for jira-tui.\n")
+	b.WriteString("Return plain text in this exact format:\n")
+	b.WriteString("Title: <short bug title>\n")
+	b.WriteString("Body: <clear bug report body>\n")
+	b.WriteString("Do not open URLs, call GitHub, call Jira, run commands, or make external changes.\n")
+	b.WriteString("Keep factual details from the user. Do not invent stack traces, logs, versions, or diagnostics.\n\n")
+	b.WriteString("Current title:\n")
+	b.WriteString(displayValue(title, "(empty)"))
+	b.WriteString("\n\nCurrent body:\n")
+	b.WriteString(displayValue(body, "(empty)"))
+	b.WriteString("\n\nApp context:\n")
+	b.WriteString("- Active view: " + sanitizeIssueBodyLine(m.activeViewName()) + "\n")
+	b.WriteString("- Layout: " + sanitizeIssueBodyLine(m.issueLayoutModeLabel()) + "\n")
+	if selected, ok := m.selectedIssue(); ok && strings.TrimSpace(selected.Key) != "" {
+		b.WriteString("- Selected issue: " + sanitizeIssueBodyLine(selected.Key) + "\n")
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func parseBugReportPolish(text string) (string, string) {
+	fields := parseCreateIssueDraftFields(text)
+	title := strings.TrimSpace(fields["title"])
+	body := strings.TrimSpace(fields["body"])
+	if title == "" && body == "" {
+		title, body = parseCreateIssueDraft(text)
+	}
+	return title, body
 }
 
 func (m Model) buildBugReportBody(description string, includeDiagnostics bool) string {

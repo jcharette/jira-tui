@@ -12,6 +12,7 @@ All notable changes to this project should be recorded here.
 - Added Claude ticket-detail Quality Review and Draft Comment actions.
 - Added optional read-only Claude Branch Plans to Start Work review before branch or Jira writes.
 - Added `ctrl+r` Claude refinement for local Create Ticket drafts before Jira creation.
+- Added `ctrl+r` Claude polish for local bug report title/body drafts before opening GitHub.
 
 ## 1.0.10 - 2026-06-30
 

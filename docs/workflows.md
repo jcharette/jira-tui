@@ -222,8 +222,10 @@ until cleared. Optional system notifications use `beeep`.
 
 - Press `ctrl+d` to inspect recent background activity.
 - Press `B` to open the bug report composer.
+- Use `ctrl+r` to polish the local bug report title/body with Claude when Draft Ticket is enabled.
 
-Bug reports can include a sanitized Diagnostics excerpt only when you opt in.
+Bug reports can include a sanitized Diagnostics excerpt only when you opt in. GitHub opens only
+after the normal `ctrl+s` submit.
 
 ## Change Appearance
 

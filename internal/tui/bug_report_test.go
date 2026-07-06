@@ -4,8 +4,10 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/jcharette/jira-tui/internal/claude"
 	"github.com/jcharette/jira-tui/internal/jira"
 )
 
@@ -98,6 +100,87 @@ func TestBugReportRequiresUserDetails(t *testing.T) {
 		t.Fatal("expected composer to stay open")
 	}
 	if !strings.Contains(next.detailNotice, "Add a short title or description") {
+		t.Fatalf("detailNotice = %q", next.detailNotice)
+	}
+}
+
+func TestBugReportCtrlRPolishesDraftWithoutOpeningGitHub(t *testing.T) {
+	var opened string
+	withLinkActions(t, func(target string) error {
+		opened = target
+		return nil
+	}, func(string) error { return nil })
+
+	runner := &fakeClaudeRunner{result: claude.Result{Text: strings.Join([]string{
+		"Title: Refresh freezes issue list",
+		"Body: When I press refresh, the issue list stops responding and does not redraw.",
+	}, "\n")}}
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, DraftTicket: true, Timeout: time.Second}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
+		WithClaudeRunner(runner),
+	)
+	defer model.workers.Stop()
+	model.width = 120
+	model.height = 35
+	model.mode = modeTable
+	model.issues = []jira.Issue{{Key: "ABC-123", Summary: "Example story"}}
+	model = model.startBugReport()
+	model.bugReportTitleEditor.SetValue("refresh bad")
+	model.bugReportBodyEditor.SetValue("hit r and list hangs")
+
+	view := model.renderBugReport(model.browserLayout(model.width))
+	if !strings.Contains(view, "ctrl+r polish") {
+		t.Fatalf("bug report footer should expose polish action:\n%s", view)
+	}
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+r"}))
+	next := updated.(Model)
+	if cmd == nil || !next.bugReportPolishing {
+		t.Fatalf("expected polish command loading=%v cmd=%v", next.bugReportPolishing, cmd)
+	}
+	if opened != "" {
+		t.Fatalf("polish should not open GitHub, opened %q", opened)
+	}
+	resultMsg := <-runClaudePlanCommandAsyncForTest(cmd)
+	updated, cmd = next.Update(resultMsg)
+	next = updated.(Model)
+	if cmd != nil || next.bugReportPolishing {
+		t.Fatalf("polish result loading=%v cmd=%v", next.bugReportPolishing, cmd)
+	}
+	if next.bugReportTitleValue() != "Refresh freezes issue list" {
+		t.Fatalf("title = %q", next.bugReportTitleValue())
+	}
+	if !strings.Contains(next.bugReportBodyValue(), "stops responding") {
+		t.Fatalf("body = %q", next.bugReportBodyValue())
+	}
+	if !strings.Contains(runner.request.Prompt, "Do not open URLs") || !strings.Contains(runner.request.Prompt, "hit r and list hangs") {
+		t.Fatalf("prompt = %q", runner.request.Prompt)
+	}
+	if opened != "" {
+		t.Fatalf("polish result should not open GitHub, opened %q", opened)
+	}
+}
+
+func TestBugReportCtrlRRequiresClaudeAvailability(t *testing.T) {
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, DraftTicket: true, Timeout: time.Second}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: false, Command: "claude"}),
+	)
+	defer model.workers.Stop()
+	model = model.startBugReport()
+	model.bugReportTitleEditor.SetValue("refresh bad")
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+r"}))
+	next := updated.(Model)
+	if cmd != nil || next.bugReportPolishing {
+		t.Fatalf("unavailable Claude should not submit cmd=%v loading=%v", cmd, next.bugReportPolishing)
+	}
+	if !strings.Contains(next.detailNotice, "Claude bug report cleanup is currently unavailable") {
 		t.Fatalf("detailNotice = %q", next.detailNotice)
 	}
 }

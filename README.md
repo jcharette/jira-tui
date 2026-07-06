@@ -231,6 +231,8 @@ non-ASCII symbols, then restart the terminal and run `jira config`.
 - Diagnostics are mirrored to a bounded persistent JSONL log under the OS user cache directory with
   final key-value redaction for token/password/secret-style fields.
 - `B` opens a GitHub bug report composer from the app.
+- When Claude Draft Ticket is enabled, `ctrl+r` can polish the local bug report title/body before
+  opening GitHub.
 - Bug reports can include a sanitized excerpt only when the user opts in.
 
 ### Notifications

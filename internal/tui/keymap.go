@@ -478,6 +478,7 @@ func bugReportBindings() []keyBinding {
 		{Keys: []string{"type"}, Label: "edit", Description: "Edit bug report text.", Group: "Report", Footer: true},
 		{Keys: []string{"tab", "up", "down"}, FooterKey: "tab", Label: "field", Description: "Move between bug report fields.", Group: "Report", Footer: true},
 		{Keys: []string{"space"}, Label: "diagnostics", Description: "Toggle sanitized Diagnostics excerpt when the checkbox is focused.", Group: "Report", Footer: true},
+		{Keys: []string{"ctrl+r"}, Label: "polish", Description: "Polish the local bug report draft with Claude.", Group: "Report", Footer: true},
 		{Keys: []string{"ctrl+s"}, Label: "open", Description: "Open the prefilled GitHub issue composer.", Group: "Report", Footer: true},
 		{Keys: []string{"esc"}, Label: "cancel", Description: "Close bug reporting without opening GitHub.", Group: "Report", Footer: true},
 	}

@@ -117,7 +117,9 @@ token/password/secret-style fields before writing or exporting Diagnostics text.
 
 Pressing `B` opens an in-app bug report composer. The user provides a short title and description,
 can opt into the bounded sanitized Diagnostics excerpt, and `jira-tui` opens a prefilled GitHub issue
-URL in the browser. The app does not store GitHub credentials or upload raw local log files.
+URL in the browser. When Claude Draft Ticket is enabled and available, `ctrl+r` polishes the local
+title/body draft but does not open GitHub; `ctrl+s` remains the explicit browser handoff. The app
+does not store GitHub credentials or upload raw local log files.
 
 ## Current Configuration
 
