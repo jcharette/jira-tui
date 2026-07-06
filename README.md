@@ -185,8 +185,9 @@ non-ASCII symbols, then restart the terminal and run `jira config`.
 ### Commit And Finish Work
 
 - `jira commit [ABC-123]` reviews the current repo, detects the ticket from the branch when possible,
-  commits dirty work, reports unreported local commits to Jira, records reported SHAs locally, and
-  offers to push the branch after confirmation.
+  commits dirty work, reports unreported local commits to Jira, records reported SHAs locally, can
+  use enabled Claude branch-planning assistance to draft the Jira progress note, and offers to push
+  the branch after confirmation.
 - `jira finish [ABC-123]` reuses the same commit/report state, pushes the branch, creates or reuses a
   GitHub draft pull request through `gh`, posts a compact final Jira note with the PR URL, and moves
   the ticket through the safest available terminal transition when Jira metadata has no required

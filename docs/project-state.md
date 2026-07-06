@@ -79,6 +79,10 @@ Run tests:
 make test
 ```
 
+When Claude is enabled and the Branch Plan feature is on, `jira commit` can draft the Jira progress
+note with Claude and still shows the generated note in the normal confirmation prompt. If Claude is
+unavailable, disabled, times out, or returns an empty note, the command uses the deterministic note.
+
 Run the standard verification loop:
 
 ```bash

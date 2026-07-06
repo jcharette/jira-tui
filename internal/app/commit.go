@@ -9,11 +9,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jcharette/jira-tui/internal/claude"
+	"github.com/jcharette/jira-tui/internal/config"
 	"github.com/jcharette/jira-tui/internal/gitstate"
 	"github.com/jcharette/jira-tui/internal/gitworkflow"
 	"github.com/jcharette/jira-tui/internal/jira"
 	"github.com/spf13/cobra"
 )
+
+const maxCommitAINoteBytes = 1600
 
 type commitJiraClient interface {
 	GetIssue(ctx context.Context, key string) (jira.IssueDetail, error)
@@ -26,10 +30,25 @@ type commitStateStore interface {
 }
 
 type commitReview struct {
-	Plan gitworkflow.CommitPlan
+	Plan       gitworkflow.CommitPlan
+	AIDrafted  bool
+	AIDraftErr string
 }
 
 type commitConfirmFunc func(out io.Writer, review commitReview) bool
+
+type commitOptions struct {
+	NoteDrafter commitNoteDrafter
+}
+
+type commitNoteDrafter interface {
+	DraftCommitNote(context.Context, commitNoteDraftRequest) (string, error)
+}
+
+type commitNoteDraftRequest struct {
+	Plan  gitworkflow.CommitPlan
+	Issue jira.Issue
+}
 
 func newCommitCommand(profile *string) *cobra.Command {
 	cmd := &cobra.Command{
@@ -55,10 +74,16 @@ func runCommit(profile string, args []string, out io.Writer, gitClient gitworkfl
 	if err != nil {
 		return fmt.Errorf("open git workflow state: %w", err)
 	}
-	return runCommitWithDeps(ctx, args, out, gitClient, jira.NewClient(cfg), stateStore, defaultCommitConfirm)
+	return runCommitWithDepsAndOptions(ctx, args, out, gitClient, jira.NewClient(cfg), stateStore, defaultCommitConfirm, commitOptions{
+		NoteDrafter: commitNoteDrafterFromConfig(cfg),
+	})
 }
 
 func runCommitWithDeps(ctx context.Context, args []string, out io.Writer, gitClient gitworkflow.Client, jiraClient commitJiraClient, stateStore commitStateStore, confirm commitConfirmFunc) error {
+	return runCommitWithDepsAndOptions(ctx, args, out, gitClient, jiraClient, stateStore, confirm, commitOptions{})
+}
+
+func runCommitWithDepsAndOptions(ctx context.Context, args []string, out io.Writer, gitClient gitworkflow.Client, jiraClient commitJiraClient, stateStore commitStateStore, confirm commitConfirmFunc, options commitOptions) error {
 	analysis, err := gitClient.Analyze(ctx, ".")
 	if err != nil {
 		return fmt.Errorf("analyze git repo: %w", err)
@@ -80,7 +105,20 @@ func runCommitWithDeps(ctx context.Context, args []string, out io.Writer, gitCli
 		_, _ = fmt.Fprintf(out, "Nothing to commit or report for %s.\n", plan.IssueKey)
 		return nil
 	}
-	review := commitReview{Plan: plan}
+	aiDrafted := false
+	aiDraftErr := ""
+	if options.NoteDrafter != nil && plan.ShouldReport {
+		note, err := options.NoteDrafter.DraftCommitNote(ctx, commitNoteDraftRequest{Plan: plan, Issue: detail.Issue})
+		if err != nil {
+			aiDraftErr = err.Error()
+		} else if cleaned := cleanCommitAINote(note); cleaned != "" {
+			plan.JiraNote = cleaned
+			aiDrafted = true
+		} else {
+			aiDraftErr = "empty note"
+		}
+	}
+	review := commitReview{Plan: plan, AIDrafted: aiDrafted, AIDraftErr: aiDraftErr}
 	if confirm == nil {
 		confirm = defaultCommitConfirm
 	}
@@ -147,12 +185,94 @@ func writeCommitReview(out io.Writer, review commitReview) {
 		}
 	}
 	if plan.ShouldReport {
+		if review.AIDrafted {
+			_, _ = fmt.Fprintln(out, "AI drafted Jira note: yes")
+		} else if strings.TrimSpace(review.AIDraftErr) != "" {
+			_, _ = fmt.Fprintf(out, "AI drafted Jira note: no (%s)\n", review.AIDraftErr)
+		}
 		_, _ = fmt.Fprintln(out, "Jira note:")
 		_, _ = fmt.Fprintln(out, plan.JiraNote)
 	}
 	if plan.ShouldPush {
 		_, _ = fmt.Fprintln(out, "Push: yes")
 	}
+}
+
+type claudeCommitNoteDrafter struct {
+	Config claude.Config
+	Runner claude.LocalRunner
+}
+
+func (d claudeCommitNoteDrafter) DraftCommitNote(ctx context.Context, request commitNoteDraftRequest) (string, error) {
+	result, err := d.Runner.Run(ctx, claude.Request{
+		Config: d.Config,
+		Prompt: buildCommitNotePrompt(request),
+	})
+	if err != nil {
+		return "", err
+	}
+	return result.Text, nil
+}
+
+func buildCommitNotePrompt(request commitNoteDraftRequest) string {
+	plan := request.Plan
+	var b strings.Builder
+	fmt.Fprintf(&b, "Draft a compact Jira progress note for %s.\n", plan.IssueKey)
+	fmt.Fprintf(&b, "Ticket summary: %s\n", displayValue(plan.IssueSummary, request.Issue.Summary))
+	b.WriteString("Return only the Jira note. Keep it under 6 bullets and under 1200 characters.\n")
+	if plan.ShouldCommit {
+		fmt.Fprintf(&b, "Pending commit message: %s\n", plan.DefaultCommitMessage)
+	}
+	if len(plan.Changes.Files) > 0 {
+		b.WriteString("Changed files:\n")
+		for _, file := range plan.Changes.Files {
+			fmt.Fprintf(&b, "- %s %s\n", strings.TrimSpace(file.Status), file.Path)
+		}
+	}
+	if len(plan.UnreportedCommits) > 0 {
+		b.WriteString("Unreported commits:\n")
+		for _, commit := range plan.UnreportedCommits {
+			fmt.Fprintf(&b, "- %s %s\n", shortCommitSHA(commit.SHA), displayValue(commit.Subject, "(no subject)"))
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func cleanCommitAINote(note string) string {
+	note = strings.TrimSpace(note)
+	if note == "" {
+		return ""
+	}
+	if len([]byte(note)) <= maxCommitAINoteBytes {
+		return note
+	}
+	var b strings.Builder
+	for _, r := range note {
+		if b.Len()+len(string(r)) > maxCommitAINoteBytes {
+			break
+		}
+		b.WriteRune(r)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func commitNoteDrafterFromConfig(cfg config.Config) commitNoteDrafter {
+	if !cfg.Claude.Enabled || !cfg.Claude.Features.BranchPlan {
+		return nil
+	}
+	claudeConfig := claude.Config{
+		Enabled: cfg.Claude.Enabled,
+		Command: cfg.Claude.Command,
+		Timeout: cfg.Claude.Timeout,
+	}
+	status := claude.LocalRunner{}.Check(context.Background(), claudeConfig)
+	if !status.Enabled || !status.Available {
+		return nil
+	}
+	if status.Command != "" {
+		claudeConfig.Command = status.Command
+	}
+	return claudeCommitNoteDrafter{Config: claudeConfig}
 }
 
 func resolveCommitIssueKey(args []string, analysis gitworkflow.Analysis) string {

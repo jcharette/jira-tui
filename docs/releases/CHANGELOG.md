@@ -6,6 +6,8 @@ All notable changes to this project should be recorded here.
 
 - Reframed the active AI roadmap around polishing existing Claude workflows before provider-neutral
   provider expansion.
+- Added optional Claude-assisted Jira progress note drafting to `jira commit`, with fallback to the
+  existing deterministic note.
 
 ## 1.0.10 - 2026-06-30
 

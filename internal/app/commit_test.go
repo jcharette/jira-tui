@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -88,6 +89,69 @@ func TestRunCommitReportsUnreportedLocalCommits(t *testing.T) {
 	}
 }
 
+func TestRunCommitUsesClaudeDraftedJiraNoteWhenAvailable(t *testing.T) {
+	gitClient := &fakeCommitGitClient{
+		analysis: gitworkflow.Analysis{
+			Repo: gitworkflow.RepoStatus{Path: "/repo", CurrentBranch: "feature/ABC-123-work", Detected: true},
+			Changes: gitworkflow.ChangeSummary{
+				Dirty: true,
+				Files: []gitworkflow.ChangedFile{{Status: "M", Path: "main.go"}},
+			},
+			IssueKey: "ABC-123",
+		},
+		commit: gitworkflow.Commit{SHA: "1111111abcdef", Subject: "ABC-123: Prepare release"},
+	}
+	jiraClient := &fakeCommitJiraClient{issue: jira.Issue{Key: "ABC-123", Summary: "Prepare release"}}
+	stateStore := &fakeCommitStateStore{}
+	drafter := &fakeCommitNoteDrafter{note: "Development update:\n- Tightened release prep and validation."}
+	var out bytes.Buffer
+
+	err := runCommitWithDepsAndOptions(context.Background(), nil, &out, gitClient, jiraClient, stateStore, confirmAndWriteCommitReview, commitOptions{
+		NoteDrafter: drafter,
+	})
+
+	if err != nil {
+		t.Fatalf("runCommitWithDepsAndOptions() error = %v", err)
+	}
+	if jiraClient.commentBody != "Development update:\n- Tightened release prep and validation." {
+		t.Fatalf("commentBody = %q", jiraClient.commentBody)
+	}
+	if !strings.Contains(out.String(), "AI drafted Jira note: yes") {
+		t.Fatalf("output = %q", out.String())
+	}
+	if len(drafter.requests) != 1 || drafter.requests[0].Plan.IssueKey != "ABC-123" {
+		t.Fatalf("requests = %#v", drafter.requests)
+	}
+}
+
+func TestRunCommitFallsBackWhenClaudeDraftFails(t *testing.T) {
+	gitClient := &fakeCommitGitClient{
+		analysis: gitworkflow.Analysis{
+			Repo:     gitworkflow.RepoStatus{Path: "/repo", CurrentBranch: "feature/ABC-123-work", Detected: true},
+			IssueKey: "ABC-123",
+			Commits:  []gitworkflow.Commit{{SHA: "2222222", Subject: "ABC-123: second change"}},
+		},
+	}
+	jiraClient := &fakeCommitJiraClient{issue: jira.Issue{Key: "ABC-123", Summary: "Prepare release"}}
+	stateStore := &fakeCommitStateStore{}
+	drafter := &fakeCommitNoteDrafter{err: errors.New("claude unavailable")}
+	var out bytes.Buffer
+
+	err := runCommitWithDepsAndOptions(context.Background(), nil, &out, gitClient, jiraClient, stateStore, confirmAndWriteCommitReview, commitOptions{
+		NoteDrafter: drafter,
+	})
+
+	if err != nil {
+		t.Fatalf("runCommitWithDepsAndOptions() error = %v", err)
+	}
+	if !strings.Contains(jiraClient.commentBody, "ABC-123: second change") {
+		t.Fatalf("commentBody = %q", jiraClient.commentBody)
+	}
+	if !strings.Contains(out.String(), "AI drafted Jira note: no (claude unavailable)") {
+		t.Fatalf("output = %q", out.String())
+	}
+}
+
 func TestRunCommitCancelsBeforeWrites(t *testing.T) {
 	gitClient := &fakeCommitGitClient{
 		analysis: gitworkflow.Analysis{
@@ -156,6 +220,44 @@ func TestRunCommitRequiresTicketWhenBranchHasNoIssueKey(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "ticket is required") {
 		t.Fatalf("err = %v", err)
 	}
+}
+
+func TestCleanCommitAINoteBoundsOutput(t *testing.T) {
+	note := cleanCommitAINote(strings.Repeat("x", maxCommitAINoteBytes+100))
+	if len([]byte(note)) > maxCommitAINoteBytes {
+		t.Fatalf("note length = %d", len([]byte(note)))
+	}
+}
+
+func TestBuildCommitNotePromptIncludesSourceContext(t *testing.T) {
+	prompt := buildCommitNotePrompt(commitNoteDraftRequest{
+		Plan: gitworkflow.CommitPlan{
+			IssueKey:             "ABC-123",
+			IssueSummary:         "Prepare release",
+			DefaultCommitMessage: "ABC-123: Prepare release",
+			ShouldCommit:         true,
+			Changes: gitworkflow.ChangeSummary{
+				Files: []gitworkflow.ChangedFile{{Status: "M", Path: "internal/app/commit.go"}},
+			},
+			UnreportedCommits: []gitworkflow.Commit{{SHA: "2222222abcdef", Subject: "ABC-123: second change"}},
+		},
+	})
+	for _, want := range []string{"ABC-123", "Prepare release", "internal/app/commit.go", "2222222", "second change", "Return only the Jira note"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+type fakeCommitNoteDrafter struct {
+	note     string
+	err      error
+	requests []commitNoteDraftRequest
+}
+
+func (f *fakeCommitNoteDrafter) DraftCommitNote(_ context.Context, request commitNoteDraftRequest) (string, error) {
+	f.requests = append(f.requests, request)
+	return f.note, f.err
 }
 
 type fakeCommitGitClient struct {
@@ -234,6 +336,11 @@ func (f *fakeCommitStateStore) MarkReported(_ context.Context, records []gitstat
 }
 
 func alwaysConfirmCommit(io.Writer, commitReview) bool {
+	return true
+}
+
+func confirmAndWriteCommitReview(out io.Writer, review commitReview) bool {
+	writeCommitReview(out, review)
 	return true
 }
 

@@ -2,15 +2,26 @@
 
 ## Claude AI Workflow Cleanup - 2026-07-06
 
-- [ ] Sync the local backlog and roadmap with the decision to backburner provider-neutral AI.
-- [ ] Add optional Claude-assisted Jira note drafting to `jira commit`.
-- [ ] Verify focused tests, docs checks, and full local checks.
+- [x] Sync the local backlog and roadmap with the decision to backburner provider-neutral AI.
+- [x] Add optional Claude-assisted Jira note drafting to `jira commit`.
+- [x] Verify focused tests, docs checks, and full local checks.
 
 ### Implementation Notes
 
 - Keep Claude as the only execution provider in this slice.
 - Keep `ai.task.*` event names for Diagnostics, but do not add Codex execution.
 - Keep generated Jira notes reviewable before posting.
+
+### Review
+
+- Reframed the active AI backlog around Claude workflow cleanup and removed stale closed Ticket
+  Actions issue #12 from the active local index.
+- Added optional Claude-assisted Jira progress note drafting to `jira commit` behind the existing
+  Claude Branch Plan feature flag.
+- Kept provider-neutral execution, Codex support, and workspace mapping deferred.
+- Verified focused app tests, `go test ./... -count=1`, `make docs-check`, and `make check`.
+- GitHub issue #6 update is blocked by account policy: `Unauthorized: As an Enterprise Managed User,
+  you cannot access this content`.
 
 ## Release v1.0.10 - 2026-06-30
 

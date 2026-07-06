@@ -182,6 +182,10 @@ jira finish ABC-123
 These workflows inspect local Git state, detect the Jira ticket when possible, preview writes, and
 avoid duplicate Jira progress notes for already-reported commits.
 
+When Claude is enabled and the Branch Plan feature is on, `jira commit` asks Claude for a compact
+Jira progress note and shows it in the normal review prompt. If Claude is unavailable or returns an
+empty result, the workflow uses the existing deterministic note.
+
 `jira finish` can push and create or reuse a GitHub draft pull request through `gh`.
 
 ## Use Notifications
