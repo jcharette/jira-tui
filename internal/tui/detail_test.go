@@ -32,7 +32,7 @@ func TestDetailSectionsUseOverviewFirstWithoutStatusTab(t *testing.T) {
 	for _, section := range sections {
 		got = append(got, section.ID)
 	}
-	wantPrefix := []string{"overview", "comments", "worklog", "hierarchy"}
+	wantPrefix := []string{"overview", "workbench", "comments", "worklog", "hierarchy"}
 	if len(got) < len(wantPrefix) {
 		t.Fatalf("sections = %#v", got)
 	}
@@ -44,6 +44,74 @@ func TestDetailSectionsUseOverviewFirstWithoutStatusTab(t *testing.T) {
 	for _, id := range got {
 		if id == "status" || id == "description" || id == "actions" {
 			t.Fatalf("section %q should not be a primary tab: %#v", id, got)
+		}
+	}
+}
+
+func TestDeveloperWorkbenchSectionShowsDeveloperLoopActions(t *testing.T) {
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithClaudeConfig(ClaudeConfig{
+			Enabled:      true,
+			TicketPlan:   true,
+			TicketAssist: true,
+			DraftComment: true,
+			BranchPlan:   true,
+		}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude", Version: "test"}),
+	)
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.width = 120
+	model.height = 34
+	model.issues = []jira.Issue{{
+		Key:       "ABC-1",
+		Summary:   "Tighten deployment review flow",
+		Status:    "In Progress",
+		Priority:  "High",
+		Assignee:  "Jon",
+		IssueType: "Story",
+	}}
+	model.details = map[string]jira.IssueDetail{
+		"ABC-1": {
+			Issue:       model.issues[0],
+			Description: "Make generated text, local edits, and Jira writes easy to distinguish.",
+			Reporter:    "Rae",
+		},
+	}
+	model.comments = map[string][]jira.Comment{
+		"ABC-1": {{ID: "10001", Author: "Rae", Body: "Please make write gates obvious."}},
+	}
+	model.worklogs = map[string][]jira.Worklog{
+		"ABC-1": {{ID: "20001", Author: "Jon", TimeSpent: "45m", Comment: "UX review"}},
+	}
+
+	sections := model.detailSections()
+	if len(sections) < 2 || sections[1].ID != "workbench" {
+		t.Fatalf("sections = %#v, want workbench immediately after overview", sections)
+	}
+
+	model.jumpDetailSection("Workbench")
+	view := model.render()
+	for _, want := range []string{
+		"Developer Workbench",
+		"Start Work",
+		"Claude Plan",
+		"Quality Review",
+		"Draft Comment",
+		"Add Comment",
+		"Log Work",
+		"Open Jira",
+		"Copy Key",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("workbench missing %q in:\n%s", want, view)
+		}
+	}
+	for _, unwanted := range []string{"Edit Components", "Set Fix Version", "metadata"} {
+		if strings.Contains(view, unwanted) {
+			t.Fatalf("workbench should not show low-frequency metadata action %q in:\n%s", unwanted, view)
 		}
 	}
 }

@@ -641,6 +641,8 @@ func (m Model) renderDetailSection(section detailSection, ctx detailRenderContex
 	switch section.ID {
 	case "overview":
 		return m.renderOverviewSection(ctx, width)
+	case "workbench":
+		return m.renderDeveloperWorkbenchSection(ctx, width)
 	case "description":
 		if ctx.hasDetail {
 			return m.renderDescription(ctx.description, width)
@@ -806,6 +808,30 @@ func (m Model) renderOverviewSection(ctx detailRenderContext, width int) string 
 	return strings.Join(lines, "\n")
 }
 
+func (m Model) renderDeveloperWorkbenchSection(ctx detailRenderContext, width int) string {
+	lines := []string{m.detailSectionHeader("workbench", "Developer Workbench", "next actions", width), ""}
+	rows := [][]string{
+		{m.theme.FieldLabel.Render("Start Work"), m.theme.Success.Render("ready"), m.theme.Muted.Render("Ticket Actions -> Start Work creates/switches branch after review.")},
+		{m.theme.FieldLabel.Render("Claude Plan"), m.claudeWorkbenchState(), m.theme.Muted.Render("Open Claude actions for a read-only implementation plan.")},
+		{m.theme.FieldLabel.Render("Quality Review"), m.claudeWorkbenchState(), m.theme.Muted.Render("Ask Claude for readiness gaps before writing Jira.")},
+		{m.theme.FieldLabel.Render("Draft Comment"), m.claudeWorkbenchState(), m.theme.Muted.Render("Draft an editable Jira comment before post confirmation.")},
+		{m.theme.FieldLabel.Render("Add Comment"), m.theme.Success.Render("ready"), m.theme.Muted.Render("Write or refine a Jira comment, then review before posting.")},
+		{m.theme.FieldLabel.Render("Log Work"), m.theme.Success.Render("ready"), m.theme.Muted.Render("Add a Jira worklog entry for this ticket.")},
+		{m.theme.FieldLabel.Render("Open Jira"), m.theme.Success.Render("ready"), m.theme.Muted.Render("Open the issue in the browser.")},
+		{m.theme.FieldLabel.Render("Copy Key"), m.theme.Success.Render("ready"), m.theme.Muted.Render("Copy the ticket key for branch names, commits, and notes.")},
+	}
+	lines = append(lines, m.detailTable(0, []string{"ACTION", "STATE", "DETAIL"}, rows, nil))
+	lines = append(lines, "", m.detailEmptyState("Use . for Ticket Actions, a for Claude actions, or tab to move through ticket sections.", width))
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) claudeWorkbenchState() string {
+	if m.claudeAvailable() {
+		return m.theme.Success.Render("ready")
+	}
+	return m.theme.Muted.Render("disabled")
+}
+
 func (m Model) renderOverviewLatest(key string, width int) string {
 	header := m.theme.Muted.Render("Latest")
 	if comments, loaded := m.comments[key]; loaded {
@@ -860,6 +886,7 @@ func (m Model) renderOverviewHierarchy(issue jira.Issue, width int) string {
 func (m Model) detailSections() []detailSection {
 	sections := []detailSection{
 		{ID: "overview", Label: "Overview", Short: "Over"},
+		{ID: "workbench", Label: "Developer Workbench", Short: "Dev"},
 		{ID: "comments", Label: "Comments", Short: "Com"},
 		{ID: "worklog", Label: "Worklog", Short: "Work"},
 		{ID: "hierarchy", Label: "Hierarchy", Short: "Tree"},
@@ -880,25 +907,25 @@ func (m Model) detailSections() []detailSection {
 			issueLinks = detail.IssueLinks
 		}
 		if comments, loaded := m.comments[display.Key]; loaded {
-			sections[1].Badge = fmt.Sprintf("%d", len(comments))
+			sections[2].Badge = fmt.Sprintf("%d", len(comments))
 		} else if m.commentsLoading && m.commentsRequestKey == display.Key {
-			sections[1].Badge = "..."
-		} else if m.commentsErr != nil && m.commentsRequestKey == display.Key {
-			sections[1].Badge = "!"
-		}
-		if worklogs, loaded := m.worklogs[display.Key]; loaded {
-			sections[2].Badge = fmt.Sprintf("%d", len(worklogs))
-		} else if m.worklogsLoading && m.worklogsRequestKey == display.Key {
 			sections[2].Badge = "..."
-		} else if m.worklogsErr != nil && m.worklogsRequestKey == display.Key {
+		} else if m.commentsErr != nil && m.commentsRequestKey == display.Key {
 			sections[2].Badge = "!"
 		}
+		if worklogs, loaded := m.worklogs[display.Key]; loaded {
+			sections[3].Badge = fmt.Sprintf("%d", len(worklogs))
+		} else if m.worklogsLoading && m.worklogsRequestKey == display.Key {
+			sections[3].Badge = "..."
+		} else if m.worklogsErr != nil && m.worklogsRequestKey == display.Key {
+			sections[3].Badge = "!"
+		}
 		if childCount := len(m.hierarchyRows(display.Key)); childCount > 0 {
-			sections[3].Badge = fmt.Sprintf("%d", childCount)
+			sections[4].Badge = fmt.Sprintf("%d", childCount)
 		}
 		if linkCount := len(detailLinks(jira.IssueDetail{Description: description, IssueLinks: issueLinks})); linkCount > 0 {
 			links := detailSection{ID: "links", Label: "Links", Short: "Links", Badge: fmt.Sprintf("%d", linkCount)}
-			sections = append(sections[:4], append([]detailSection{links}, sections[4:]...)...)
+			sections = append(sections[:5], append([]detailSection{links}, sections[5:]...)...)
 		}
 	}
 	return sections
