@@ -1,0 +1,36 @@
+ Jira  ready Default                                                                 3 issues  not synced  vX.Y.Z
+Filter  ABC · updated desc
+
+                 ╭──────────────────────────────────────────────────────────────────────────────╮
+                 │                                                                              │
+                 │  Ticket Actions                                                              │
+                 │  ABC-1                                                                       │
+                 │                                                                              │
+                 │  Filter                                                                      │
+                 │  Filter actions...                                                           │
+                 │                                                                              │
+                 │                                                                              │
+                 │     ACTION            TYPE      DETAIL                                       │
+                 │                                                                              │
+                 │   > Start Work        Workflow  Choose repo, create branch, and...           │
+                 │     Add Comment       Comment   Write a Jira comment.                        │
+                 │     Open In Browser   Open/Copy Open this ticket in Jira.                    │
+                 │     Copy Key          Open/Copy Copy the ticket key.                         │
+                 │     Copy URL          Open/Copy Copy the Jira URL.                           │
+                 │     Edit Summary      Field     Load Jira edit metadata and upd...           │
+                 │     Change Priority   Field     Load Jira priority options and ...           │
+                 │     Edit Labels       Field     Edit comma-separated Jira labels.            │
+                 │     Edit Components   Field     Select Jira components from edi...           │
+                 │     Sprint            Action    Add this ticket to an active or...           │
+                 │     Transition Status Workflow  Load available Jira transitions...           │
+                 │     Assign            Field     Search assignable Jira users an...           │
+                 │     Link Issue        Action    Create a Jira issue link to ano...           │
+                 │     Log Work          Action    Add a Jira worklog entry.                    │
+                 │     Create Subtask    Create    Use Jira create metadata for re...           │
+                 │                                                                              │
+                 │                                                                              │
+                 │  type filter  j/k select  enter run  esc close                               │
+                 │                                                                              │
+                 ╰──────────────────────────────────────────────────────────────────────────────╯
+
+Ticket Actions  ? help  |  esc close  |  j/k action  enter run  type filter

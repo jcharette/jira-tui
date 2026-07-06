@@ -1,5 +1,28 @@
 # Task Plan
 
+## UX Snapshot Harness - 2026-07-06
+
+- [x] Add failing UX snapshot coverage for representative TUI states.
+- [x] Add an explicit golden update path using the existing test helper.
+- [x] Generate stable fixtures for core screens and modals.
+- [x] Document the UX snapshot workflow.
+- [x] Verify focused snapshots, full tests, docs check, project check, and install.
+
+### Implementation Notes
+
+- Reuse `internal/tui` render tests and `testdata` golden files.
+- Keep this as plain Go tests; no new snapshot dependency.
+- Cover drift-prone text surfaces first: footers, modal titles, action labels, notices, and write gates.
+
+### Review
+
+- Added `TestUXSnapshots` with representative issue list, detail, action palette, comment, create,
+  worklog, Claude, Diagnostics, Notifications, and bug-report states.
+- Reused the existing golden snapshot helper and added `UPDATE_GOLDEN=1` refresh support.
+- Normalized version strings in snapshots to avoid release-version churn.
+- Verification: `go test ./internal/tui -run TestUXSnapshots -count=1`, `go test ./... -count=1`,
+  `make docs-check`, `make check`, and `make install-user` passed.
+
 ## Tooling UX Review - 2026-07-06
 
 - [x] Review CLI command/help UX and local workflow tooling.

@@ -42,6 +42,15 @@ borders, spacing, and status emphasis. Pane layouts should respond to terminal w
 breakpoints instead of relying on one fixed size. Table/list row counts must subtract all rendered
 chrome: headers, query bars, help footers, borders, padding, titles, and sibling panels.
 
+Use UX snapshots to catch render/help drift across representative TUI states:
+
+```bash
+go test ./internal/tui -run TestUXSnapshots -count=1
+UPDATE_GOLDEN=1 go test ./internal/tui -run TestUXSnapshots -count=1
+```
+
+Only refresh snapshots after reviewing the rendered diff and confirming the UX change is intended.
+
 Use maintained Bubble Tea ecosystem components for standard TUI primitives by default: Bubbles
 `viewport` for scrollable content, `table`/`list` for selectable collections, `help`/`key` for key
 help, `textinput`/`textarea` for text entry, `paginator` for paging, and `spinner` for loading

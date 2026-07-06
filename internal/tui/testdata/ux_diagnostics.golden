@@ -1,0 +1,19 @@
+ Jira  ready Default                                                                 3 issues  not synced  vX.Y.Z
+Filter  ABC · updated desc
+
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                                                  │
+│  Diagnostics ────────────────────────────────────────────────────────────────────────────── Background Activity  │
+│                                                                                                                  │
+│  Workers 1   API 0   Cache 0   Events 0   Errors 0   Active 0   Last ticket_assist completed                     │
+│  Activity  worker [####--------]  cache  [------------]                                                          │
+│  Queue running 0   pending 0   coalesced 0   capacity 18                                                         │
+│                                                                                                                  │
+│  TIME      KIND      STATUS    DETAIL                                                                            │
+│  09:30:00  claude    ok        claude ready claude test                                                          │
+│  09:30:00  worker    completed  search_issues request_id=1 count=3                                               │
+│  09:30:00  claude    completed  ticket_assist request_id=2 key=ABC-1                                             │
+│                                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+Diagnostics  esc close

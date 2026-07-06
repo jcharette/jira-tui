@@ -40,11 +40,18 @@ func collectEventsForTest(t *testing.T, received <-chan events.Event, count int)
 }
 
 var ansiEscapeForTest = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
+var versionForTest = regexp.MustCompile(`\bv\d+\.\d+\.\d+\b`)
 
 func assertGoldenSnapshot(t *testing.T, name string, rendered string) {
 	t.Helper()
 	got := normalizeRenderedSnapshotForTest(rendered)
 	path := filepath.Join("testdata", name)
+	if os.Getenv("UPDATE_GOLDEN") == "1" {
+		if err := os.WriteFile(path, []byte(got+"\n"), 0o644); err != nil {
+			t.Fatalf("update golden snapshot %s: %v", path, err)
+		}
+		return
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read golden snapshot %s: %v\n\nrendered:\n%s", path, err, got)
@@ -57,6 +64,7 @@ func assertGoldenSnapshot(t *testing.T, name string, rendered string) {
 
 func normalizeRenderedSnapshotForTest(rendered string) string {
 	rendered = ansiEscapeForTest.ReplaceAllString(rendered, "")
+	rendered = versionForTest.ReplaceAllString(rendered, "vX.Y.Z")
 	rendered = strings.ReplaceAll(rendered, "\r\n", "\n")
 	rendered = strings.ReplaceAll(rendered, "\r", "\n")
 	lines := strings.Split(rendered, "\n")

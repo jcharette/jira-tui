@@ -1,0 +1,26 @@
+ Jira  ready Default                                                                 3 issues  not synced  vX.Y.Z
+Filter  ABC · updated desc
+
+                ╭────────────────────────────────────────────────────────────────────────────────╮
+                │                                                                                │
+                │  Report Bug                                                                    │
+                │  GitHub Issues                                                                 │
+                │                                                                                │
+                │  Title ──────────────────────────────────────────────────────────── editing    │
+                │  Shortcut copy mismatch                                                        │
+                │                                                                                │
+                │  What happened ───────────────────────────────────────────────────────────     │
+                │  The footer says one thing but the keymap does another.                        │
+                │                                                                                │
+                │                                                                                │
+                │                                                                                │
+                │                                                                                │
+                │  [x] Include sanitized Diagnostics excerpt (1 sanitized events)                │
+                │                                                                                │
+                │  Opens a prefilled GitHub issue. Jira tokens, raw request bodies, respon...    │
+                │                                                                                │
+                │  ctrl+s open  ctrl+r polish  tab field  space diagnostics  esc cancel          │
+                │                                                                                │
+                ╰────────────────────────────────────────────────────────────────────────────────╯
+
+Report Bug  ? help  |  type edit  tab field  space diagnostics  ctrl+r polish  ctrl+s open  esc cancel

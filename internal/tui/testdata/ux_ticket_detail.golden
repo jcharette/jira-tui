@@ -1,0 +1,26 @@
+ Jira  ready Default                                                                 3 issues  not synced  vX.Y.Z
+Filter  ABC · updated desc
+
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                                                  │
+│  ABC-1 In Progress Story                                                                                         │
+│  Tighten deployment review flow                                                                                  │
+│  Status In Progress v   Priority High v   Assignee Jon v   Updated 2026-07-06 05:30   Reporter Rae               │
+│  > Overview   Comments 1   Worklog 1   Hierarchy   Claude                                                        │
+│                                                                                                                  │
+│  Overview ────────────────────────────────────────────────────────────────────────────────────────────────       │
+│                                                                                                                  │
+│  Latest                                                                                                          │
+│  Rae: Please make the write gates obvious before posting.                                                        │
+│                                                                                                                  │
+│  Description                                                                                                     │
+│  Improve the review flow so generated text, local edits, and Jira writes are easy to distinguish.                │
+│                                                                                                                  │
+│  Hierarchy                                                                                                       │
+│    No parent, child, or subtask issues loaded in the current view.                                               │
+│                                                                                                                  │
+│    Press . for Ticket Actions.                                                                                   │
+│                                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+Ticket Detail  ? help  |  esc back  j/k scroll  |  tab section  |  . actions  n new  T toil  |  a ai  |  o open

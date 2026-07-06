@@ -1,0 +1,14 @@
+ Jira  ready Default                                                                 3 issues  not synced  vX.Y.Z
+Filter  ABC · updated desc
+
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                                                  │
+│  Notification Center ────────────────────────────────────────────────────────────────────────────── 1 uncleared  │
+│                                                                                                                  │
+│  > 09:30  UPD  ABC-1       status, assignee  Tighten deployment review flow                                      │
+│                                                                                                                  │
+│  enter open  x clear selected  ctrl+x clear all                                                                  │
+│                                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+Notifications  esc/ctrl+n close  j/k select  enter open  x clear selected  ctrl+x clear all

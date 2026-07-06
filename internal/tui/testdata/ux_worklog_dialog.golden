@@ -1,0 +1,31 @@
+ Jira  ready Default                                                                 3 issues  not synced  vX.Y.Z
+Filter  ABC · updated desc
+
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                                                  │
+│  ABC-1 In Progress Story                                                                                         │
+│  Tighten deployment review flow                                                                                  │
+│  Status In Progress v   Priority High v   Assignee Jon v   Updated 2026-07-06 05:30   Reporter Rae               │
+│  > Overview   Comments 1   Worklog 1   Hierarchy   Claude                                                        │
+│                                                                                                                  │
+│                  ╭────────────────────────────────────────────────────────────────────╮                          │
+│                  │                                                                    │                          │
+│                  │  Log Work                                                          │                          │
+│                  │  ABC-1                                                             │                          │
+│                  │                                                                    │                          │
+│                  │  Issue ABC-1                                                       │                          │
+│                  │  > Duration                                                        │                          │
+│                  │  45m                                                               │                          │
+│                  │    Note                                                            │                          │
+│                  │  ┃ UX review pass                                                  │                          │
+│                  │  ┃                                                                 │                          │
+│                  │  ┃                                                                 │                          │
+│                  │  ┃                                                                 │                          │
+│                  │                                                                    │                          │
+│                  │  ctrl+s save  tab field  esc cancel                                │                          │
+│                  │                                                                    │                          │
+│                  ╰────────────────────────────────────────────────────────────────────╯                          │
+│                                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+Worklog  ? help  |  type edit  tab field  ctrl+s save  esc cancel

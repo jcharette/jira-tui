@@ -1,0 +1,18 @@
+ Jira  ready Default                                                                 3 issues  not synced  vX.Y.Z
+Filter  ABC · updated desc
+
+         ╭──────────────────────────────────────────────────────────────────────────────────────────────╮
+         │                                                                                              │
+         │  Create Ticket                                                                               │
+         │  ABC                                                                                         │
+         │                                                                                              │
+         │  > Manual    AI Generated                                                                    │
+         │                                                                                              │
+         │  > Story                                                                                     │
+         │    Task                                                                                      │
+         │                                                                                              │
+         │  tab mode  j/k select  enter continue  esc cancel                                            │
+         │                                                                                              │
+         ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+
+Create Ticket  ? help  ctrl+d diagnostics  |  esc cancel  tab mode  j/k type  enter continue

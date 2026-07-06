@@ -1,0 +1,24 @@
+ Jira  ready Default                                                                 3 issues  not synced  vX.Y.Z
+Filter  ABC · updated desc
+
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                                                  │
+│  ABC-1 In Progress Story                                                                                         │
+│  Tighten deployment review flow                                                                                  │
+│  Status In Progress v   Priority High v   Assignee Jon v   Updated 2026-07-06 05:30   Reporter Rae               │
+│  Overview   Comments 1   Worklog 1   Hierarchy   > Claude                                                        │
+│                                                                                                                  │
+│  Claude ───────────────────────────────────────────────────────────────────────────── j/k select  enter run      │
+│                                                                                                                  │
+│                                                                                                                  │
+│     ACTION         DETAIL                                                                                        │
+│                                                                                                                  │
+│   > Ticket Plan    Create a read-only implementation and verification plan.                                      │
+│     Ticket Assist  Guide a whole-ticket draft with questions and subtask recommendations.                        │
+│     Quality Review Find missing acceptance criteria, assumptions, and questions.                                 │
+│     Draft Comment  Draft a clarifying Jira comment for review before posting.                                    │
+│                                                                                                                  │
+│                                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+Ticket Detail  ? help  |  esc back  j/k scroll  |  tab section  |  . actions  n new  T toil  |  a ai  |  o open

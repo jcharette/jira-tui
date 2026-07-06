@@ -17,6 +17,8 @@ All notable changes to this project should be recorded here.
 - Fixed reviewed UX gaps: Start Work now stops Jira writes after a required branch failure, Ticket
   Assist comment posting honors `allow_jira_writes`, Draft Comment uses its own feature flag, and
   keyboard/command docs match current shortcuts.
+- Added UX render snapshots for representative TUI states to catch help, footer, modal, and flow
+  drift.
 
 ## 1.0.10 - 2026-06-30
 
