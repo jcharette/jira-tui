@@ -6,7 +6,7 @@
 - [x] Review and approve the written spec.
 - [x] Write the implementation plan for Pass 1: Developer Flow Polish.
 - [x] Implement Pass 1 in small verified slices.
-- [ ] Reassess Pass 2 and Pass 3 sequencing after Pass 1 lands.
+- [x] Reassess Pass 2 and Pass 3 sequencing after Pass 1 lands.
 
 ### Implementation Notes
 
@@ -14,6 +14,13 @@
 - Keep Jira/Git/GitHub/Claude safe-write gates unchanged.
 - Prefer existing detail sections, Ticket Actions, Claude actions, comments, worklog, and workflow
   code before adding new surfaces.
+
+### Review
+
+- Pass 1 added Developer Workbench and developer-first Ticket Actions.
+- Follow-up cockpit slice kept the existing detail sections but made Workbench summarize developer
+  actions plus Comments, Worklog, Hierarchy, and Links state.
+- Next useful slice is search/filter clarity or deeper related-work detail polish.
 
 ## Release v1.0.11 - 2026-07-06
 

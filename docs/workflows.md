@@ -51,9 +51,9 @@ This does not rewrite your JQL. It loads hierarchy around the selected issue.
 Jira writes use Jira metadata before submitting, so required transition fields and supported edit
 fields are discovered from the configured site/project/issue.
 
-The Workbench section is the fastest orientation point for developer work. It keeps Start Work,
-Claude planning/review, comments, worklogs, Jira open/copy actions, and workflow updates together
-without bypassing the existing review prompts.
+The Workbench section is the fastest orientation point for developer work. It summarizes Start Work,
+Claude planning/review, comments, worklogs, hierarchy, links, Jira open/copy actions, and workflow
+updates together without bypassing the existing review prompts.
 
 ## Add A Ticket To A Sprint
 

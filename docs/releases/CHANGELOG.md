@@ -6,6 +6,8 @@ All notable changes to this project should be recorded here.
 
 - Added a Developer Workbench detail section and developer-first Ticket Actions grouping so Start
   Work, Claude planning/review, comments, worklogs, and Jira open/copy actions are easier to find.
+- Tightened Developer Workbench into a compact cockpit summary for developer actions plus Comments,
+  Worklog, Hierarchy, and Links state.
 
 ## 1.0.11 - 2026-07-06
 

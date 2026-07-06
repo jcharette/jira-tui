@@ -77,7 +77,7 @@ func TestDeveloperWorkbenchSectionShowsDeveloperLoopActions(t *testing.T) {
 	model.details = map[string]jira.IssueDetail{
 		"ABC-1": {
 			Issue:       model.issues[0],
-			Description: "Make generated text, local edits, and Jira writes easy to distinguish.",
+			Description: "Make generated text, local edits, and Jira writes easy to distinguish. See https://example.test/runbook.",
 			Reporter:    "Rae",
 		},
 	}
@@ -105,6 +105,15 @@ func TestDeveloperWorkbenchSectionShowsDeveloperLoopActions(t *testing.T) {
 		"Log Work",
 		"Open Jira",
 		"Copy Key",
+		"SURFACE",
+		"Comments",
+		"1 loaded",
+		"Worklog",
+		"1 logged",
+		"Hierarchy",
+		"No loaded children",
+		"Links",
+		"1 found",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("workbench missing %q in:\n%s", want, view)

@@ -11,16 +11,14 @@ Filter  ABC · updated desc
 │  Developer Workbench ───────────────────────────────────────────────────────────────────────── next actions      │
 │                                                                                                                  │
 │                                                                                                                  │
-│   ACTION         STATE DETAIL                                                                                    │
+│   SURFACE   STATE              NEXT                                                                              │
 │                                                                                                                  │
-│   Start Work     ready Ticket Actions -> Start Work creates/switches branch after review.                        │
-│   Claude Plan    ready Open Claude actions for a read-only implementation plan.                                  │
-│   Quality Review ready Ask Claude for readiness gaps before writing Jira.                                        │
-│   Draft Comment  ready Draft an editable Jira comment before post confirmation.                                  │
-│   Add Comment    ready Write or refine a Jira comment, then review before posting.                               │
-│   Log Work       ready Add a Jira worklog entry for this ticket.                                                 │
-│   Open Jira      ready Open the issue in the browser.                                                            │
-│   Copy Key       ready Copy the ticket key for branch names, commits, and notes.                                 │
+│   Work      ready              Start Work from Ticket Actions after branch/Jira review.                          │
+│   Claude    ready              Claude Plan, Quality Review, or Draft Comment from Claude actions.                │
+│   Comments  1 loaded           Add Comment or tab to Comments for review/edit.                                   │
+│   Worklog   1 logged           Log Work from Ticket Actions or tab to Worklog.                                   │
+│   Hierarchy No loaded children tab to Hierarchy; x/X loads children from the issue list.                         │
+│   Links     none               tab to Links when present; Open Jira, Copy Key, copy URLs.                        │
 │                                                                                                                  │
 │                                                                                                                  │
 │    Use . for Ticket Actions, a for Claude actions, or tab to move through ticket sections.                       │

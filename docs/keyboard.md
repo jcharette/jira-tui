@@ -59,9 +59,10 @@ Ticket Actions includes Sprint, which lists the active sprint first and future s
 also includes Fix Version, Affects Version, Due Date, Parent, and Estimates when Jira edit metadata
 exposes those fields for the selected issue.
 
-The Developer Workbench section groups the daily ticket loop: Start Work, Claude planning/review
-when enabled, comments, worklogs, Jira open/copy actions, and the safest next Jira workflow actions.
-Ticket Actions uses the same developer-first grouping before lower-frequency Jira metadata edits.
+The Developer Workbench section is a cockpit-style hub for the daily ticket loop: Start Work,
+Claude planning/review when enabled, comments, worklogs, hierarchy, links, Jira open/copy actions,
+and the safest next Jira workflow actions. Ticket Actions uses the same developer-first grouping
+before lower-frequency Jira metadata edits.
 
 The Claude detail section includes Ticket Plan, Ticket Assist, Quality Review, and Draft Comment
 actions when the matching feature flags are enabled. When a Ticket Assist draft modal is open,

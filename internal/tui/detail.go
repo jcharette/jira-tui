@@ -810,19 +810,69 @@ func (m Model) renderOverviewSection(ctx detailRenderContext, width int) string 
 
 func (m Model) renderDeveloperWorkbenchSection(ctx detailRenderContext, width int) string {
 	lines := []string{m.detailSectionHeader("workbench", "Developer Workbench", "next actions", width), ""}
-	rows := [][]string{
-		{m.theme.FieldLabel.Render("Start Work"), m.theme.Success.Render("ready"), m.theme.Muted.Render("Ticket Actions -> Start Work creates/switches branch after review.")},
-		{m.theme.FieldLabel.Render("Claude Plan"), m.claudeWorkbenchState(), m.theme.Muted.Render("Open Claude actions for a read-only implementation plan.")},
-		{m.theme.FieldLabel.Render("Quality Review"), m.claudeWorkbenchState(), m.theme.Muted.Render("Ask Claude for readiness gaps before writing Jira.")},
-		{m.theme.FieldLabel.Render("Draft Comment"), m.claudeWorkbenchState(), m.theme.Muted.Render("Draft an editable Jira comment before post confirmation.")},
-		{m.theme.FieldLabel.Render("Add Comment"), m.theme.Success.Render("ready"), m.theme.Muted.Render("Write or refine a Jira comment, then review before posting.")},
-		{m.theme.FieldLabel.Render("Log Work"), m.theme.Success.Render("ready"), m.theme.Muted.Render("Add a Jira worklog entry for this ticket.")},
-		{m.theme.FieldLabel.Render("Open Jira"), m.theme.Success.Render("ready"), m.theme.Muted.Render("Open the issue in the browser.")},
-		{m.theme.FieldLabel.Render("Copy Key"), m.theme.Success.Render("ready"), m.theme.Muted.Render("Copy the ticket key for branch names, commits, and notes.")},
-	}
-	lines = append(lines, m.detailTable(0, []string{"ACTION", "STATE", "DETAIL"}, rows, nil))
+	lines = append(lines, m.detailTable(0, []string{"SURFACE", "STATE", "NEXT"}, m.developerWorkbenchRows(ctx, width), nil))
 	lines = append(lines, "", m.detailEmptyState("Use . for Ticket Actions, a for Claude actions, or tab to move through ticket sections.", width))
 	return strings.Join(lines, "\n")
+}
+
+func (m Model) developerWorkbenchRows(ctx detailRenderContext, width int) [][]string {
+	key := ctx.display.Key
+	return [][]string{
+		{m.theme.FieldLabel.Render("Work"), m.theme.Success.Render("ready"), m.theme.Muted.Render("Start Work from Ticket Actions after branch/Jira review.")},
+		{m.theme.FieldLabel.Render("Claude"), m.claudeWorkbenchState(), m.theme.Muted.Render("Claude Plan, Quality Review, or Draft Comment from Claude actions.")},
+		{m.theme.FieldLabel.Render("Comments"), m.theme.Text.Render(m.workbenchCommentsState(key)), m.theme.Muted.Render("Add Comment or tab to Comments for review/edit.")},
+		{m.theme.FieldLabel.Render("Worklog"), m.theme.Text.Render(m.workbenchWorklogState(key)), m.theme.Muted.Render("Log Work from Ticket Actions or tab to Worklog.")},
+		{m.theme.FieldLabel.Render("Hierarchy"), m.theme.Text.Render(m.workbenchHierarchyState(key)), m.theme.Muted.Render("tab to Hierarchy; x/X loads children from the issue list.")},
+		{m.theme.FieldLabel.Render("Links"), m.theme.Text.Render(m.workbenchLinksState(ctx)), m.theme.Muted.Render(truncate("tab to Links when present; Open Jira, Copy Key, copy URLs.", max(24, width-30)))},
+	}
+}
+
+func (m Model) workbenchCommentsState(key string) string {
+	if comments, ok := m.comments[key]; ok {
+		return fmt.Sprintf("%d loaded", len(comments))
+	}
+	if m.commentsLoading && m.commentsRequestKey == key {
+		return "loading"
+	}
+	if m.commentsErr != nil && m.commentsRequestKey == key {
+		return "error"
+	}
+	return "not loaded"
+}
+
+func (m Model) workbenchWorklogState(key string) string {
+	if worklogs, ok := m.worklogs[key]; ok {
+		return fmt.Sprintf("%d logged", len(worklogs))
+	}
+	if m.worklogsLoading && m.worklogsRequestKey == key {
+		return "loading"
+	}
+	if m.worklogsErr != nil && m.worklogsRequestKey == key {
+		return "error"
+	}
+	return "not loaded"
+}
+
+func (m Model) workbenchHierarchyState(key string) string {
+	count := len(m.hierarchyRows(key))
+	if count == 0 {
+		return "No loaded children"
+	}
+	if count == 1 {
+		return "1 loaded issue"
+	}
+	return fmt.Sprintf("%d loaded issues", count)
+}
+
+func (m Model) workbenchLinksState(ctx detailRenderContext) string {
+	count := len(ctx.links)
+	if count == 0 {
+		return "none"
+	}
+	if count == 1 {
+		return "1 found"
+	}
+	return fmt.Sprintf("%d found", count)
 }
 
 func (m Model) claudeWorkbenchState() string {
