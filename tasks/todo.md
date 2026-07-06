@@ -7,7 +7,7 @@
 - [x] Verify docs, tests, project check, and install.
 - [x] Switch GitHub auth to personal account, push release prep, dispatch and verify Release workflow.
 - [x] Update Homebrew formula from published checksums and verify CI.
-- [ ] Switch GitHub auth back to joncha_floqast.
+- [x] Switch GitHub auth back to joncha_floqast.
 
 ### Review
 
@@ -15,6 +15,7 @@
 - Updated `Formula/jira-tui.rb` from the published v1.0.11 `checksums.txt`.
 - Fixed CI-only UX snapshot drift by making the snapshot harness own timezone and symbol mode.
 - Verified local release gates, release publication, and formula follow-up CI run `28792948405`.
+- Switched GitHub auth back to `joncha_floqast` after release operations.
 
 ## UX Snapshot Harness - 2026-07-06
 
