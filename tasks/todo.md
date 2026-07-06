@@ -5,7 +5,7 @@
 - [x] Move Unreleased changelog entries to v1.0.11.
 - [x] Update app version and install docs for v1.0.11.
 - [x] Verify docs, tests, project check, and install.
-- [ ] Switch GitHub auth to personal account, push release prep, dispatch and verify Release workflow.
+- [x] Switch GitHub auth to personal account, push release prep, dispatch and verify Release workflow.
 - [ ] Update Homebrew formula from published checksums and verify CI.
 - [ ] Switch GitHub auth back to joncha_floqast.
 
