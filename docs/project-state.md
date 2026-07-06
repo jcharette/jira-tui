@@ -59,6 +59,22 @@ jira start ABC-123
 jira start
 ```
 
+Report and finish local work:
+
+```bash
+jira commit ABC-123
+jira finish ABC-123
+```
+
+Use quick toil-ticket accounting:
+
+```bash
+jira ticket create-toil --summary "Follow up on deploy"
+jira ticket toil
+jira ticket update-toil ABC-123 --time 30m
+jira ticket close-toil ABC-123 --time 15m
+```
+
 Run with a saved profile:
 
 ```bash
@@ -369,14 +385,14 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   `ctrl+r` refines the current draft with saved answers. `pgup`/`pgdn` page long drafts and
   `ctrl+y` copies the edited draft. Printable letters always edit the focused local draft or answer
   editor; modal actions use modifier shortcuts so ordinary text entry cannot open another workflow.
-  When `allow_jira_writes` is disabled, `ctrl+s` keeps the draft local and explains that writes are
-  gated. When `allow_jira_writes` and confirmation are enabled, `ctrl+s` opens an apply confirmation
-  and a second `ctrl+s` updates Jira Summary and Description through the worker pool. Pressing
+  When `allow_jira_writes` is disabled, `ctrl+s` and draft-comment posting keep the draft local and
+  explain that writes are gated. When `allow_jira_writes` and confirmation are enabled, `ctrl+s`
+  opens an apply confirmation and a second `ctrl+s` updates Jira Summary and Description through the worker pool. Pressing
   `ctrl+r` without parsed questions opens a refinement instruction editor; submitting it sends
   Claude the original ticket context, the current user-edited draft, and the user's instruction,
   then replaces the editable draft with the refined result while keeping Jira writes gated. Pressing
   `ctrl+c` opens a confirmation to post the current draft as a Jira comment without editing Summary
-  or Description, useful for tickets owned by someone else. Ticket Assist result modals render
+  or Description when Jira writes are enabled, useful for tickets owned by someone else. Ticket Assist result modals render
   distinct `Claude Review`, `Local Draft`, Open Questions, and `Available Actions` zones so
   generated review, local edits, clarifications, and next actions are easier to separate. Acceptance
   Criteria are treated as a first-class draft section and are written into Description for now.
@@ -674,7 +690,8 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
 - Config supports saved profiles and CLI profile selection, but the config editor only edits the
   selected active profile rather than providing a full multi-profile management UI.
 - There is no OAuth flow; API token auth is the only supported auth mode.
-- There is no git repository initialized in this folder yet.
+- The project is maintained as a git repository with CLI workflows for start, commit, finish, and
+  toil-ticket accounting.
 - The Jira client uses `go-atlassian` for search, issue detail, comment reads, comment creation,
   issue creation including parent-scoped subtask creation, edit metadata, create metadata discovery,
   summary updates, priority updates, labels updates, and issue transitions, including transition-screen metadata for Resolution/Comment fields and ADF payload

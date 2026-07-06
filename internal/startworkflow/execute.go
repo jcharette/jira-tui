@@ -27,6 +27,7 @@ type Outcome struct {
 func ApplyActions(ctx context.Context, gitClient gitworkflow.Client, jiraClient JiraClient, result Result) []Outcome {
 	outcomes := make([]Outcome, 0, len(result.Actions))
 	branchSucceeded := false
+	requiredBranchFailed := false
 	for _, action := range result.Actions {
 		if action.Kind != ActionBranch {
 			continue
@@ -40,13 +41,31 @@ func ApplyActions(ctx context.Context, gitClient gitworkflow.Client, jiraClient 
 		if err := gitClient.CreateOrSwitchBranch(ctx, result.RepoPath, result.BranchName); err != nil {
 			outcome.State = "failed"
 			outcome.Err = err
+			if action.Required {
+				requiredBranchFailed = true
+			}
 		} else {
 			branchSucceeded = true
 			outcome.State = "completed"
 		}
 		outcomes = append(outcomes, outcome)
 	}
+	if requiredBranchFailed {
+		outcomes = append(outcomes, skippedJiraOutcomes(result.Actions)...)
+		return outcomes
+	}
 	outcomes = append(outcomes, ApplyJiraActions(ctx, jiraClient, result, branchSucceeded)...)
+	return outcomes
+}
+
+func skippedJiraOutcomes(actions []ActionPlan) []Outcome {
+	outcomes := make([]Outcome, 0, len(actions))
+	for _, action := range actions {
+		if action.Kind == ActionBranch {
+			continue
+		}
+		outcomes = append(outcomes, Outcome{Kind: action.Kind, Label: action.Label, State: "skipped"})
+	}
 	return outcomes
 }
 

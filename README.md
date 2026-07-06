@@ -282,6 +282,12 @@ keymap.
 jira
 jira config
 jira start ABC-123
+jira commit ABC-123
+jira finish ABC-123
+jira ticket create-toil --summary "Follow up on deploy"
+jira ticket toil
+jira ticket update-toil ABC-123 --time 30m
+jira ticket close-toil ABC-123 --time 15m
 jira start
 jira --profile work
 jira --profile work config

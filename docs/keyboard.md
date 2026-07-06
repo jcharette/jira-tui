@@ -44,10 +44,12 @@ In the bug report composer, use `ctrl+r` to polish the local draft with Claude w
 | `j/k` | Scroll detail content or move inside focused lists |
 | `enter` | Edit or activate focused field/section |
 | `.` | Open Ticket Actions |
+| `d` / `m` / `h` / `l` | Jump to Overview, Comments, Hierarchy, or Links |
 | `s` | Edit Summary |
 | `p` | Edit Priority |
 | `o` | Open Jira issue URL |
-| `c` | Copy Jira issue URL |
+| `c` | Copy Jira issue key |
+| `y` | Copy Jira issue URL |
 | `n` | Create ticket or subtask from context |
 | `T` | Create toil ticket |
 | `a` | Open AI/Claude actions when enabled |
@@ -109,6 +111,18 @@ uses `j`/`k` to select a recommendation, `enter` to apply it, `s` to skip it, an
 | `ctrl+r` | Refine the local comment draft with Claude when enabled |
 | `ctrl+s` | Submit after review |
 | `esc` | Cancel or leave comment focus |
+
+## Worklog
+
+| Key | Action |
+| --- | --- |
+| `enter` | Log work or confirm delete |
+| `j/k` | Select a worklog when the Worklog section is focused |
+| `e` | Edit selected worklog |
+| `d` | Delete selected worklog after confirmation |
+| `tab` | Switch between duration and note fields |
+| `ctrl+s` | Save worklog |
+| `esc` | Cancel or leave worklog focus |
 
 ## Notifications
 

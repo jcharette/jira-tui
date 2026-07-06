@@ -14,6 +14,9 @@ All notable changes to this project should be recorded here.
 - Added `ctrl+r` Claude refinement for local Create Ticket drafts before Jira creation.
 - Added `ctrl+r` Claude polish for local bug report title/body drafts before opening GitHub.
 - Added `ctrl+r` Claude refinement for local Add/Edit Comment drafts before Jira post/update.
+- Fixed reviewed UX gaps: Start Work now stops Jira writes after a required branch failure, Ticket
+  Assist comment posting honors `allow_jira_writes`, Draft Comment uses its own feature flag, and
+  keyboard/command docs match current shortcuts.
 
 ## 1.0.10 - 2026-06-30
 

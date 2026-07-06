@@ -45,7 +45,7 @@ func TestClaudeSectionVisibleWithTicketAssistOnly(t *testing.T) {
 	model := NewModel(
 		&fakeIssueSearcher{},
 		"project = ABC",
-		WithClaudeConfig(ClaudeConfig{Enabled: true, TicketAssist: true, Timeout: time.Second}),
+		WithClaudeConfig(ClaudeConfig{Enabled: true, TicketAssist: true, DraftComment: true, Timeout: time.Second}),
 		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
 	)
 	defer model.workers.Stop()
@@ -67,15 +67,44 @@ func TestClaudeSectionVisibleWithTicketAssistOnly(t *testing.T) {
 	}
 }
 
+func TestClaudeDraftCommentUsesDraftCommentFlag(t *testing.T) {
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = ABC",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, TicketAssist: true, DraftComment: false, Timeout: time.Second}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
+	)
+	defer model.workers.Stop()
+	for _, action := range model.claudeActions() {
+		if action.ID == "draft_comment" && action.Enabled {
+			t.Fatalf("draft_comment action enabled with flag off: %#v", action)
+		}
+	}
+
+	model.claudeConfig.TicketAssist = false
+	model.claudeConfig.DraftComment = true
+	found := false
+	for _, action := range model.claudeActions() {
+		if action.ID == "draft_comment" && action.Enabled {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("draft_comment action missing with flag on")
+	}
+}
+
 func TestClaudeSectionShowsQualityReviewAndDraftComment(t *testing.T) {
 	model := NewModel(
 		&fakeIssueSearcher{},
 		"project = ABC",
-		WithClaudeConfig(ClaudeConfig{Enabled: true, TicketAssist: true, Timeout: time.Second}),
+		WithClaudeConfig(ClaudeConfig{Enabled: true, TicketAssist: true, DraftComment: true, Timeout: time.Second}),
 		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
 	)
 	defer model.workers.Stop()
 	model.mode = modeDetail
+	model.width = 120
+	model.height = 40
 	issue := jira.Issue{Key: "ABC-1", Summary: "Unclear rollout"}
 	model.details = map[string]jira.IssueDetail{"ABC-1": {Issue: issue}}
 
@@ -1032,6 +1061,37 @@ func TestClaudeTicketAssistDraftCanBePostedAsComment(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("expected comments refresh command")
+	}
+}
+
+func TestClaudeTicketAssistCommentHonorsJiraWriteGate(t *testing.T) {
+	searcher := &fakeIssueSearcher{}
+	model := NewModel(
+		searcher,
+		"project = ABC",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, TicketAssist: true, Timeout: time.Second, AllowJiraWrites: false, RequireConfirmation: true}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
+	)
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Original summary"}}
+	model.claudeAssistOpen = true
+	model.claudeAssistKey = "ABC-1"
+	model.claudeAssistConfirmComment = true
+	model.claudeAssistDraft = "Draft comment"
+	model.claudeAssistEditor = newClaudeAssistEditor(model.claudeAssistDraft)
+	model.claudeAssistEditorReady = true
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next := updated.(Model)
+	if cmd != nil || next.claudeAssistPostingComment {
+		t.Fatalf("writes disabled should not submit cmd=%v posting=%v", cmd, next.claudeAssistPostingComment)
+	}
+	if searcher.addedBody != "" {
+		t.Fatalf("posted body = %q", searcher.addedBody)
+	}
+	if !strings.Contains(next.detailNotice, "Claude Jira writes are disabled") {
+		t.Fatalf("detailNotice = %q", next.detailNotice)
 	}
 }
 

@@ -55,6 +55,7 @@ func newTicketToilCommand(profile *string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "toil",
 		Short: "Pick from open assigned toil tickets",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, client, ctx, cancel, err := toilDeps(*profile)
 			if err != nil {
@@ -77,6 +78,7 @@ func newCreateToilCommand(profile *string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create-toil",
 		Short: "Create a Jira toil ticket",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, client, ctx, cancel, err := toilDeps(*profile)
 			if err != nil {

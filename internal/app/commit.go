@@ -218,6 +218,7 @@ func buildCommitNotePrompt(request commitNoteDraftRequest) string {
 	plan := request.Plan
 	var b strings.Builder
 	fmt.Fprintf(&b, "Draft a compact Jira progress note for %s.\n", plan.IssueKey)
+	b.WriteString("Do not edit files, create commits, call Jira, call GitHub, run git commands, or make external changes.\n")
 	fmt.Fprintf(&b, "Ticket summary: %s\n", displayValue(plan.IssueSummary, request.Issue.Summary))
 	b.WriteString("Return only the Jira note. Keep it under 6 bullets and under 1200 characters.\n")
 	if plan.ShouldCommit {

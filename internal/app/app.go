@@ -124,6 +124,7 @@ func runAppWithConfig(cfg config.Config, cfgPath string) error {
 			Enabled:             cfg.Claude.Enabled,
 			TicketPlan:          cfg.Claude.Features.TicketPlan,
 			TicketAssist:        cfg.Claude.Features.TicketAssist,
+			DraftComment:        cfg.Claude.Features.DraftComment,
 			DraftTicket:         cfg.Claude.Features.DraftTicket,
 			BranchPlan:          cfg.Claude.Features.BranchPlan,
 			Command:             claudeCommand,

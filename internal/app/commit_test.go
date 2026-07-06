@@ -242,7 +242,7 @@ func TestBuildCommitNotePromptIncludesSourceContext(t *testing.T) {
 			UnreportedCommits: []gitworkflow.Commit{{SHA: "2222222abcdef", Subject: "ABC-123: second change"}},
 		},
 	})
-	for _, want := range []string{"ABC-123", "Prepare release", "internal/app/commit.go", "2222222", "second change", "Return only the Jira note"} {
+	for _, want := range []string{"ABC-123", "Prepare release", "internal/app/commit.go", "2222222", "second change", "Do not edit files", "Return only the Jira note"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
 		}

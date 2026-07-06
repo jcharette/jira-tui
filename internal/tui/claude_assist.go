@@ -28,6 +28,7 @@ type ClaudeConfig struct {
 	Enabled             bool
 	TicketPlan          bool
 	TicketAssist        bool
+	DraftComment        bool
 	DraftTicket         bool
 	BranchPlan          bool
 	Command             string
@@ -643,6 +644,13 @@ func (m Model) claudeTicketAssistAvailable() bool {
 		m.claudeStatus.Available
 }
 
+func (m Model) claudeDraftCommentAvailable() bool {
+	return m.claudeConfig.Enabled &&
+		m.claudeConfig.DraftComment &&
+		m.claudeStatus.Enabled &&
+		m.claudeStatus.Available
+}
+
 func (m Model) claudeCreateTicketDraftAvailable() bool {
 	return m.claudeCreateTicketDraftEnabled() && m.claudeStatus.Available
 }
@@ -705,7 +713,7 @@ func (m Model) claudeActions() []claudeAction {
 		{ID: "ticket_plan", Label: "Ticket Plan", Description: "Create a read-only implementation and verification plan.", Enabled: m.claudeTicketPlanAvailable()},
 		{ID: "ticket_assist", Label: "Ticket Assist", Description: "Guide a whole-ticket draft with questions and subtask recommendations.", Enabled: m.claudeTicketAssistAvailable()},
 		{ID: "quality_review", Label: "Quality Review", Description: "Find missing acceptance criteria, assumptions, and questions.", Enabled: m.claudeTicketAssistAvailable()},
-		{ID: "draft_comment", Label: "Draft Comment", Description: "Draft a clarifying Jira comment for review before posting.", Enabled: m.claudeTicketAssistAvailable()},
+		{ID: "draft_comment", Label: "Draft Comment", Description: "Draft a clarifying Jira comment for review before posting.", Enabled: m.claudeDraftCommentAvailable()},
 	}
 	filtered := make([]claudeAction, 0, len(actions))
 	for _, action := range actions {
@@ -881,8 +889,8 @@ func (m Model) startClaudeDraftComment() (Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	if !m.claudeTicketAssistAvailable() {
-		m.detailNotice = "Claude ticket assistance is not enabled or available."
+	if !m.claudeDraftCommentAvailable() {
+		m.detailNotice = "Claude draft comments are not enabled or available."
 		return m, nil
 	}
 	key := ctx.display.Key
@@ -2275,6 +2283,10 @@ func (m Model) submitClaudeAssistComment() (Model, tea.Cmd) {
 	body := strings.TrimSpace(m.claudeAssistDraftValue())
 	if key == "" {
 		m.detailNotice = "No selected ticket for comment."
+		return m, nil
+	}
+	if !m.claudeConfig.AllowJiraWrites {
+		m.detailNotice = "Claude Jira writes are disabled."
 		return m, nil
 	}
 	if body == "" {

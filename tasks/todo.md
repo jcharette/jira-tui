@@ -1,5 +1,31 @@
 # Task Plan
 
+## Tooling UX Review - 2026-07-06
+
+- [x] Review CLI command/help UX and local workflow tooling.
+- [x] Review TUI navigation, footer/help, modal, and keyboard consistency.
+- [x] Review Claude-assisted workflow UX and confirmation boundaries.
+- [x] Review docs/backlog/changelog consistency against shipped tooling.
+- [x] Run verification commands and record findings.
+
+### Review Notes
+
+- Read-only review first; do not refactor until findings are concrete.
+- Prioritize bugs, broken flows, stale help/docs, and high-friction UX.
+- Keep fixes, if any, as separate bounded follow-up slices.
+
+### Findings And Fixes
+
+- Fixed Start Work so a required branch failure skips later Jira assignment, transition, and comment writes.
+- Fixed Ticket Assist comment posting so `allow_jira_writes = false` blocks the Jira comment path.
+- Wired the existing `draft_comment` feature flag into TUI Draft Comment availability.
+- Added the same external-write prompt boundary to `jira commit` Claude note drafting used by other Claude prompts.
+- Rejected unexpected positional args for `jira ticket toil` and `jira ticket create-toil`.
+- Updated keyboard, command, project-state, and changelog docs for current tooling.
+- Updated GitHub issue #6 through the GitHub connector after `gh issue edit` was blocked by EMU auth.
+- Verification: focused regression tests passed, `go test ./... -count=1` passed,
+  `make docs-check` passed, `make check` passed, and `make install-user` passed.
+
 ## Claude Comment Draft Refinement - 2026-07-06
 
 - [x] Add focused failing tests for comment composer `ctrl+r` Claude refinement.

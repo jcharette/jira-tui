@@ -49,6 +49,19 @@ func TestTicketCommandHelpMentionsToilCommands(t *testing.T) {
 	}
 }
 
+func TestToilCommandsRejectUnexpectedArgs(t *testing.T) {
+	for _, args := range [][]string{
+		{"ticket", "toil", "ABC-123"},
+		{"ticket", "create-toil", "ABC-123"},
+	} {
+		cmd := NewRootCommand()
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err == nil {
+			t.Fatalf("Execute(%v) expected error", args)
+		}
+	}
+}
+
 func TestRunCreateToilCreatesLabeledTicketAndLogsWork(t *testing.T) {
 	client := &fakeToilJiraClient{
 		issueTypes: []jira.CreateIssueType{
