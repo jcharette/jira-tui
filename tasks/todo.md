@@ -1,5 +1,20 @@
 # Task Plan
 
+## Developer Workbench UX - 2026-07-06
+
+- [x] Write the approved UX direction as a scoped design spec.
+- [ ] Review and approve the written spec.
+- [ ] Write the implementation plan for Pass 1: Developer Flow Polish.
+- [ ] Implement Pass 1 in small verified slices.
+- [ ] Reassess Pass 2 and Pass 3 sequencing after Pass 1 lands.
+
+### Implementation Notes
+
+- Use JiraTUI as a UX benchmark, not a source to copy.
+- Keep Jira/Git/GitHub/Claude safe-write gates unchanged.
+- Prefer existing detail sections, Ticket Actions, Claude actions, comments, worklog, and workflow
+  code before adding new surfaces.
+
 ## Release v1.0.11 - 2026-07-06
 
 - [x] Move Unreleased changelog entries to v1.0.11.
