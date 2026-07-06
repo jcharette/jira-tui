@@ -84,7 +84,7 @@ uses `j`/`k` to select a recommendation, `enter` to apply it, `s` to skip it, an
 | `enter` | Continue or activate selected field |
 | `tab` | Move fields or switch create mode when AI is enabled |
 | `ctrl+s` | Generate or submit, depending on mode |
-| `ctrl+r` | Refine a generated draft with answered Open Questions |
+| `ctrl+r` | Refine the current generated draft, or refine with answered Open Questions |
 | `esc` | Cancel |
 
 ## Create Toil

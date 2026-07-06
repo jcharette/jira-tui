@@ -309,6 +309,10 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   create metadata mapping endpoints first, then fall back to the expanded create metadata endpoint
   when the preferred endpoint succeeds with zero values. Long Jira option lists in create fields are
   rendered in bounded picker windows so the modal stays inside the visible terminal.
+  When Claude Draft Ticket is enabled, AI Generated create mode can draft Summary and Description
+  locally. After a generated or user-edited draft is present, `ctrl+r` refines the current Summary
+  and Description with Claude, while Open Questions keep their more specific answered-question
+  refinement path. Jira creation still requires the normal `ctrl+s` submit.
 - From focused ticket detail, the Ticket Actions palette can create a subtask for the selected
   issue. This reuses the same create modal, filters the issue type picker to Jira metadata entries
   marked as subtasks, keeps required-field validation in the create form, and submits the selected

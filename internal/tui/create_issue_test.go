@@ -1616,6 +1616,84 @@ func TestCreateQuestionsPanelShowsAndRunsRefineWithAnswers(t *testing.T) {
 	}
 }
 
+func TestCreateFormCtrlRRefinesCurrentDraft(t *testing.T) {
+	runner := &fakeClaudeRunner{
+		result: claude.Result{Text: strings.Join([]string{
+			"Summary: Refined Kubernetes platform",
+			"Description: Refined implementation scope.",
+		}, "\n")},
+	}
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = DEVOPS",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, DraftTicket: true, Timeout: time.Second}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
+		WithClaudeRunner(runner),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 140
+	model.height = 45
+	model.createOpen = true
+	model.createProjectKey = "DEVOPS"
+	model.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Task"}
+	model.createFields = []jira.CreateField{
+		{ID: "summary", Name: "Summary", SchemaSystem: "summary", SchemaType: "string"},
+		{ID: "description", Name: "Description", SchemaSystem: "description", SchemaType: "string"},
+	}
+	model.createSummaryDraft = "Build Kubernetes platform"
+	model.createDescriptionDraft = "Provision clusters."
+	model.beginCreateForm()
+
+	view := model.render()
+	if !strings.Contains(view, "ctrl+r refine") {
+		t.Fatalf("create form should expose refine action:\n%s", view)
+	}
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+r"}))
+	next := updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected ctrl+r to submit Claude refinement")
+	}
+	if !next.createAIPromptLoading {
+		t.Fatal("expected create AI prompt loading after refine")
+	}
+	<-runClaudePlanCommandAsyncForTest(cmd)
+	for _, want := range []string{"Current draft:", "Summary: Build Kubernetes platform", "Description:", "Provision clusters.", "User request:", "Refine the current ticket draft."} {
+		if !strings.Contains(runner.request.Prompt, want) {
+			t.Fatalf("prompt missing %q in:\n%s", want, runner.request.Prompt)
+		}
+	}
+}
+
+func TestCreateFormCtrlRRequiresCurrentDraft(t *testing.T) {
+	model := NewModel(
+		&fakeIssueSearcher{},
+		"project = DEVOPS",
+		WithClaudeConfig(ClaudeConfig{Enabled: true, DraftTicket: true, Timeout: time.Second}),
+		WithClaudeStatus(ClaudeStatus{Enabled: true, Available: true, Command: "claude"}),
+	)
+	defer model.workers.Stop()
+	model.loading = false
+	model.createOpen = true
+	model.createProjectKey = "DEVOPS"
+	model.createIssueType = jira.CreateIssueType{ID: "10001", Name: "Task"}
+	model.createFields = []jira.CreateField{
+		{ID: "summary", Name: "Summary", SchemaSystem: "summary", SchemaType: "string"},
+		{ID: "description", Name: "Description", SchemaSystem: "description", SchemaType: "string"},
+	}
+	model.beginCreateForm()
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+r"}))
+	next := updated.(Model)
+	if cmd != nil || next.createAIPromptLoading {
+		t.Fatalf("empty draft should not submit Claude cmd=%v loading=%v", cmd, next.createAIPromptLoading)
+	}
+	if !strings.Contains(next.detailNotice, "Add a summary or description") {
+		t.Fatalf("detailNotice = %q", next.detailNotice)
+	}
+}
+
 func TestCreateDraftPromptIncludesOpenQuestionAnswers(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = DEVOPS")
 	defer model.workers.Stop()

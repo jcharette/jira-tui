@@ -5,7 +5,7 @@
 - [x] Add Claude drafting to `jira finish` PR title/body and final Jira note.
 - [x] Add ticket-detail Claude Quality Review and Draft Comment actions.
 - [x] Add read-only Claude start-work plans before branch/Jira writes.
-- [ ] Add create-ticket draft refinement.
+- [x] Add create-ticket draft refinement.
 - [ ] Add Claude cleanup for bug report title/body.
 - [ ] Verify focused tests, docs checks, full local checks, and install.
 
@@ -20,6 +20,9 @@
 - Added optional read-only Claude Branch Plans to CLI and TUI Start Work review.
 - Kept branch and Jira writes unchanged behind the existing Start Work confirmation.
 - Verified focused start-work tests.
+- Added `ctrl+r` Claude refinement for local Create Ticket Summary/Description drafts.
+- Kept Jira creation unchanged behind the existing `ctrl+s` submit.
+- Verified focused create-ticket refinement tests.
 
 ## Claude AI Workflow Cleanup - 2026-07-06
 

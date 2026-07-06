@@ -140,6 +140,13 @@ picker searches `labels = toil OR issuetype = Toil` and keeps close transitions 
 requires extra fields to close the ticket, the command logs time but leaves the ticket open and
 reports the skipped close.
 
+## Create Tickets With Claude Drafts
+
+In the Create Ticket form, enable AI Generated mode to ask Claude for a local ticket draft. After a
+draft is applied to the editable form, `ctrl+r` refines the current Summary and Description with
+Claude before any Jira write. If Claude returned Open Questions, answer them locally and use
+`ctrl+r` from the Open Questions panel to refine with those saved answers.
+
 ## Improve An Epic With Ticket Assist
 
 1. Open the epic detail view.

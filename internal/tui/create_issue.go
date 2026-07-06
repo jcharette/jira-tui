@@ -263,7 +263,7 @@ func (m Model) renderCreateIssue(layout browserLayout) string {
 				focusLine = len(lines)
 			}
 			lines = append(lines, m.createFieldLabel("Generate Draft", aiFieldIndex))
-			lines = append(lines, m.theme.Muted.Render("Press enter to improve the current draft with AI."))
+			lines = append(lines, m.theme.Muted.Render("Press enter or ctrl+r to refine the current draft with Claude."))
 		}
 		for index, field := range supportedCreateFields(m.createFields) {
 			focusIndex := m.createDynamicFieldFocusIndex(index)
@@ -286,7 +286,7 @@ func (m Model) renderCreateIssue(layout browserLayout) string {
 			lines = append(lines, "", m.renderDetailNotice(m.detailNotice, bodyWidth))
 		}
 		if m.claudeCreateTicketDraftEnabled() {
-			footer = "tab field  enter generate  ctrl+s create  esc cancel"
+			footer = "tab field  enter generate  ctrl+r refine  ctrl+s create  esc cancel"
 		} else {
 			footer = "tab field  ctrl+s create  esc cancel"
 		}
@@ -908,6 +908,8 @@ func (m Model) updateCreateIssue(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if m.createQuestionsFieldFocused() {
 			return m.updateCreateQuestions(msg)
 		}
+	case "ctrl+r":
+		return m.submitCreateDraftRefinement()
 	case "ctrl+s":
 		return m.submitCreateIssueDraft()
 	}
@@ -1000,6 +1002,15 @@ func (m Model) updateCreateQuestions(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 func (m Model) submitCreateQuestionRefinement() (Model, tea.Cmd) {
 	m.createAIPrompt = "Refine the current ticket draft using my answers to the Open Questions."
+	return m.submitCreateAIPrompt()
+}
+
+func (m Model) submitCreateDraftRefinement() (Model, tea.Cmd) {
+	if strings.TrimSpace(m.createIssueAICurrentDraft()) == "" {
+		m.detailNotice = "Add a summary or description before refining with Claude."
+		return m, nil
+	}
+	m.createAIPrompt = "Refine the current ticket draft."
 	return m.submitCreateAIPrompt()
 }
 
