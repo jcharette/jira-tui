@@ -1,5 +1,20 @@
 # Task Plan
 
+## Claude Tooling Expansion - 2026-07-06
+
+- [ ] Add Claude drafting to `jira finish` PR title/body and final Jira note.
+- [ ] Add ticket-detail Claude Quality Review and Draft Comment actions.
+- [ ] Add read-only Claude start-work plans before branch/Jira writes.
+- [ ] Add create-ticket draft refinement.
+- [ ] Add Claude cleanup for bug report title/body.
+- [ ] Verify focused tests, docs checks, full local checks, and install.
+
+### Implementation Notes
+
+- Keep Claude as the only execution provider in this batch.
+- Keep provider-neutral execution, Codex support, workspace mapping, and code edits deferred.
+- Keep every generated result behind an existing review/edit/confirmation surface.
+
 ## Claude AI Workflow Cleanup - 2026-07-06
 
 - [x] Sync the local backlog and roadmap with the decision to backburner provider-neutral AI.
