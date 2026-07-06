@@ -28,7 +28,7 @@ In the bug report composer, use `ctrl+r` to polish the local draft with Claude w
 | `/` | Open query screen |
 | `tab` / `shift+tab` | Switch saved views |
 | `L` | Cycle layouts |
-| `f` | Toggle local active-ticket filter |
+| `f` | Toggle local active-status filter |
 | `o` / `O` | Cycle sort |
 | `n` | Create ticket |
 | `T` | Create toil ticket |
@@ -38,6 +38,8 @@ In the bug report composer, use `ctrl+r` to polish the local draft with Claude w
 
 On normal-height terminals, the issue list shows a selected-ticket strip under the view controls
 with the focused key, status, priority, owner, and next `enter open` action.
+The `Status All/Active` chip is local to the loaded list; the header `Filter` line summarizes the
+active Jira query or saved view.
 
 ## Ticket Detail
 

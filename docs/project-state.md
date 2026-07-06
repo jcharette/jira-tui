@@ -447,7 +447,8 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   children. Expansion runs through the worker pool and merges new child rows into the current list.
 - Issue tables support a local `f` Active filter that hides loaded tickets whose status text looks
   terminal (`done`, `closed`, `resolved`, `canceled`, or `cancelled`) without changing Jira reads,
-  saved views, cache records, or loaded issue data.
+  saved views, cache records, or loaded issue data. The issue-list control strip labels this as
+  `Status All/Active` so it is visually distinct from the header's Jira query summary.
 - Issue tables support local layout modes with `L`. `Table` remains the dense scan view,
   `Workbench` adds a responsive selected-ticket context panel on wide terminals using selected-row
   context, latest loaded comments, hierarchy, and loaded description preview without exposing cache

@@ -562,7 +562,7 @@ func (m Model) issueListSelectedStrip(layout browserLayout) string {
 func (m Model) issueListControlStrip(title string, layout browserLayout) string {
 	parts := []string{
 		m.issueListChip("View", m.activeViewName(), false),
-		m.issueListChip("Filter", m.activeStatusFilterLabel(), m.statusFilter == issueStatusFilterActive),
+		m.issueListChip("Status", m.activeStatusFilterLabel(), m.statusFilter == issueStatusFilterActive),
 		m.issueListChip("Layout", m.issueLayoutModeLabel(), m.issueLayout != issueLayoutTable),
 		m.issueListChip("Sort", titleCase(m.sortLabel()), m.sort != sortJira),
 		m.theme.PaneTitle.Render(title),

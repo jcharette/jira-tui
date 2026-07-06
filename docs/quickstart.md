@@ -41,7 +41,7 @@ for the full key list.
 
 - Press `tab` / `shift+tab` to switch saved views.
 - Press `L` to cycle layouts.
-- Press `f` to toggle the local active-ticket filter.
+- Press `f` to toggle the local active-status filter.
 - Press `r` to refresh the current view.
 - Press `/` to run JQL or generate JQL with AI when enabled.
 

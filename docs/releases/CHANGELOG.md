@@ -10,6 +10,8 @@ All notable changes to this project should be recorded here.
   Worklog, Hierarchy, and Links state.
 - Added a selected-ticket strip to the issue list so the initial screen shows the focused key,
   status, priority, owner, and next action.
+- Renamed the issue-list local filter chip to `Status All/Active` so it is not confused with the
+  active Jira query filter.
 
 ## 1.0.11 - 2026-07-06
 

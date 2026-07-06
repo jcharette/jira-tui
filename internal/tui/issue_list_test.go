@@ -196,7 +196,7 @@ func TestIssueListControlStripShowsViewFilterLayoutAndSort(t *testing.T) {
 
 	view := model.renderIssueList(model.browserLayout(model.width))
 
-	for _, want := range []string{"View Mine", "Filter Active", "Layout Lanes", "Sort Jira"} {
+	for _, want := range []string{"View Mine", "Status Active", "Layout Lanes", "Sort Jira"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q in %q", want, view)
 		}
