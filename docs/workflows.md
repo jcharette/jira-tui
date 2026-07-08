@@ -112,7 +112,27 @@ normal Jira post/update confirmation.
 3. Fill Summary, Description, and supported Jira metadata fields.
 4. Press `ctrl+s` to create.
 
-Subtask creation is available from focused ticket actions and reuses the same metadata-backed form.
+Subtask creation is available from focused ticket actions and reuses the same metadata-backed form
+when the focused ticket is not an Epic. For Epic work, create a Story or Task under the Epic so the
+work appears on sprint boards.
+
+## Check Board Hygiene
+
+Audit your current in-progress tickets and their children for board visibility problems:
+
+```bash
+jira ticket check-board
+```
+
+Check one ticket:
+
+```bash
+jira ticket check-board ABC-123
+```
+
+Use `--fix` to print proposed fixes and confirm them in one prompt. Safe fixes assign unassigned
+work to the current user, add tickets to the active sprint when configured, and attempt Story/Task
+conversion for Epic-owned Sub-tasks before reporting manual follow-up.
 
 ## Account For Toil
 
