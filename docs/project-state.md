@@ -1,6 +1,6 @@
 # Project State
 
-Last updated: 2026-06-22
+Last updated: 2026-07-08
 
 ## Goal
 
@@ -33,12 +33,12 @@ support.
 Install a tagged release with Go:
 
 ```bash
-go install github.com/jcharette/jira-tui/cmd/jira@v1.0.11
+go install github.com/jcharette/jira-tui/cmd/jira@v1.0.12
 ```
 
 Release archives are published at
 [GitHub Releases](https://github.com/jcharette/jira-tui/releases) with names such as
-`jira-tui_1.0.11_darwin_arm64.tar.gz` and include a `jira` binary.
+`jira-tui_1.0.12_darwin_arm64.tar.gz` and include a `jira` binary.
 
 Run from the project root:
 
@@ -73,6 +73,8 @@ jira ticket create-toil --summary "Follow up on deploy"
 jira ticket toil
 jira ticket update-toil ABC-123 --time 30m
 jira ticket close-toil ABC-123 --time 15m
+jira ticket check-board
+jira ticket check-board ABC-123 --fix
 ```
 
 Run with a saved profile:

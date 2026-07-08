@@ -21,6 +21,7 @@ func TestNewRootCommandExposesTicketToilCommands(t *testing.T) {
 		{"ticket", "create-toil"},
 		{"ticket", "update-toil"},
 		{"ticket", "close-toil"},
+		{"ticket", "check-board"},
 	} {
 		found, _, err := cmd.Find(args)
 		if err != nil {
@@ -42,7 +43,7 @@ func TestTicketCommandHelpMentionsToilCommands(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	for _, want := range []string{"create-toil", "update-toil", "close-toil", "toil"} {
+	for _, want := range []string{"create-toil", "update-toil", "close-toil", "toil", "check-board"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("missing %q in help %q", want, out.String())
 		}
@@ -155,6 +156,112 @@ func TestRunCloseToilLogsWorkThenAppliesSafeTerminalTransition(t *testing.T) {
 	}
 }
 
+func TestRunCheckBoardAuditsCurrentUserWork(t *testing.T) {
+	client := &fakeToilJiraClient{
+		searchByJQL: map[string][]jira.Issue{
+			"assignee = currentUser() AND resolution = Unresolved ORDER BY updated DESC": {
+				{Key: "ABC-1", Summary: "Parent epic", Status: "In Progress", IssueType: "Epic", Assignee: "Jon"},
+			},
+			"parent = ABC-1 ORDER BY key ASC": {
+				{Key: "ABC-2", Summary: "Bad subtask", Status: "In Progress", IssueType: "Sub-task", IsSubtask: true, ParentKey: "ABC-1", Assignee: "Unassigned"},
+			},
+			"key = ABC-1 AND sprint in openSprints()": {{Key: "ABC-1"}},
+			"key = ABC-2 AND sprint in openSprints()": nil,
+		},
+		sprints: []jira.Sprint{{ID: 300, BoardID: 1255, Name: "Sprint 42", State: "active"}},
+	}
+	cfg := config.Defaults()
+	cfg.DefaultBoardID = 1255
+	var out bytes.Buffer
+
+	err := runCheckBoardWithDeps(context.Background(), cfg, client, nil, strings.NewReader(""), &out, boardCheckOptions{})
+
+	if err != nil {
+		t.Fatalf("runCheckBoardWithDeps() error = %v", err)
+	}
+	for _, want := range []string{"ERROR ABC-2", "Sub-task directly under Epic ABC-1", "WARN ABC-2", "not in the active sprint"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("missing %q in output %q", want, out.String())
+		}
+	}
+}
+
+func TestRunCheckBoardFixPromptsBeforeApplying(t *testing.T) {
+	client := &fakeToilJiraClient{
+		searchByJQL: map[string][]jira.Issue{
+			"key = ABC-2":                             {{Key: "ABC-2", Summary: "Unassigned work", Status: "In Progress", IssueType: "Story", Assignee: "Unassigned"}},
+			"parent = ABC-2 ORDER BY key ASC":         nil,
+			"key = ABC-2 AND sprint in openSprints()": nil,
+		},
+		sprints:     []jira.Sprint{{ID: 300, BoardID: 1255, Name: "Sprint 42", State: "active"}},
+		currentUser: jira.User{AccountID: "account-123", DisplayName: "Jon"},
+	}
+	cfg := config.Defaults()
+	cfg.DefaultBoardID = 1255
+	var out bytes.Buffer
+
+	err := runCheckBoardWithDeps(context.Background(), cfg, client, []string{"ABC-2"}, strings.NewReader("y\n"), &out, boardCheckOptions{Fix: true})
+
+	if err != nil {
+		t.Fatalf("runCheckBoardWithDeps() error = %v", err)
+	}
+	if client.updateAssigneeKey != "ABC-2" || client.moveSprintID != 300 {
+		t.Fatalf("fixes not applied: assignee=%s sprint=%d", client.updateAssigneeKey, client.moveSprintID)
+	}
+	if !strings.Contains(out.String(), "Apply these fixes? [y/N]") || !strings.Contains(out.String(), "Assigned ABC-2") || !strings.Contains(out.String(), "Added ABC-2") {
+		t.Fatalf("output = %q", out.String())
+	}
+}
+
+func TestRunCheckBoardFixNoKeepsReadOnly(t *testing.T) {
+	client := &fakeToilJiraClient{
+		searchByJQL: map[string][]jira.Issue{
+			"key = ABC-2":                     {{Key: "ABC-2", Status: "In Progress", IssueType: "Story", Assignee: "Unassigned"}},
+			"parent = ABC-2 ORDER BY key ASC": nil,
+		},
+	}
+	var out bytes.Buffer
+
+	err := runCheckBoardWithDeps(context.Background(), config.Defaults(), client, []string{"ABC-2"}, strings.NewReader("n\n"), &out, boardCheckOptions{Fix: true})
+
+	if err != nil {
+		t.Fatalf("runCheckBoardWithDeps() error = %v", err)
+	}
+	if client.updateAssigneeKey != "" {
+		t.Fatalf("unexpected assignee update: %s", client.updateAssigneeKey)
+	}
+	if !strings.Contains(out.String(), "No fixes applied.") {
+		t.Fatalf("output = %q", out.String())
+	}
+}
+
+func TestRunCheckBoardFixConvertsSubtaskWhenStoryTypeExists(t *testing.T) {
+	client := &fakeToilJiraClient{
+		searchByJQL: map[string][]jira.Issue{
+			"key = ABC-2":                     {{Key: "ABC-2", Status: "In Progress", IssueType: "Sub-task", IsSubtask: true, ParentKey: "ABC-1", Assignee: "Jon"}},
+			"parent = ABC-2 ORDER BY key ASC": nil,
+			"key = ABC-1":                     {{Key: "ABC-1", IssueType: "Epic"}},
+		},
+		issueTypes: []jira.CreateIssueType{
+			{ID: "10001", Name: "Sub-task", Subtask: true},
+			{ID: "10002", Name: "Story", Subtask: false},
+		},
+	}
+	var out bytes.Buffer
+
+	err := runCheckBoardWithDeps(context.Background(), config.Defaults(), client, []string{"ABC-2"}, strings.NewReader(""), &out, boardCheckOptions{Fix: true, Yes: true})
+
+	if err != nil {
+		t.Fatalf("runCheckBoardWithDeps() error = %v", err)
+	}
+	if client.updateIssueTypeKey != "ABC-2" || client.updateIssueTypeID != "10002" {
+		t.Fatalf("issue type update = %s %s", client.updateIssueTypeKey, client.updateIssueTypeID)
+	}
+	if !strings.Contains(out.String(), "Converted ABC-2") {
+		t.Fatalf("output = %q", out.String())
+	}
+}
+
 func TestRunCloseToilReportsWhenNoSafeTransitionExists(t *testing.T) {
 	client := &fakeToilJiraClient{
 		transitions: []jira.Transition{
@@ -177,18 +284,26 @@ func TestRunCloseToilReportsWhenNoSafeTransitionExists(t *testing.T) {
 }
 
 type fakeToilJiraClient struct {
-	issueTypes        []jira.CreateIssueType
-	createdIssue      jira.Issue
-	createRequest     jira.CreateIssueRequest
-	searchIssues      []jira.Issue
-	searchJQL         string
-	addWorklogKey     string
-	addWorklogRequest jira.AddWorklogRequest
-	transitions       []jira.Transition
-	transitionKey     string
-	transitionID      string
-	now               time.Time
-	err               error
+	issueTypes         []jira.CreateIssueType
+	createdIssue       jira.Issue
+	createRequest      jira.CreateIssueRequest
+	searchIssues       []jira.Issue
+	searchByJQL        map[string][]jira.Issue
+	searchJQL          string
+	addWorklogKey      string
+	addWorklogRequest  jira.AddWorklogRequest
+	transitions        []jira.Transition
+	transitionKey      string
+	transitionID       string
+	currentUser        jira.User
+	updateAssigneeKey  string
+	updateIssueTypeKey string
+	updateIssueTypeID  string
+	sprints            []jira.Sprint
+	moveSprintID       int
+	moveIssueKeys      []string
+	now                time.Time
+	err                error
 }
 
 func (f *fakeToilJiraClient) SearchIssues(_ context.Context, jql string, _ int) ([]jira.Issue, error) {
@@ -196,6 +311,9 @@ func (f *fakeToilJiraClient) SearchIssues(_ context.Context, jql string, _ int) 
 		return nil, f.err
 	}
 	f.searchJQL = jql
+	if f.searchByJQL != nil {
+		return append([]jira.Issue(nil), f.searchByJQL[jql]...), nil
+	}
 	return append([]jira.Issue(nil), f.searchIssues...), nil
 }
 
@@ -242,6 +360,49 @@ func (f *fakeToilJiraClient) TransitionIssue(_ context.Context, key string, requ
 	return nil
 }
 
+func (f *fakeToilJiraClient) CurrentUser(context.Context) (jira.User, error) {
+	if f.err != nil {
+		return jira.User{}, f.err
+	}
+	if f.currentUser.AccountID == "" {
+		return jira.User{AccountID: "account-123", DisplayName: "Jon"}, nil
+	}
+	return f.currentUser, nil
+}
+
+func (f *fakeToilJiraClient) UpdateAssignee(_ context.Context, key string, _ jira.User) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.updateAssigneeKey = key
+	return nil
+}
+
+func (f *fakeToilJiraClient) GetBoardSprints(_ context.Context, boardID int, _ []string, _, _ int) (jira.SprintPage, error) {
+	if f.err != nil {
+		return jira.SprintPage{}, f.err
+	}
+	return jira.SprintPage{BoardID: boardID, Sprints: append([]jira.Sprint(nil), f.sprints...)}, nil
+}
+
+func (f *fakeToilJiraClient) MoveIssuesToSprint(_ context.Context, sprintID int, issueKeys []string) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.moveSprintID = sprintID
+	f.moveIssueKeys = append([]string(nil), issueKeys...)
+	return nil
+}
+
+func (f *fakeToilJiraClient) UpdateIssueType(_ context.Context, key string, issueTypeID string) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.updateIssueTypeKey = key
+	f.updateIssueTypeID = issueTypeID
+	return nil
+}
+
 func (f *fakeToilJiraClient) currentTime() time.Time {
 	if f.now.IsZero() {
 		return time.Now()
@@ -250,4 +411,5 @@ func (f *fakeToilJiraClient) currentTime() time.Time {
 }
 
 var _ toilJiraClient = (*fakeToilJiraClient)(nil)
+var _ boardCheckClient = (*fakeToilJiraClient)(nil)
 var _ io.Reader = (*strings.Reader)(nil)

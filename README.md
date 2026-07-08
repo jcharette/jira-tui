@@ -65,15 +65,15 @@ binary somewhere on your `PATH`.
 Apple Silicon example:
 
 ```bash
-curl -LO https://github.com/jcharette/jira-tui/releases/download/v1.0.11/jira-tui_1.0.11_darwin_arm64.tar.gz
-tar -xzf jira-tui_1.0.11_darwin_arm64.tar.gz
+curl -LO https://github.com/jcharette/jira-tui/releases/download/v1.0.12/jira-tui_1.0.12_darwin_arm64.tar.gz
+tar -xzf jira-tui_1.0.12_darwin_arm64.tar.gz
 install -m 0755 jira ~/bin/jira
 ```
 
 Or install with Go:
 
 ```bash
-go install github.com/jcharette/jira-tui/cmd/jira@v1.0.11
+go install github.com/jcharette/jira-tui/cmd/jira@v1.0.12
 ```
 
 Go installs the binary as `jira`.
@@ -209,13 +209,16 @@ non-ASCII symbols, then restart the terminal and run `jira config`.
   terminal transition.
 - `jira ticket update-toil [KEY]` and `jira ticket close-toil [KEY]` log time to toil tickets; omit
   `KEY` to pick from open assigned tickets matching label `toil` or issue type `Toil`.
+- `jira ticket check-board [KEY]` audits a ticket, or your current in-progress work when `KEY` is
+  omitted, for board visibility problems. Add `--fix` to review and confirm safe fixes, or `--yes`
+  for non-interactive runs.
 - Ticket detail supports summary, priority, assignee, labels, components, fix/affects versions, due
   date, parent, time tracking estimates, safe generic custom fields, and workflow transitions
   through Jira edit metadata.
 - Transition screens support required Resolution, Comment, text/date fields, user pickers,
   multi-select fields, and autocomplete-backed options when Jira metadata supplies safe values.
-- Subtask creation reuses the same Jira metadata-backed create flow with the current ticket as
-  parent.
+- Subtask creation reuses the same Jira metadata-backed create flow with the current non-Epic ticket
+  as parent. Epics should get Story/Task children instead, so the TUI blocks direct Epic Sub-tasks.
 
 ### Comments, Links, And Worklogs
 
@@ -288,6 +291,8 @@ jira ticket create-toil --summary "Follow up on deploy"
 jira ticket toil
 jira ticket update-toil ABC-123 --time 30m
 jira ticket close-toil ABC-123 --time 15m
+jira ticket check-board
+jira ticket check-board ABC-123 --fix
 jira start
 jira --profile work
 jira --profile work config
@@ -308,7 +313,7 @@ make build
 make build-local
 make docs-status
 make milestone-complete M=M1
-make release VERSION=1.0.11
+make release VERSION=1.0.12
 ```
 
 Planning, backlog, release notes, and decisions live in [docs/README.md](docs/README.md). The project

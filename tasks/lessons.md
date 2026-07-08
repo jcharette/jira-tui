@@ -186,6 +186,14 @@
 - Claude-assisted create-ticket prompts must feed only Jira-returned issue types and fields. Do not
   guess common types like Task/Story/Epic unless Jira metadata for the selected project actually
   returned them, and only auto-apply AI recommendations that match returned Jira metadata.
+- Board-visible Jira work must be created as Story/Task under an Epic, not a Sub-task directly under
+  an Epic. For current work on board 1255, set Sprint and assignee before closing so sprint reports
+  and assignee-based quick filters include the ticket; check the Done column before treating a closed
+  ticket as missing.
+- Do not assume Jira issue-type conversion is UI-only. For bad Epic-owned Sub-tasks, first check
+  Jira edit metadata and attempt a metadata-backed type/parent fix when available; use AI to propose
+  field mappings, but fall back to guided manual steps or replacement-ticket creation if Jira rejects
+  the conversion.
 - Create-ticket AI loading should use calm product progress, not stream/debug evidence. Hide partial
   assistant snippets, command paths, start/deadline metadata, and other noisy execution details from
   the normal modal; keep those details in diagnostics or error states.

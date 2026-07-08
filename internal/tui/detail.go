@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 	lipglosstable "github.com/charmbracelet/lipgloss/table"
+	"github.com/jcharette/jira-tui/internal/boardcheck"
 	"github.com/jcharette/jira-tui/internal/jira"
 	"github.com/jcharette/jira-tui/internal/linkdetect"
 	"github.com/jcharette/jira-tui/internal/worker"
@@ -802,10 +803,47 @@ func (m Model) displayIssueForDetail(selected jira.Issue, detail jira.IssueDetai
 func (m Model) renderOverviewSection(ctx detailRenderContext, width int) string {
 	lines := []string{m.detailSectionHeader("overview", "Overview", "", width)}
 	lines = append(lines, "", m.renderOverviewLatest(ctx.display.Key, width))
+	if warning := m.renderBoardHygieneWarnings(ctx.display, width); warning != "" {
+		lines = append(lines, "", warning)
+	}
 	lines = append(lines, "", m.renderOverviewDescription(ctx, width))
 	lines = append(lines, "", m.renderOverviewHierarchy(ctx.display, width))
 	lines = append(lines, "", m.detailEmptyState("Press . for Ticket Actions.", width))
 	return strings.Join(lines, "\n")
+}
+
+func (m Model) renderBoardHygieneWarnings(issue jira.Issue, width int) string {
+	parent := m.issueByKey(issue.ParentKey)
+	findings := boardcheck.CheckIssue(issue, boardcheck.Options{Parent: parent})
+	if len(findings) == 0 {
+		return ""
+	}
+	lines := []string{m.theme.Muted.Render("Board Hygiene")}
+	for _, finding := range findings {
+		lines = append(lines, m.renderDetailNotice(string(finding.Severity)+": "+finding.Message, width))
+		if strings.TrimSpace(finding.Fix) != "" {
+			lines = append(lines, m.theme.Muted.Render("Fix: "+finding.Fix))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) issueByKey(key string) *jira.Issue {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return nil
+	}
+	for _, issue := range m.issues {
+		if strings.EqualFold(issue.Key, key) {
+			found := issue
+			return &found
+		}
+	}
+	if detail, ok := m.details[key]; ok {
+		found := detail.Issue
+		return &found
+	}
+	return nil
 }
 
 func (m Model) renderDeveloperWorkbenchSection(ctx detailRenderContext, width int) string {
@@ -1498,20 +1536,28 @@ func (m Model) renderHierarchyGroup(label string, groupRows []hierarchyRow, widt
 		} else {
 			key = "  " + key
 		}
+		board := ""
+		if len(boardcheck.CheckIssue(child, boardcheck.Options{Parent: m.issueByKey(child.ParentKey)})) > 0 {
+			board = "!"
+		}
 		tableRows = append(tableRows, []string{
 			key,
 			truncate(child.Summary, max(12, width-52)),
 			displayValue(child.Status, "Unknown"),
 			truncate(priorityBadge(child.Priority), 4),
 			truncate(shortName(displayValue(child.Assignee, "Unassigned")), 14),
+			board,
 		})
 	}
-	lines = append(lines, m.detailTable(0, []string{"KEY", "SUMMARY", "STATUS", "PRI", "OWNER"}, tableRows, func(row, col int) lipgloss.Style {
+	lines = append(lines, m.detailTable(0, []string{"KEY", "SUMMARY", "STATUS", "PRI", "OWNER", "BOARD"}, tableRows, func(row, col int) lipgloss.Style {
 		if col == 0 {
 			if m.hierarchyFocus && row >= 0 && row < len(groupRows) && groupRows[row].Index == cursor {
 				return m.theme.Selected
 			}
 			return m.theme.Key
+		}
+		if col == 5 {
+			return m.theme.Error
 		}
 		return m.theme.Text
 	}))
@@ -1616,6 +1662,12 @@ func (m Model) renderStatusSection(issue jira.Issue, width int) string {
 }
 
 func (m Model) detailActions() []detailAction {
+	subtaskEnabled := true
+	subtaskReason := ""
+	if selected, ok := m.selectedIssue(); ok && boardcheck.IsEpic(selected) {
+		subtaskEnabled = false
+		subtaskReason = "Create a Story/Task under the Epic instead."
+	}
 	actions := []detailAction{
 		{ID: "start-work", Label: "Start Work", Description: "Choose repo, create branch, and apply confirmed Jira updates.", Enabled: true},
 		{ID: "comment", Label: "Add Comment", Description: "Write or refine a Jira comment before review and post.", Enabled: true},
@@ -1631,7 +1683,7 @@ func (m Model) detailActions() []detailAction {
 		{ID: "components", Label: "Edit Components", Description: "Select Jira components from edit metadata.", Enabled: true},
 		{ID: "sprint", Label: "Sprint", Description: "Add this ticket to an active or future Jira sprint.", Enabled: true},
 		{ID: "link-issue", Label: "Link Issue", Description: "Create a Jira issue link to another ticket.", Enabled: true},
-		{ID: "subtask", Label: "Create Subtask", Description: "Use Jira create metadata for required fields.", Enabled: true},
+		{ID: "subtask", Label: "Create Subtask", Description: "Use Jira create metadata for required fields.", Enabled: subtaskEnabled, DisabledReason: subtaskReason},
 	}
 	actions = append(actions, m.genericEditFieldActions()...)
 	return actions
@@ -1817,6 +1869,10 @@ func (m Model) startCreateSubtask() (Model, tea.Cmd) {
 	selected, ok := m.selectedIssue()
 	if !ok || strings.TrimSpace(selected.Key) == "" {
 		m.detailNotice = "Select an issue before creating a subtask."
+		return m, nil
+	}
+	if boardcheck.IsEpic(selected) {
+		m.detailNotice = "Create a Story/Task under this Epic instead of a Sub-task."
 		return m, nil
 	}
 	return m.startCreateIssueWithParent(selected.Key, selected.Summary)

@@ -1417,6 +1417,31 @@ func (c *Client) UpdateParent(ctx context.Context, key string, request UpdatePar
 	return nil
 }
 
+func (c *Client) UpdateIssueType(ctx context.Context, key string, issueTypeID string) error {
+	key = strings.TrimSpace(key)
+	issueTypeID = strings.TrimSpace(issueTypeID)
+	if key == "" {
+		return fmt.Errorf("update jira issue type: missing issue key")
+	}
+	if issueTypeID == "" {
+		return fmt.Errorf("update jira issue type %s: missing issue type ID", key)
+	}
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+	payload := &model.IssueScheme{
+		Fields: &model.IssueFieldsScheme{
+			IssueType: &model.IssueTypeScheme{ID: issueTypeID},
+		},
+	}
+	if _, err := c.issue.Update(ctx, key, false, payload, nil, nil); err != nil {
+		return fmt.Errorf("update jira issue type %s: %w", key, err)
+	}
+	return nil
+}
+
 func (c *Client) UpdateTimeTracking(ctx context.Context, key string, request UpdateTimeTrackingRequest) error {
 	key = strings.TrimSpace(key)
 	original := strings.TrimSpace(request.OriginalEstimate)

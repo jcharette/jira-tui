@@ -1,5 +1,26 @@
 # Task Plan
 
+## Board Hygiene Audit and Fix - 2026-07-08
+
+- [x] Add shared board hygiene checks for Epic-owned Sub-tasks, unassigned work, and sprint visibility.
+- [x] Block Create Subtask from Epics and show TUI board hygiene warnings.
+- [x] Add `jira ticket check-board [KEY]` and no-key current-user audit mode.
+- [x] Add prompted `--fix` / scripted `--yes` behavior for safe fixes.
+- [x] Document and verify the flow.
+
+### Implementation Notes
+
+- Reuse existing Jira search/detail, child expansion, sprint move, assignee update, and edit metadata paths.
+- Attempt metadata-backed issue-type conversion before falling back to replacement/manual guidance.
+- Keep default fixes interactive: print the plan, prompt once, default no.
+
+### Review
+
+- Added shared board hygiene checks plus TUI warnings and an Epic guard for Create Subtask.
+- Added `jira ticket check-board [KEY]`, no-key current-user audit mode, prompted `--fix`, and `--yes`.
+- Safe fixes assign to current user, add active sprint when `queries.default_board_id` has an active
+  sprint, and attempt Story/Task conversion for Epic-owned Sub-tasks before reporting manual follow-up.
+
 ## Developer Workbench UX - 2026-07-06
 
 - [x] Write the approved UX direction as a scoped design spec.

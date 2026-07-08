@@ -1865,7 +1865,7 @@ func TestDetailActionsPaletteListsSafeActionsAndGenericEditFields(t *testing.T) 
 	model.mode = modeDetail
 	model.width = 100
 	model.height = 30
-	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Parent epic", Status: "In Progress", Priority: "High", IssueType: "Epic", Assignee: "A Developer", URL: "https://example.test/browse/ABC-1"}}
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Parent story", Status: "In Progress", Priority: "High", IssueType: "Story", Assignee: "A Developer", URL: "https://example.test/browse/ABC-1"}}
 	model.details = map[string]jira.IssueDetail{
 		"ABC-1": {Issue: model.issues[0], Description: "Parent description."},
 	}
@@ -1993,6 +1993,55 @@ func TestDetailActionsPaletteListsSafeActionsAndGenericEditFields(t *testing.T) 
 	}
 	if cmd == nil {
 		t.Fatal("subtask action should request create metadata")
+	}
+}
+
+func TestDetailActionsBlockCreateSubtaskForEpic(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.loading = false
+	model.issues = []jira.Issue{{Key: "ABC-1", Summary: "Parent epic", Status: "In Progress", IssueType: "Epic"}}
+	model.selected = 0
+
+	action := model.detailActions()[detailActionIndexForTest(t, model.detailActions(), "subtask")]
+	if action.Enabled {
+		t.Fatalf("subtask action should be disabled for Epic: %#v", action)
+	}
+
+	model.actionFocus = true
+	model.selectedAction = detailActionIndexForTest(t, model.detailActions(), "subtask")
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "enter", Code: tea.KeyEnter}))
+	next := updated.(Model)
+	if cmd != nil {
+		t.Fatal("Epic subtask action should not submit work")
+	}
+	if next.createOpen {
+		t.Fatal("Epic subtask action should not open create modal")
+	}
+	if !strings.Contains(next.detailNotice, "Create a Story/Task under the Epic") {
+		t.Fatalf("detailNotice = %q", next.detailNotice)
+	}
+}
+
+func TestDetailOverviewShowsBoardHygieneWarning(t *testing.T) {
+	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
+	defer model.workers.Stop()
+	model.mode = modeDetail
+	model.loading = false
+	model.width = 100
+	model.height = 30
+	model.issues = []jira.Issue{
+		{Key: "ABC-1", Summary: "Parent epic", Status: "In Progress", IssueType: "Epic"},
+		{Key: "ABC-2", Summary: "Invisible work", Status: "In Progress", IssueType: "Sub-task", IsSubtask: true, ParentKey: "ABC-1"},
+	}
+	model.selected = 1
+
+	view := model.render()
+	for _, want := range []string{"Board Hygiene", "Sub-task directly under Epic ABC-1", "convert to Story/Task"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in:\n%s", want, view)
+		}
 	}
 }
 

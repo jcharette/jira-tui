@@ -4,6 +4,8 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+## 1.0.12 - 2026-07-08
+
 - Added a Developer Workbench detail section and developer-first Ticket Actions grouping so Start
   Work, Claude planning/review, comments, worklogs, and Jira open/copy actions are easier to find.
 - Tightened Developer Workbench into a compact cockpit summary for developer actions plus Comments,
@@ -14,6 +16,11 @@ All notable changes to this project should be recorded here.
   status, priority, owner, and next action.
 - Renamed the issue-list local filter chip to `Status All/Active` so it is not confused with the
   active Jira query filter.
+- Added board hygiene checks that warn on Epic-owned Sub-tasks, unassigned in-progress work, and
+  missing active sprint membership.
+- Added `jira ticket check-board [KEY]` with current-user audit mode, prompted `--fix`, and
+  script-friendly `--yes`.
+- Blocked direct Sub-task creation under Epics in the TUI and marked problematic hierarchy rows.
 
 ## 1.0.11 - 2026-07-06
 

@@ -48,6 +48,7 @@ func newTicketCommand(profile *string) *cobra.Command {
 	cmd.AddCommand(newCreateToilCommand(profile))
 	cmd.AddCommand(newUpdateToilCommand(profile))
 	cmd.AddCommand(newCloseToilCommand(profile))
+	cmd.AddCommand(newCheckBoardCommand(profile))
 	return cmd
 }
 
