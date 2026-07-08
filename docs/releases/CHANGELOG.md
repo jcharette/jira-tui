@@ -4,6 +4,13 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+## 1.0.13 - 2026-07-08
+
+- Fixed `jira ticket check-board` so missing active-sprint findings are reported even when
+  `queries.default_board_id` is not configured.
+- Added `--board` to `jira ticket check-board` so active-sprint checks and fixes can target a board
+  explicitly, such as board 1255.
+
 ## 1.0.12 - 2026-07-08
 
 - Added a Developer Workbench detail section and developer-first Ticket Actions grouping so Start
