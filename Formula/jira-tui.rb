@@ -1,26 +1,26 @@
 class JiraTui < Formula
   desc "Terminal-first Jira client"
   homepage "https://github.com/jcharette/jira-tui"
-  version "1.0.11"
+  version "1.0.12"
   license "Apache-2.0"
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/jcharette/jira-tui/releases/download/v1.0.11/jira-tui_1.0.11_darwin_arm64.tar.gz"
-      sha256 "f5620c861d6670ef6ce40a92684118bda76eee00ec285cf89c320b8c8651d259"
+      url "https://github.com/jcharette/jira-tui/releases/download/v1.0.12/jira-tui_1.0.12_darwin_arm64.tar.gz"
+      sha256 "54a62f68bf65ce84842789fb198ffdedf34f68be3a8b5f2387b72c21a42b3a0f"
     else
-      url "https://github.com/jcharette/jira-tui/releases/download/v1.0.11/jira-tui_1.0.11_darwin_amd64.tar.gz"
-      sha256 "1d0f155ab42107f81ebf5449d756f5b590fe107f582dcd66be0100f31b301be5"
+      url "https://github.com/jcharette/jira-tui/releases/download/v1.0.12/jira-tui_1.0.12_darwin_amd64.tar.gz"
+      sha256 "f5443cfcb4951647682a25f66a9e2a04fc4089a9e559462872acec7971d0cca9"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
-      url "https://github.com/jcharette/jira-tui/releases/download/v1.0.11/jira-tui_1.0.11_linux_arm64.tar.gz"
-      sha256 "dc4f42e6cd3f22c485950cc7083478cba243db09c1d0b14a3d6cba90241974a4"
+      url "https://github.com/jcharette/jira-tui/releases/download/v1.0.12/jira-tui_1.0.12_linux_arm64.tar.gz"
+      sha256 "15afbb3d0d482d8d9e47cfd34f8a10420806bea0eb53138f1d0a6966964358d0"
     else
-      url "https://github.com/jcharette/jira-tui/releases/download/v1.0.11/jira-tui_1.0.11_linux_amd64.tar.gz"
-      sha256 "85cb2303616c3f3ea70d375011436bf3ac300bd99fb3c216c6e92edaeadaabbf"
+      url "https://github.com/jcharette/jira-tui/releases/download/v1.0.12/jira-tui_1.0.12_linux_amd64.tar.gz"
+      sha256 "1875accb88e5bd64bb90be7fcf087fe8e93be14078219f11074d74997c79c107"
     end
   end
 
