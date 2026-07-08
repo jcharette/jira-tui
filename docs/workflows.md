@@ -122,17 +122,19 @@ Audit your current in-progress tickets and their children for board visibility p
 
 ```bash
 jira ticket check-board
+jira ticket check-board --board 1255
 ```
 
 Check one ticket:
 
 ```bash
-jira ticket check-board ABC-123
+jira ticket check-board ABC-123 --board 1255
 ```
 
 Use `--fix` to print proposed fixes and confirm them in one prompt. Safe fixes assign unassigned
-work to the current user, add tickets to the active sprint when configured, and attempt Story/Task
-conversion for Epic-owned Sub-tasks before reporting manual follow-up.
+work to the current user, add tickets to the active sprint when the board is configured or passed
+with `--board`, and attempt Story/Task conversion for Epic-owned Sub-tasks before reporting manual
+follow-up.
 
 ## Account For Toil
 

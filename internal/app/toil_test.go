@@ -165,8 +165,8 @@ func TestRunCheckBoardAuditsCurrentUserWork(t *testing.T) {
 			"parent = ABC-1 ORDER BY key ASC": {
 				{Key: "ABC-2", Summary: "Bad subtask", Status: "In Progress", IssueType: "Sub-task", IsSubtask: true, ParentKey: "ABC-1", Assignee: "Unassigned"},
 			},
-			"key = ABC-1 AND sprint in openSprints()": {{Key: "ABC-1"}},
-			"key = ABC-2 AND sprint in openSprints()": nil,
+			"key = ABC-1 AND sprint = 300": {{Key: "ABC-1"}},
+			"key = ABC-2 AND sprint = 300": nil,
 		},
 		sprints: []jira.Sprint{{ID: 300, BoardID: 1255, Name: "Sprint 42", State: "active"}},
 	}
@@ -186,12 +186,34 @@ func TestRunCheckBoardAuditsCurrentUserWork(t *testing.T) {
 	}
 }
 
+func TestRunCheckBoardAuditsMissingSprintWithoutConfiguredBoard(t *testing.T) {
+	client := &fakeToilJiraClient{
+		searchByJQL: map[string][]jira.Issue{
+			"assignee = currentUser() AND resolution = Unresolved ORDER BY updated DESC": {
+				{Key: "ABC-1", Summary: "In progress work", Status: "In Progress", IssueType: "Story", Assignee: "Jon"},
+			},
+			"parent = ABC-1 ORDER BY key ASC":         nil,
+			"key = ABC-1 AND sprint in openSprints()": nil,
+		},
+	}
+	var out bytes.Buffer
+
+	err := runCheckBoardWithDeps(context.Background(), config.Defaults(), client, nil, strings.NewReader(""), &out, boardCheckOptions{})
+
+	if err != nil {
+		t.Fatalf("runCheckBoardWithDeps() error = %v", err)
+	}
+	if !strings.Contains(out.String(), "WARN ABC-1") || !strings.Contains(out.String(), "not in the active sprint") {
+		t.Fatalf("output = %q", out.String())
+	}
+}
+
 func TestRunCheckBoardFixPromptsBeforeApplying(t *testing.T) {
 	client := &fakeToilJiraClient{
 		searchByJQL: map[string][]jira.Issue{
-			"key = ABC-2":                             {{Key: "ABC-2", Summary: "Unassigned work", Status: "In Progress", IssueType: "Story", Assignee: "Unassigned"}},
-			"parent = ABC-2 ORDER BY key ASC":         nil,
-			"key = ABC-2 AND sprint in openSprints()": nil,
+			"key = ABC-2":                     {{Key: "ABC-2", Summary: "Unassigned work", Status: "In Progress", IssueType: "Story", Assignee: "Unassigned"}},
+			"parent = ABC-2 ORDER BY key ASC": nil,
+			"key = ABC-2 AND sprint = 300":    nil,
 		},
 		sprints:     []jira.Sprint{{ID: 300, BoardID: 1255, Name: "Sprint 42", State: "active"}},
 		currentUser: jira.User{AccountID: "account-123", DisplayName: "Jon"},
@@ -209,6 +231,30 @@ func TestRunCheckBoardFixPromptsBeforeApplying(t *testing.T) {
 		t.Fatalf("fixes not applied: assignee=%s sprint=%d", client.updateAssigneeKey, client.moveSprintID)
 	}
 	if !strings.Contains(out.String(), "Apply these fixes? [y/N]") || !strings.Contains(out.String(), "Assigned ABC-2") || !strings.Contains(out.String(), "Added ABC-2") {
+		t.Fatalf("output = %q", out.String())
+	}
+}
+
+func TestRunCheckBoardFixUsesBoardOption(t *testing.T) {
+	client := &fakeToilJiraClient{
+		searchByJQL: map[string][]jira.Issue{
+			"key = ABC-2":                     {{Key: "ABC-2", Summary: "Work", Status: "In Progress", IssueType: "Story", Assignee: "Jon"}},
+			"parent = ABC-2 ORDER BY key ASC": nil,
+			"key = ABC-2 AND sprint = 300":    nil,
+		},
+		sprints: []jira.Sprint{{ID: 300, BoardID: 1255, Name: "Sprint 42", State: "active"}},
+	}
+	var out bytes.Buffer
+
+	err := runCheckBoardWithDeps(context.Background(), config.Defaults(), client, []string{"ABC-2"}, strings.NewReader("y\n"), &out, boardCheckOptions{Fix: true, BoardID: 1255})
+
+	if err != nil {
+		t.Fatalf("runCheckBoardWithDeps() error = %v", err)
+	}
+	if client.boardID != 1255 || client.moveSprintID != 300 {
+		t.Fatalf("board fix = board %d sprint %d", client.boardID, client.moveSprintID)
+	}
+	if !strings.Contains(out.String(), "Added ABC-2 to sprint Sprint 42.") {
 		t.Fatalf("output = %q", out.String())
 	}
 }
@@ -300,6 +346,7 @@ type fakeToilJiraClient struct {
 	updateIssueTypeKey string
 	updateIssueTypeID  string
 	sprints            []jira.Sprint
+	boardID            int
 	moveSprintID       int
 	moveIssueKeys      []string
 	now                time.Time
@@ -382,6 +429,7 @@ func (f *fakeToilJiraClient) GetBoardSprints(_ context.Context, boardID int, _ [
 	if f.err != nil {
 		return jira.SprintPage{}, f.err
 	}
+	f.boardID = boardID
 	return jira.SprintPage{BoardID: boardID, Sprints: append([]jira.Sprint(nil), f.sprints...)}, nil
 }
 

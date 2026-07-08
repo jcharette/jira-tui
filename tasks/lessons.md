@@ -3,6 +3,8 @@
 - Before recommending backlog work, verify whether the behavior already exists in code/tests. Treat
   stale unchecked task notes as a signal to reconcile docs, not as proof that implementation is
   missing.
+- Board hygiene audits must not depend on `queries.default_board_id`; missing-sprint detection can
+  use `sprint in openSprints()`, and board ID is only required when applying active-sprint fixes.
 - Use task handoffs only when work can be parallelized cleanly across independent files or
   subsystems. For sequential UI changes where state, rendering, navigation, and docs build on each
   other, execute inline with checkpoints instead of splitting artificial handoff tasks.

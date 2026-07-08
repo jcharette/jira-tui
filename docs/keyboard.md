@@ -114,8 +114,8 @@ uses `j`/`k` to select a recommendation, `enter` to apply it, `s` to skip it, an
 ## Board Hygiene
 
 `jira ticket check-board [KEY]` audits board visibility for one ticket, or current-user in-progress
-work when `KEY` is omitted. Use `--fix` to print proposed changes and confirm them; use `--yes` only
-for scripted runs.
+work when `KEY` is omitted. Use `--board 1255` to target that board's active sprint for fixes, use
+`--fix` to print proposed changes and confirm them, and use `--yes` only for scripted runs.
 
 ## Comments
 

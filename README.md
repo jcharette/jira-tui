@@ -210,8 +210,8 @@ non-ASCII symbols, then restart the terminal and run `jira config`.
 - `jira ticket update-toil [KEY]` and `jira ticket close-toil [KEY]` log time to toil tickets; omit
   `KEY` to pick from open assigned tickets matching label `toil` or issue type `Toil`.
 - `jira ticket check-board [KEY]` audits a ticket, or your current in-progress work when `KEY` is
-  omitted, for board visibility problems. Add `--fix` to review and confirm safe fixes, or `--yes`
-  for non-interactive runs.
+  omitted, for board visibility problems. Add `--board 1255` to use that board's active sprint for
+  sprint fixes, `--fix` to review and confirm safe fixes, or `--yes` for non-interactive runs.
 - Ticket detail supports summary, priority, assignee, labels, components, fix/affects versions, due
   date, parent, time tracking estimates, safe generic custom fields, and workflow transitions
   through Jira edit metadata.
@@ -292,7 +292,8 @@ jira ticket toil
 jira ticket update-toil ABC-123 --time 30m
 jira ticket close-toil ABC-123 --time 15m
 jira ticket check-board
-jira ticket check-board ABC-123 --fix
+jira ticket check-board --board 1255
+jira ticket check-board ABC-123 --board 1255 --fix
 jira start
 jira --profile work
 jira --profile work config

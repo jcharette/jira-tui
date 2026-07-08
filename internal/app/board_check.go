@@ -27,8 +27,9 @@ type boardCheckClient interface {
 }
 
 type boardCheckOptions struct {
-	Fix bool
-	Yes bool
+	Fix     bool
+	Yes     bool
+	BoardID int
 }
 
 type boardCheckFinding struct {
@@ -54,10 +55,14 @@ func newCheckBoardCommand(profile *string) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&opts.Fix, "fix", false, "prompt to apply safe board hygiene fixes")
 	cmd.Flags().BoolVar(&opts.Yes, "yes", false, "apply fixes without prompting")
+	cmd.Flags().IntVar(&opts.BoardID, "board", 0, "Jira Agile board ID used to find the active sprint")
 	return cmd
 }
 
 func runCheckBoardWithDeps(ctx context.Context, cfg config.Config, client boardCheckClient, args []string, in io.Reader, out io.Writer, opts boardCheckOptions) error {
+	if opts.BoardID > 0 {
+		cfg.DefaultBoardID = opts.BoardID
+	}
 	issues, err := boardCheckIssues(ctx, client, args)
 	if err != nil {
 		return err
@@ -66,7 +71,7 @@ func runCheckBoardWithDeps(ctx context.Context, cfg config.Config, client boardC
 	if err != nil {
 		return err
 	}
-	findings, err := collectBoardFindings(ctx, client, issues, sprintKnown)
+	findings, err := collectBoardFindings(ctx, client, issues, activeSprint, sprintKnown)
 	if err != nil {
 		return err
 	}
@@ -100,7 +105,7 @@ func boardCheckIssues(ctx context.Context, client boardCheckClient, args []strin
 	return client.SearchIssues(ctx, "assignee = currentUser() AND resolution = Unresolved ORDER BY updated DESC", boardCheckLimit)
 }
 
-func collectBoardFindings(ctx context.Context, client boardCheckClient, issues []jira.Issue, sprintKnown bool) ([]boardCheckFinding, error) {
+func collectBoardFindings(ctx context.Context, client boardCheckClient, issues []jira.Issue, activeSprint jira.Sprint, sprintKnown bool) ([]boardCheckFinding, error) {
 	byKey := map[string]jira.Issue{}
 	for _, issue := range issues {
 		byKey[issue.Key] = issue
@@ -120,19 +125,23 @@ func collectBoardFindings(ctx context.Context, client boardCheckClient, issues [
 	var findings []boardCheckFinding
 	for _, issue := range issues {
 		parent := parentIssue(ctx, client, byKey, issue.ParentKey)
-		inSprint := false
-		if sprintKnown {
-			matches, err := client.SearchIssues(ctx, "key = "+issue.Key+" AND sprint in openSprints()", 1)
-			if err != nil {
-				return nil, fmt.Errorf("check active sprint for %s: %w", issue.Key, err)
-			}
-			inSprint = len(matches) > 0
+		matches, err := client.SearchIssues(ctx, sprintMembershipJQL(issue.Key, activeSprint, sprintKnown), 1)
+		if err != nil {
+			return nil, fmt.Errorf("check active sprint for %s: %w", issue.Key, err)
 		}
-		for _, finding := range boardcheck.CheckIssue(issue, boardcheck.Options{Parent: parent, RequireActiveSprint: true, ActiveSprintKnown: sprintKnown, InActiveSprint: inSprint}) {
+		for _, finding := range boardcheck.CheckIssue(issue, boardcheck.Options{Parent: parent, RequireActiveSprint: true, ActiveSprintKnown: true, InActiveSprint: len(matches) > 0}) {
 			findings = append(findings, boardCheckFinding{Issue: issue, Parent: parent, Finding: finding})
 		}
 	}
 	return findings, nil
+}
+
+func sprintMembershipJQL(key string, activeSprint jira.Sprint, sprintKnown bool) string {
+	key = strings.ToUpper(strings.TrimSpace(key))
+	if sprintKnown && activeSprint.ID > 0 {
+		return fmt.Sprintf("key = %s AND sprint = %d", key, activeSprint.ID)
+	}
+	return "key = " + key + " AND sprint in openSprints()"
 }
 
 func parentIssue(ctx context.Context, client boardCheckClient, byKey map[string]jira.Issue, key string) *jira.Issue {

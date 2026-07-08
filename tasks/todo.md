@@ -21,6 +21,12 @@
 - Safe fixes assign to current user, add active sprint when `queries.default_board_id` has an active
   sprint, and attempt Story/Task conversion for Epic-owned Sub-tasks before reporting manual follow-up.
 
+### Follow-up Fix
+
+- [x] Fix missing-sprint audits when `queries.default_board_id` is not configured.
+- [x] Add `--board` so active-sprint fixes can target board 1255 explicitly.
+- [x] Update command docs and lessons for the board-config assumption.
+
 ## Developer Workbench UX - 2026-07-06
 
 - [x] Write the approved UX direction as a scoped design spec.
