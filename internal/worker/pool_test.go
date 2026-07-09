@@ -996,6 +996,40 @@ func TestPoolCreateIssueAddsCreatedIssueToConfiguredActiveSprint(t *testing.T) {
 	}
 }
 
+func TestPoolCreateIssueAssignsCreatedIssueToCurrentUserWhenRequested(t *testing.T) {
+	searcher := &fakeIssueSearcher{
+		createdIssue: jira.Issue{Key: "ABC-123", Summary: "New toil"},
+		currentUser:  jira.User{AccountID: "account-123", DisplayName: "Jon"},
+	}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:   36,
+		Kind: KindCreateIssue,
+		CreateIssue: &CreateIssueRequest{
+			ProjectKey:        "ABC",
+			IssueTypeID:       "10001",
+			Summary:           "New toil",
+			AssignCurrentUser: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if searcher.updateAssigneeKey != "ABC-123" || searcher.updateAssigneeValue.AccountID != "account-123" {
+		t.Fatalf("assignee update = %s/%#v", searcher.updateAssigneeKey, searcher.updateAssigneeValue)
+	}
+	if result.CreateIssue.Assignee == nil || result.CreateIssue.Assignee.DisplayName != "Jon" {
+		t.Fatalf("CreateIssue assignee = %#v", result.CreateIssue)
+	}
+}
+
 func TestPoolUpdateSummarySuccess(t *testing.T) {
 	searcher := &fakeIssueSearcher{}
 	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))

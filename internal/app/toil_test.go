@@ -127,6 +127,32 @@ func TestRunCreateToilAddsConfiguredDefaultTeam(t *testing.T) {
 	}
 }
 
+func TestRunCreateToilAssignsCreatedTicketToCurrentUser(t *testing.T) {
+	client := &fakeToilJiraClient{
+		issueTypes:   []jira.CreateIssueType{{ID: "10002", Name: "Toil"}},
+		createdIssue: jira.Issue{Key: "ABC-123", Summary: "Rotate certs"},
+		currentUser:  jira.User{AccountID: "account-123", DisplayName: "Jon"},
+	}
+	cfg := config.Defaults()
+	cfg.DefaultProject = "ABC"
+	var out bytes.Buffer
+
+	err := runCreateToilWithDeps(context.Background(), cfg, client, createToilOptions{
+		Summary: "Rotate certs",
+		Time:    "45m",
+	}, &out)
+
+	if err != nil {
+		t.Fatalf("runCreateToilWithDeps() error = %v", err)
+	}
+	if client.updateAssigneeKey != "ABC-123" {
+		t.Fatalf("updateAssigneeKey = %q", client.updateAssigneeKey)
+	}
+	if !strings.Contains(out.String(), "Assigned ABC-123 to Jon.") {
+		t.Fatalf("output = %q", out.String())
+	}
+}
+
 func TestRunCreateToilAddsCreatedTicketToConfiguredActiveSprint(t *testing.T) {
 	client := &fakeToilJiraClient{
 		issueTypes:   []jira.CreateIssueType{{ID: "10002", Name: "Toil"}},

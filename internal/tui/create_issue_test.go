@@ -263,6 +263,38 @@ func TestToilCreateAddsCreatedTicketToConfiguredActiveSprint(t *testing.T) {
 	}
 }
 
+func TestToilCreateAssignsCreatedTicketToCurrentUser(t *testing.T) {
+	searcher := &fakeIssueSearcher{
+		currentUser: jira.User{AccountID: "account-123", DisplayName: "Jon"},
+	}
+	model := NewModel(searcher, "project = ABC")
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 100
+	model.height = 30
+	model.toilOpen = true
+	model.toilProjectKey = "ABC"
+	model.toilIssueTypes = []jira.CreateIssueType{{ID: "10002", Name: "Toil"}}
+	model.toilSummaryEditor = newSummaryEditor("Rotate certs")
+	model.toilSummaryEditorReady = true
+	model.toilTimeEditor = newWorklogTimeInput("45m")
+	model.toilTimeEditorReady = true
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next := updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected create issue command")
+	}
+	_ = cmd()
+	msg := next.waitForWorkerResult()()
+	if result, ok := msg.(workerResultMsg); !ok || result.result.Err != nil {
+		t.Fatalf("worker result = %#v", msg)
+	}
+	if searcher.updateAssigneeKey != "ABC-123" || searcher.updateAssigneeValue.AccountID != "account-123" {
+		t.Fatalf("assignee update = %s/%#v", searcher.updateAssigneeKey, searcher.updateAssigneeValue)
+	}
+}
+
 func TestToilCloseSkipsRequiredFieldTransition(t *testing.T) {
 	model := NewModel(&fakeIssueSearcher{}, "project = ABC")
 	defer model.workers.Stop()

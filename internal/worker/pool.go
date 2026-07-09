@@ -341,13 +341,14 @@ type UpdateAssigneeRequest struct {
 }
 
 type CreateIssueRequest struct {
-	ProjectKey    string
-	IssueTypeID   string
-	ParentKey     string
-	Summary       string
-	Description   string
-	Fields        []jira.CreateIssueFieldValue
-	SprintBoardID int
+	ProjectKey        string
+	IssueTypeID       string
+	ParentKey         string
+	Summary           string
+	Description       string
+	Fields            []jira.CreateIssueFieldValue
+	SprintBoardID     int
+	AssignCurrentUser bool
 }
 
 type Result struct {
@@ -602,6 +603,7 @@ type UpdateAssigneeResult struct {
 
 type CreateIssueResult struct {
 	Issue        jira.Issue
+	Assignee     *jira.User
 	Sprint       *jira.Sprint
 	BoardMissing []string
 	SyncedAt     time.Time
@@ -1422,6 +1424,17 @@ func (p *Pool) handleCreateIssue(request Request) Result {
 	if err != nil {
 		return Result{ID: request.ID, Kind: request.Kind, Err: err}
 	}
+	var assignee *jira.User
+	if request.CreateIssue.AssignCurrentUser {
+		user, err := p.client.CurrentUser(ctx)
+		if err != nil {
+			return Result{ID: request.ID, Kind: request.Kind, Err: err}
+		}
+		if err := p.client.UpdateAssignee(ctx, issue.Key, user); err != nil {
+			return Result{ID: request.ID, Kind: request.Kind, Err: err}
+		}
+		assignee = &user
+	}
 	var sprint *jira.Sprint
 	var missing []string
 	if request.CreateIssue.SprintBoardID > 0 {
@@ -1443,6 +1456,7 @@ func (p *Pool) handleCreateIssue(request Request) Result {
 		Kind: request.Kind,
 		CreateIssue: &CreateIssueResult{
 			Issue:        issue,
+			Assignee:     assignee,
 			Sprint:       sprint,
 			BoardMissing: missing,
 			SyncedAt:     time.Now(),

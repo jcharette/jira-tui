@@ -26,6 +26,9 @@
   `queries.default_board_id` to add the ticket to the active sprint and verify the Agile board issue
   endpoint. Do not report "started" or "created and tracked" from only assignment, transition,
   comments, or Sprint field writes.
+- Toil creation is personal work accounting: CLI and TUI create-toil paths must assign the new
+  ticket to the current Jira user before reporting success or continuing to worklog, close, or
+  sprint tracking steps.
 - Jira scrum board issue endpoints may exclude Epics as cards even when those Epics match the saved
   filter, Team, status, and Sprint. Do not propose Team/Sprint rewrites for Epic board-card
   visibility; tell the user to track Story/Task children on the sprint board or use the Epic view.

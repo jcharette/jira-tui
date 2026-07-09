@@ -264,11 +264,12 @@ func (m Model) submitToilTicket() (Model, tea.Cmd) {
 	m.toilWorklogRequest = jira.AddWorklogRequest{TimeSpent: timeSpent, Started: m.currentTime(), Comment: note}
 	m.detailNotice = ""
 	return m, m.submitCreateIssue(m.activeToilCreateReqID, worker.CreateIssueRequest{
-		ProjectKey:    m.toilProjectKey,
-		IssueTypeID:   issueType.ID,
-		Summary:       summary,
-		Description:   note,
-		SprintBoardID: m.defaultBoardID,
+		ProjectKey:        m.toilProjectKey,
+		IssueTypeID:       issueType.ID,
+		Summary:           summary,
+		Description:       note,
+		SprintBoardID:     m.defaultBoardID,
+		AssignCurrentUser: true,
 		Fields: toilfields.CreateFields(config.Config{
 			DefaultTeamFieldID: m.defaultTeamFieldID,
 			DefaultTeamID:      m.defaultTeamID,

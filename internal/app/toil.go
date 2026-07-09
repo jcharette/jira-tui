@@ -20,8 +20,10 @@ const toilIssueSearchLimit = 25
 
 type toilJiraClient interface {
 	SearchIssues(ctx context.Context, jql string, maxResults int) ([]jira.Issue, error)
+	CurrentUser(ctx context.Context) (jira.User, error)
 	GetCreateIssueTypes(ctx context.Context, projectKey string) ([]jira.CreateIssueType, error)
 	CreateIssue(ctx context.Context, request jira.CreateIssueRequest) (jira.Issue, error)
+	UpdateAssignee(ctx context.Context, key string, assignee jira.User) error
 	AddWorklog(ctx context.Context, key string, request jira.AddWorklogRequest) (jira.Worklog, error)
 	GetTransitions(ctx context.Context, key string) ([]jira.Transition, error)
 	TransitionIssue(ctx context.Context, key string, request jira.TransitionIssueRequest) error
@@ -183,6 +185,14 @@ func runCreateToilWithDeps(ctx context.Context, cfg config.Config, client toilJi
 		return fmt.Errorf("create toil ticket: %w", err)
 	}
 	_, _ = fmt.Fprintf(out, "Created %s.\n", issue.Key)
+	user, err := client.CurrentUser(ctx)
+	if err != nil {
+		return fmt.Errorf("load current Jira user: %w", err)
+	}
+	if err := client.UpdateAssignee(ctx, issue.Key, user); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(out, "Assigned %s to %s.\n", issue.Key, displayJiraUser(user))
 	if cfg.DefaultBoardID > 0 {
 		trackResult, err := sprinttrack.AddToActiveSprint(ctx, client, cfg.DefaultBoardID, []string{issue.Key})
 		if err != nil {
@@ -245,6 +255,15 @@ func displaySprintName(sprint jira.Sprint) string {
 		return sprint.Name
 	}
 	return fmt.Sprintf("Sprint %d", sprint.ID)
+}
+
+func displayJiraUser(user jira.User) string {
+	for _, value := range []string{user.DisplayName, user.Email, user.AccountID} {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return "current user"
 }
 
 func pickToilIssue(ctx context.Context, cfg config.Config, client toilJiraClient, in io.Reader, out io.Writer) (string, error) {

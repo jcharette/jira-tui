@@ -4,6 +4,11 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+## 1.0.15 - 2026-07-09
+
+- Fixed CLI and TUI toil creation so newly created toil tickets are assigned to the current Jira
+  user before worklog, close, or sprint-tracking follow-ups.
+
 ## 1.0.14 - 2026-07-09
 
 - Added `queries.default_team_field_id` / `queries.default_team_id` / `queries.default_team_name`
