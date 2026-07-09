@@ -576,6 +576,9 @@ type Model struct {
 	sprintSubmitKey                   string
 	sprintSubmit                      jira.Sprint
 	defaultBoardID                    int
+	defaultTeamFieldID                string
+	defaultTeamID                     string
+	defaultTeamName                   string
 
 	refreshInterval   time.Duration
 	requestTimeout    time.Duration
@@ -762,6 +765,14 @@ func WithDefaultBoardID(boardID int) Option {
 			m.defaultBoardID = boardID
 			m.planningBoardID = boardID
 		}
+	}
+}
+
+func WithDefaultTeam(teamFieldID string, teamID string, teamName string) Option {
+	return func(m *Model) {
+		m.defaultTeamFieldID = strings.TrimSpace(teamFieldID)
+		m.defaultTeamID = strings.TrimSpace(teamID)
+		m.defaultTeamName = strings.TrimSpace(teamName)
 	}
 }
 

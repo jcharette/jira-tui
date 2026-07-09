@@ -11,6 +11,8 @@ import (
 
 	"github.com/jcharette/jira-tui/internal/config"
 	"github.com/jcharette/jira-tui/internal/jira"
+	"github.com/jcharette/jira-tui/internal/sprinttrack"
+	toilfields "github.com/jcharette/jira-tui/internal/toil"
 	"github.com/spf13/cobra"
 )
 
@@ -23,6 +25,9 @@ type toilJiraClient interface {
 	AddWorklog(ctx context.Context, key string, request jira.AddWorklogRequest) (jira.Worklog, error)
 	GetTransitions(ctx context.Context, key string) ([]jira.Transition, error)
 	TransitionIssue(ctx context.Context, key string, request jira.TransitionIssueRequest) error
+	GetBoardSprints(ctx context.Context, boardID int, states []string, startAt, maxResults int) (jira.SprintPage, error)
+	MoveIssuesToSprint(ctx context.Context, sprintID int, issueKeys []string) error
+	SearchBoardIssues(ctx context.Context, boardID int, jql string, maxResults int) ([]jira.Issue, error)
 }
 
 type createToilOptions struct {
@@ -172,12 +177,24 @@ func runCreateToilWithDeps(ctx context.Context, cfg config.Config, client toilJi
 		IssueTypeID: issueType.ID,
 		Summary:     summary,
 		Description: strings.TrimSpace(opts.Note),
-		Fields:      toilCreateFields(),
+		Fields:      toilfields.CreateFields(cfg),
 	})
 	if err != nil {
 		return fmt.Errorf("create toil ticket: %w", err)
 	}
 	_, _ = fmt.Fprintf(out, "Created %s.\n", issue.Key)
+	if cfg.DefaultBoardID > 0 {
+		trackResult, err := sprinttrack.AddToActiveSprint(ctx, client, cfg.DefaultBoardID, []string{issue.Key})
+		if err != nil {
+			return err
+		}
+		if len(trackResult.Missing) > 0 {
+			return fmt.Errorf("%s not visible on board %d after sprint move", strings.Join(trackResult.Missing, ", "), trackResult.Sprint.BoardID)
+		}
+		if trackResult.Applied {
+			_, _ = fmt.Fprintf(out, "Added %s to sprint %s.\n", issue.Key, displaySprintName(trackResult.Sprint))
+		}
+	}
 	if strings.TrimSpace(opts.Time) != "" {
 		if err := logToilWork(ctx, client, issue.Key, toilWorklogOptions{Time: opts.Time, Note: opts.Note}); err != nil {
 			return err
@@ -221,6 +238,13 @@ func resolveToilIssueKey(ctx context.Context, cfg config.Config, client toilJira
 		return strings.ToUpper(strings.TrimSpace(args[0])), nil
 	}
 	return pickToilIssue(ctx, cfg, client, in, out)
+}
+
+func displaySprintName(sprint jira.Sprint) string {
+	if strings.TrimSpace(sprint.Name) != "" {
+		return sprint.Name
+	}
+	return fmt.Sprintf("Sprint %d", sprint.ID)
 }
 
 func pickToilIssue(ctx context.Context, cfg config.Config, client toilJiraClient, in io.Reader, out io.Writer) (string, error) {
@@ -311,10 +335,6 @@ func chooseToilIssueType(issueTypes []jira.CreateIssueType, preferred string) (j
 		}
 	}
 	return jira.CreateIssueType{}, false
-}
-
-func toilCreateFields() []jira.CreateIssueFieldValue {
-	return []jira.CreateIssueFieldValue{{FieldID: "labels", SchemaSystem: "labels", Text: "toil"}}
 }
 
 func toilSearchJQL(cfg config.Config) string {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/jcharette/jira-tui/internal/gitworkflow"
 	"github.com/jcharette/jira-tui/internal/jira"
+	"github.com/jcharette/jira-tui/internal/sprinttrack"
 )
 
 type JiraClient interface {
@@ -15,6 +16,9 @@ type JiraClient interface {
 	TransitionIssue(ctx context.Context, key string, request jira.TransitionIssueRequest) error
 	UpdateAssignee(ctx context.Context, key string, assignee jira.User) error
 	AddComment(ctx context.Context, key string, body string, mentions []jira.Mention) (jira.Comment, error)
+	GetBoardSprints(ctx context.Context, boardID int, states []string, startAt, maxResults int) (jira.SprintPage, error)
+	MoveIssuesToSprint(ctx context.Context, sprintID int, issueKeys []string) error
+	SearchBoardIssues(ctx context.Context, boardID int, jql string, maxResults int) ([]jira.Issue, error)
 }
 
 type Outcome struct {
@@ -103,6 +107,19 @@ func ApplyJiraActions(ctx context.Context, jiraClient JiraClient, result Result,
 			} else if err := jiraClient.TransitionIssue(ctx, result.Issue.Key, jira.TransitionIssueRequest{TransitionID: transition.ID}); err != nil {
 				outcome.State = "failed"
 				outcome.Err = err
+			} else {
+				outcome.State = "completed"
+			}
+		case ActionSprint:
+			trackResult, err := sprinttrack.AddToActiveSprint(ctx, jiraClient, result.BoardID, []string{result.Issue.Key})
+			if err != nil {
+				outcome.State = "failed"
+				outcome.Err = err
+			} else if !trackResult.Applied {
+				outcome.State = "skipped"
+			} else if len(trackResult.Missing) > 0 {
+				outcome.State = "failed"
+				outcome.Err = fmt.Errorf("%s not visible on board %d after sprint move", strings.Join(trackResult.Missing, ", "), trackResult.Sprint.BoardID)
 			} else {
 				outcome.State = "completed"
 			}

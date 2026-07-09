@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jcharette/jira-tui/internal/jira"
+	"github.com/jcharette/jira-tui/internal/sprinttrack"
 	"github.com/jcharette/jira-tui/internal/startworkflow"
 	"github.com/panjf2000/ants/v2"
 )
@@ -94,6 +95,7 @@ type JiraClient interface {
 	GetBoards(ctx context.Context, projectKey string, startAt, maxResults int) (jira.BoardPage, error)
 	GetBoardSprints(ctx context.Context, boardID int, states []string, startAt, maxResults int) (jira.SprintPage, error)
 	MoveIssuesToSprint(ctx context.Context, sprintID int, issueKeys []string) error
+	SearchBoardIssues(ctx context.Context, boardID int, jql string, maxResults int) ([]jira.Issue, error)
 	GetIssueLinkTypes(ctx context.Context) ([]jira.IssueLinkType, error)
 	CreateIssueLink(ctx context.Context, request jira.CreateIssueLinkRequest) error
 	DeleteIssueLink(ctx context.Context, linkID string) error
@@ -339,12 +341,13 @@ type UpdateAssigneeRequest struct {
 }
 
 type CreateIssueRequest struct {
-	ProjectKey  string
-	IssueTypeID string
-	ParentKey   string
-	Summary     string
-	Description string
-	Fields      []jira.CreateIssueFieldValue
+	ProjectKey    string
+	IssueTypeID   string
+	ParentKey     string
+	Summary       string
+	Description   string
+	Fields        []jira.CreateIssueFieldValue
+	SprintBoardID int
 }
 
 type Result struct {
@@ -598,8 +601,10 @@ type UpdateAssigneeResult struct {
 }
 
 type CreateIssueResult struct {
-	Issue    jira.Issue
-	SyncedAt time.Time
+	Issue        jira.Issue
+	Sprint       *jira.Sprint
+	BoardMissing []string
+	SyncedAt     time.Time
 }
 
 type Option func(*Pool)
@@ -1417,13 +1422,30 @@ func (p *Pool) handleCreateIssue(request Request) Result {
 	if err != nil {
 		return Result{ID: request.ID, Kind: request.Kind, Err: err}
 	}
+	var sprint *jira.Sprint
+	var missing []string
+	if request.CreateIssue.SprintBoardID > 0 {
+		trackResult, err := sprinttrack.AddToActiveSprint(ctx, p.client, request.CreateIssue.SprintBoardID, []string{issue.Key})
+		if err != nil {
+			return Result{ID: request.ID, Kind: request.Kind, Err: err}
+		}
+		if len(trackResult.Missing) > 0 {
+			return Result{ID: request.ID, Kind: request.Kind, Err: fmt.Errorf("%s not visible on board %d after sprint move", strings.Join(trackResult.Missing, ", "), trackResult.Sprint.BoardID)}
+		}
+		if trackResult.Applied {
+			sprint = &trackResult.Sprint
+			missing = append([]string(nil), trackResult.Missing...)
+		}
+	}
 
 	return Result{
 		ID:   request.ID,
 		Kind: request.Kind,
 		CreateIssue: &CreateIssueResult{
-			Issue:    issue,
-			SyncedAt: time.Now(),
+			Issue:        issue,
+			Sprint:       sprint,
+			BoardMissing: missing,
+			SyncedAt:     time.Now(),
 		},
 	}
 }

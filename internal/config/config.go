@@ -34,26 +34,29 @@ var defaultSecretStore = struct {
 }
 
 type Config struct {
-	BaseURL         string
-	Email           string
-	APIToken        string
-	APITokenSource  string
-	ActiveProfile   string
-	Profiles        map[string]Profile
-	DefaultProject  string
-	DefaultBoardID  int
-	DefaultJQL      string
-	ActiveView      string
-	Views           []IssueView
-	Theme           Theme
-	Display         Display
-	RefreshInterval time.Duration
-	RequestTimeout  time.Duration
-	WorkerCount     int
-	QueueSize       int
-	Git             Git
-	Claude          Claude
-	Notifications   Notifications
+	BaseURL            string
+	Email              string
+	APIToken           string
+	APITokenSource     string
+	ActiveProfile      string
+	Profiles           map[string]Profile
+	DefaultProject     string
+	DefaultBoardID     int
+	DefaultTeamFieldID string
+	DefaultTeamID      string
+	DefaultTeamName    string
+	DefaultJQL         string
+	ActiveView         string
+	Views              []IssueView
+	Theme              Theme
+	Display            Display
+	RefreshInterval    time.Duration
+	RequestTimeout     time.Duration
+	WorkerCount        int
+	QueueSize          int
+	Git                Git
+	Claude             Claude
+	Notifications      Notifications
 }
 
 type Profile struct {
@@ -393,9 +396,12 @@ func SaveWithSecretStore(path string, cfg Config, store secretstore.Store) error
 		ActiveProfile: activeProfile,
 		Profiles:      profileConfigs,
 		Queries: queriesConfig{
-			DefaultProject: cfg.DefaultProject,
-			DefaultBoardID: cfg.DefaultBoardID,
-			DefaultJQL:     cfg.DefaultJQL,
+			DefaultProject:     cfg.DefaultProject,
+			DefaultBoardID:     cfg.DefaultBoardID,
+			DefaultTeamFieldID: cfg.DefaultTeamFieldID,
+			DefaultTeamID:      cfg.DefaultTeamID,
+			DefaultTeamName:    cfg.DefaultTeamName,
+			DefaultJQL:         cfg.DefaultJQL,
 		},
 		Views: viewsConfig{
 			Active: cfg.ActiveView,
@@ -608,9 +614,12 @@ type profileConfig struct {
 }
 
 type queriesConfig struct {
-	DefaultProject string `toml:"default_project"`
-	DefaultBoardID int    `toml:"default_board_id"`
-	DefaultJQL     string `toml:"default_jql"`
+	DefaultProject     string `toml:"default_project"`
+	DefaultBoardID     int    `toml:"default_board_id"`
+	DefaultTeamFieldID string `toml:"default_team_field_id"`
+	DefaultTeamID      string `toml:"default_team_id"`
+	DefaultTeamName    string `toml:"default_team_name"`
+	DefaultJQL         string `toml:"default_jql"`
 }
 
 type viewsConfig struct {
@@ -739,6 +748,15 @@ func applyFile(cfg *Config, fileCfg fileConfig, requestedProfile string, store s
 	}
 	if fileCfg.Queries.DefaultBoardID > 0 {
 		cfg.DefaultBoardID = fileCfg.Queries.DefaultBoardID
+	}
+	if strings.TrimSpace(fileCfg.Queries.DefaultTeamFieldID) != "" {
+		cfg.DefaultTeamFieldID = strings.TrimSpace(fileCfg.Queries.DefaultTeamFieldID)
+	}
+	if strings.TrimSpace(fileCfg.Queries.DefaultTeamID) != "" {
+		cfg.DefaultTeamID = strings.TrimSpace(fileCfg.Queries.DefaultTeamID)
+	}
+	if strings.TrimSpace(fileCfg.Queries.DefaultTeamName) != "" {
+		cfg.DefaultTeamName = strings.TrimSpace(fileCfg.Queries.DefaultTeamName)
 	}
 	if strings.TrimSpace(fileCfg.Views.Active) != "" {
 		cfg.ActiveView = strings.TrimSpace(fileCfg.Views.Active)

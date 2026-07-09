@@ -73,7 +73,7 @@ func TestModelCanEditBranchAndConfirmResult(t *testing.T) {
 	if result.BranchName != "feature/proj-123-custom" {
 		t.Fatalf("BranchName = %q", result.BranchName)
 	}
-	if len(result.Actions) != 4 || result.Actions[0].Kind != ActionBranch || !result.Actions[0].Required {
+	if len(result.Actions) != 5 || result.Actions[0].Kind != ActionBranch || result.Actions[3].Kind != ActionSprint || !result.Actions[0].Required {
 		t.Fatalf("Actions = %#v", result.Actions)
 	}
 }

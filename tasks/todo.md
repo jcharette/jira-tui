@@ -1,5 +1,25 @@
 # Task Plan
 
+## Sprint Tracking Regression Fix - 2026-07-09
+
+- [x] Add focused regression tests for Start Work and toil creation adding tickets to the configured active sprint.
+- [x] Implement a shared active-sprint tracking helper with board visibility verification.
+- [x] Wire Start Work and CLI/TUI toil creation through the helper without hardcoded tenant values.
+- [x] Update lessons/docs for the tracking rule and verify focused/full checks.
+
+### Implementation Notes
+
+- Use `queries.default_board_id` as the generic board source; do not hardcode a company board.
+- If a configured board cannot track the ticket after the sprint write, surface that as a workflow failure instead of saying the ticket was tracked.
+
+### Review
+
+- Start Work now includes an Add to active sprint action when `queries.default_board_id` is set.
+- CLI and TUI toil creation now add the created ticket to the configured board's active sprint.
+- All new sprint writes verify the Agile board issue endpoint before reporting success.
+- Verification: focused regressions, `go test ./... -count=1`, `make docs-check`, and the tracked
+  local-Jira-value scrub passed.
+
 ## Board Hygiene Audit and Fix - 2026-07-08
 
 - [x] Add shared board hygiene checks for Epic-owned Sub-tasks, unassigned work, and sprint visibility.
@@ -24,8 +44,37 @@
 ### Follow-up Fix
 
 - [x] Fix missing-sprint audits when `queries.default_board_id` is not configured.
-- [x] Add `--board` so active-sprint fixes can target board 1255 explicitly.
+- [x] Add `--board` so active-sprint fixes can target a board explicitly.
 - [x] Update command docs and lessons for the board-config assumption.
+- [x] Verify board visibility after sprint fixes, not just Sprint field membership.
+- [x] Treat unresolved assigned tickets as sprint candidates even before they are In Progress.
+- [x] Fix `check-board` read timeouts caused by reusing the command setup context across many Jira reads.
+
+### Timeout Fix Review
+
+- Added a regression for expired setup contexts so `check-board` audits do not fail before Jira reads.
+- Switched audit reads to a fresh context and kept write calls on the existing fresh confirmation context.
+- Verification: focused check-board tests, related package tests, `go test ./... -count=1`,
+  `make docs-check`, and a live no-confirmation run.
+
+### Default Team Follow-up
+
+- [x] Add `queries.default_team_field_id` / `queries.default_team_id` /
+  `queries.default_team_name` config support.
+- [x] Use the default Team when repairing board-visible sprint tickets.
+- [x] Stamp default Team on CLI and TUI toil ticket creation.
+- [x] Set the local config and apply the repair to the current tickets.
+- [x] Verify focused tests, full tests, docs check, and live board state.
+
+#### Review
+
+- Team-filtered boards require a configurable Team field ID and Team value; keep those values in
+  local config instead of hardcoding a tenant's custom field in the repo.
+- `check-board` now sets Team only when the current Team is empty and verifies board visibility
+  after writes.
+- Jira Team fields require the string Team ID payload for create/update, not an `{id: ...}` object.
+- Remaining live board findings are Epics; the board issue cards do not include Epics, so the tool
+  reports manual tracking guidance instead of proposing another write.
 
 ## Developer Workbench UX - 2026-07-06
 

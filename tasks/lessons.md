@@ -4,7 +4,33 @@
   stale unchecked task notes as a signal to reconcile docs, not as proof that implementation is
   missing.
 - Board hygiene audits must not depend on `queries.default_board_id`; missing-sprint detection can
-  use `sprint in openSprints()`, and board ID is only required when applying active-sprint fixes.
+  use `sprint in openSprints()`, and active-sprint fixes should discover a unique project board
+  before asking the user for a board ID.
+- Board hygiene must prove both sprint membership and board visibility when the board is known.
+  A ticket can have the Sprint field set and still be absent from a board URL because of the board
+  filter or status column mapping.
+- If `check-board` says tickets are in the sprint but not visible, verify the board's saved filter
+  before assuming the sprint move failed. Board name/location can disagree with filter JQL; the
+  actual blocker may be a custom field clause such as Team rather than the Sprint field.
+- Do not prompt for Jira fixes when the fix plan has no applyable actions. If a finding needs
+  missing configuration such as a board ID, say what to pass or configure instead of asking for yes.
+- Do not list manual review findings under `Proposed fixes`; only show actions the confirmation will
+  actually write, and keep board filter/status findings in a separate manual section.
+- After `check-board` moves tickets to a sprint, verify the board endpoint before reporting the
+  outcome as board-visible. A successful Sprint field write is not the same as fixing board
+  visibility.
+- When a Jira tool reports that a write fixed user-visible state, verify the exact Jira API path
+  behind that user-visible claim. For board hygiene, that means checking the Agile board issue
+  endpoint after writes and reporting any remaining filter/status/custom-field blockers plainly.
+- Work-start and ticket-creation flows that imply tracked sprint work must use
+  `queries.default_board_id` to add the ticket to the active sprint and verify the Agile board issue
+  endpoint. Do not report "started" or "created and tracked" from only assignment, transition,
+  comments, or Sprint field writes.
+- Jira scrum board issue endpoints may exclude Epics as cards even when those Epics match the saved
+  filter, Team, status, and Sprint. Do not propose Team/Sprint rewrites for Epic board-card
+  visibility; tell the user to track Story/Task children on the sprint board or use the Epic view.
+- Board hygiene is a human local workflow, not a CI workflow. Default to showing the plan and asking
+  once; keep `--yes` for skipping the prompt instead of requiring a separate `--fix` mode.
 - Use task handoffs only when work can be parallelized cleanly across independent files or
   subsystems. For sequential UI changes where state, rendering, navigation, and docs build on each
   other, execute inline with checkpoints instead of splitting artificial handoff tasks.
@@ -189,8 +215,8 @@
   guess common types like Task/Story/Epic unless Jira metadata for the selected project actually
   returned them, and only auto-apply AI recommendations that match returned Jira metadata.
 - Board-visible Jira work must be created as Story/Task under an Epic, not a Sub-task directly under
-  an Epic. For current work on board 1255, set Sprint and assignee before closing so sprint reports
-  and assignee-based quick filters include the ticket; check the Done column before treating a closed
+  an Epic. For sprint-board work, set Sprint and assignee before closing so sprint reports and
+  assignee-based quick filters include the ticket; check the Done column before treating a closed
   ticket as missing.
 - Do not assume Jira issue-type conversion is UI-only. For bad Epic-owned Sub-tasks, first check
   Jira edit metadata and attempt a metadata-backed type/parent fix when available; use AI to propose

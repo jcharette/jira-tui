@@ -33,12 +33,12 @@ support.
 Install a tagged release with Go:
 
 ```bash
-go install github.com/jcharette/jira-tui/cmd/jira@v1.0.13
+go install github.com/jcharette/jira-tui/cmd/jira@v1.0.14
 ```
 
 Release archives are published at
 [GitHub Releases](https://github.com/jcharette/jira-tui/releases) with names such as
-`jira-tui_1.0.13_darwin_arm64.tar.gz` and include a `jira` binary.
+`jira-tui_1.0.14_darwin_arm64.tar.gz` and include a `jira` binary.
 
 Run from the project root:
 
@@ -74,7 +74,8 @@ jira ticket toil
 jira ticket update-toil ABC-123 --time 30m
 jira ticket close-toil ABC-123 --time 15m
 jira ticket check-board
-jira ticket check-board ABC-123 --fix
+jira ticket check-board --board 1234
+jira ticket check-board ABC-123 --board 1234
 ```
 
 Run with a saved profile:
@@ -171,6 +172,9 @@ api_token_source = "keyring"
 [queries]
 default_project = "ABC"
 default_board_id = 0
+default_team_field_id = ""
+default_team_id = ""
+default_team_name = ""
 default_jql = "project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY updated DESC"
 
 [views]
@@ -346,8 +350,9 @@ project = ABC AND assignee = currentUser() AND resolution = Unresolved ORDER BY 
   Claude Branch Plan, editing the branch name, and reviewing writes before anything changes. The Git
   branch action runs through the single `internal/gitworkflow` adapter boundary. Confirmed Jira
   follow-ups assign to the current user, choose the best available In Progress-like transition when
-  no required unsupported fields are present, and add a compact branch comment only after branch
-  creation/switch succeeds.
+  no required unsupported fields are present, add the ticket to the configured board's active sprint
+  when `queries.default_board_id` is set, verify board visibility, and add a compact branch comment
+  only after branch creation/switch succeeds.
 - `jira commit [ticket]` analyzes the current Git repo through `internal/gitworkflow`, detects the
   Jira issue from the branch when possible, separates dirty work from already-reported and
   unreported local commits, previews the commit/Jira/push writes, stores reported commit SHAs under

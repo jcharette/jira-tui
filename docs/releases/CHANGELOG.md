@@ -4,12 +4,26 @@ All notable changes to this project should be recorded here.
 
 ## Unreleased
 
+## 1.0.14 - 2026-07-09
+
+- Added `queries.default_team_field_id` / `queries.default_team_id` / `queries.default_team_name`
+  so toil tickets and board hygiene fixes can set the Jira Team field needed by Team-filtered
+  boards.
+- Changed `jira ticket check-board` to apply the configured default Team for tickets that are in
+  sprint but still filtered off the board, then re-check board visibility after the write.
+- Changed `jira ticket check-board` to report Epics that cannot appear as board issue cards as
+  manual tracking notes instead of proposing Team/Sprint rewrites.
+- Changed Start Work and new toil-ticket creation to add tickets to the configured board's active
+  sprint and verify board visibility when `queries.default_board_id` is set.
+
 ## 1.0.13 - 2026-07-08
 
 - Fixed `jira ticket check-board` so missing active-sprint findings are reported even when
   `queries.default_board_id` is not configured.
-- Added `--board` to `jira ticket check-board` so active-sprint checks and fixes can target a board
-  explicitly, such as board 1255.
+- Changed `jira ticket check-board` to show the safe fix plan and ask by default, with active sprint
+  discovery from project boards and `--board` only needed for ambiguous boards.
+- Fixed `jira ticket check-board` to treat unresolved assigned tickets as sprint candidates and, when
+  a board is known, verify the ticket is actually returned by that board.
 
 ## 1.0.12 - 2026-07-08
 

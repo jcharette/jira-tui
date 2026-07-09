@@ -118,23 +118,25 @@ work appears on sprint boards.
 
 ## Check Board Hygiene
 
-Audit your current in-progress tickets and their children for board visibility problems:
+Audit your current unresolved assigned tickets and their children for board visibility problems:
 
 ```bash
 jira ticket check-board
-jira ticket check-board --board 1255
+jira ticket check-board --board 1234
 ```
 
 Check one ticket:
 
 ```bash
-jira ticket check-board ABC-123 --board 1255
+jira ticket check-board ABC-123 --board 1234
 ```
 
-Use `--fix` to print proposed fixes and confirm them in one prompt. Safe fixes assign unassigned
-work to the current user, add tickets to the active sprint when the board is configured or passed
-with `--board`, and attempt Story/Task conversion for Epic-owned Sub-tasks before reporting manual
-follow-up.
+When findings have safe fixes, the command prints the proposed changes and asks once before writing.
+Safe fixes assign unassigned work to the current user, add unresolved assigned tickets to a
+discovered or configured active sprint, and attempt Story/Task conversion for Epic-owned Sub-tasks
+before reporting manual follow-up. When the active board is known, the audit also verifies that the
+board can return the ticket; board filter, status column, or quick-filter problems are reported as
+manual review findings. Pass `--board` when Jira has multiple matching active sprint boards.
 
 ## Account For Toil
 
@@ -152,7 +154,9 @@ jira ticket create-toil --summary "rotate certs" --time 45m --note "prod cert cl
 ```
 
 New toil tickets get label `toil`. If Jira exposes an issue type named `Toil`, the command uses it;
-otherwise it uses the first safe non-subtask issue type in the configured project.
+otherwise it uses the first safe non-subtask issue type in the configured project. When
+`queries.default_board_id` is set, CLI and TUI toil creation add the new ticket to that board's
+active sprint and verify the board can return it.
 
 Update an existing toil ticket:
 
@@ -220,6 +224,9 @@ When Claude is enabled and the Branch Plan feature is on, Start Work asks Claude
 implementation plan before the review screen. The generated plan is advisory only; branch and Jira
 writes still require the normal confirmation, and the workflow falls back to the deterministic
 review when Claude is unavailable.
+
+When `queries.default_board_id` is set, confirmed Start Work writes also add the ticket to that
+board's active sprint and verify the board can return it.
 
 ## Commit And Finish Work
 

@@ -108,6 +108,7 @@ func runAppWithConfig(cfg config.Config, cfgPath string) error {
 		jiratui.WithGitConfig(cfg.Git),
 		jiratui.WithPlanningProject(cfg.DefaultProject),
 		jiratui.WithDefaultBoardID(cfg.DefaultBoardID),
+		jiratui.WithDefaultTeam(cfg.DefaultTeamFieldID, cfg.DefaultTeamID, cfg.DefaultTeamName),
 		jiratui.WithEventStream(eventStream),
 		jiratui.WithNotificationConfig(jiratui.NotificationConfig{
 			Enabled:                   cfg.Notifications.Enabled,

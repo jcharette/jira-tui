@@ -3,6 +3,7 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -189,6 +190,76 @@ func TestToilCreateLogsWorkAndQueuesClose(t *testing.T) {
 	}
 	if closeCmd == nil {
 		t.Fatal("expected transition metadata command")
+	}
+}
+
+func TestToilCreateAddsConfiguredDefaultTeam(t *testing.T) {
+	searcher := &fakeIssueSearcher{}
+	model := NewModel(searcher, "project = ABC", WithDefaultTeam("customfield_12345", "team-123", "Team Alpha"))
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 100
+	model.height = 30
+	model.toilOpen = true
+	model.toilProjectKey = "ABC"
+	model.toilIssueTypes = []jira.CreateIssueType{{ID: "10002", Name: "Toil"}}
+	model.toilSummaryEditor = newSummaryEditor("Rotate certs")
+	model.toilSummaryEditorReady = true
+	model.toilTimeEditor = newWorklogTimeInput("45m")
+	model.toilTimeEditorReady = true
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next := updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected create issue command")
+	}
+	_ = cmd()
+	msg := next.waitForWorkerResult()()
+	if _, ok := msg.(workerResultMsg); !ok {
+		t.Fatalf("worker result = %#v", msg)
+	}
+
+	want := []jira.CreateIssueFieldValue{
+		{FieldID: "labels", SchemaSystem: "labels", Text: "toil"},
+		{FieldID: "customfield_12345", SchemaType: "team", Option: jira.FieldOption{ID: "team-123", Name: "Team Alpha"}},
+	}
+	if !reflect.DeepEqual(searcher.createIssueRequest.Fields, want) {
+		t.Fatalf("create fields = %#v", searcher.createIssueRequest.Fields)
+	}
+}
+
+func TestToilCreateAddsCreatedTicketToConfiguredActiveSprint(t *testing.T) {
+	searcher := &fakeIssueSearcher{
+		sprintPage: jira.SprintPage{
+			Sprints: []jira.Sprint{{ID: 300, BoardID: 100, Name: "Sprint 42", State: "active"}},
+			IsLast:  true,
+		},
+	}
+	model := NewModel(searcher, "project = ABC", WithDefaultBoardID(100))
+	defer model.workers.Stop()
+	model.loading = false
+	model.width = 100
+	model.height = 30
+	model.toilOpen = true
+	model.toilProjectKey = "ABC"
+	model.toilIssueTypes = []jira.CreateIssueType{{ID: "10002", Name: "Toil"}}
+	model.toilSummaryEditor = newSummaryEditor("Rotate certs")
+	model.toilSummaryEditorReady = true
+	model.toilTimeEditor = newWorklogTimeInput("45m")
+	model.toilTimeEditorReady = true
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "ctrl+s"}))
+	next := updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected create issue command")
+	}
+	_ = cmd()
+	msg := next.waitForWorkerResult()()
+	if result, ok := msg.(workerResultMsg); !ok || result.result.Err != nil {
+		t.Fatalf("worker result = %#v", msg)
+	}
+	if searcher.sprintBoardID != 100 || searcher.moveSprintID != 300 || !reflect.DeepEqual(searcher.moveIssueKeys, []string{"ABC-123"}) {
+		t.Fatalf("sprint tracking = board %d sprint %d keys %#v", searcher.sprintBoardID, searcher.moveSprintID, searcher.moveIssueKeys)
 	}
 }
 

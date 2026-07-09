@@ -65,15 +65,15 @@ binary somewhere on your `PATH`.
 Apple Silicon example:
 
 ```bash
-curl -LO https://github.com/jcharette/jira-tui/releases/download/v1.0.13/jira-tui_1.0.13_darwin_arm64.tar.gz
-tar -xzf jira-tui_1.0.13_darwin_arm64.tar.gz
+curl -LO https://github.com/jcharette/jira-tui/releases/download/v1.0.14/jira-tui_1.0.14_darwin_arm64.tar.gz
+tar -xzf jira-tui_1.0.14_darwin_arm64.tar.gz
 install -m 0755 jira ~/bin/jira
 ```
 
 Or install with Go:
 
 ```bash
-go install github.com/jcharette/jira-tui/cmd/jira@v1.0.13
+go install github.com/jcharette/jira-tui/cmd/jira@v1.0.14
 ```
 
 Go installs the binary as `jira`.
@@ -182,7 +182,8 @@ non-ASCII symbols, then restart the terminal and run `jira config`.
 - When Claude is enabled and the Branch Plan feature is on, the review can include a read-only
   Claude start-work plan. If Claude is unavailable, the flow continues with the normal review.
 - Confirmed writes create or switch the local branch, optionally assign the ticket to you, move it to
-  the best available In Progress-like transition, and add a compact branch comment.
+  the best available In Progress-like transition, add it to the configured board's active sprint
+  when `queries.default_board_id` is set, and add a compact branch comment.
 
 ### Commit And Finish Work
 
@@ -206,12 +207,14 @@ non-ASCII symbols, then restart the terminal and run `jira config`.
   close-after-create.
 - `jira ticket create-toil --summary "rotate certs" --time 45m` creates a labeled toil ticket from
   the CLI, logs optional time, and can close it immediately with `--close` when Jira exposes a safe
-  terminal transition.
+  terminal transition. TUI and CLI toil creation add the new ticket to the configured board's active
+  sprint when `queries.default_board_id` is set.
 - `jira ticket update-toil [KEY]` and `jira ticket close-toil [KEY]` log time to toil tickets; omit
   `KEY` to pick from open assigned tickets matching label `toil` or issue type `Toil`.
-- `jira ticket check-board [KEY]` audits a ticket, or your current in-progress work when `KEY` is
-  omitted, for board visibility problems. Add `--board 1255` to use that board's active sprint for
-  sprint fixes, `--fix` to review and confirm safe fixes, or `--yes` for non-interactive runs.
+- `jira ticket check-board [KEY]` audits a ticket, or your current unresolved assigned work when
+  `KEY` is omitted, for board visibility problems, then prompts to apply safe fixes. When the active
+  board is known, it checks both sprint membership and board visibility. Add `--board 1234` when
+  multiple active sprint boards match, or `--yes` to skip the prompt.
 - Ticket detail supports summary, priority, assignee, labels, components, fix/affects versions, due
   date, parent, time tracking estimates, safe generic custom fields, and workflow transitions
   through Jira edit metadata.
@@ -292,8 +295,8 @@ jira ticket toil
 jira ticket update-toil ABC-123 --time 30m
 jira ticket close-toil ABC-123 --time 15m
 jira ticket check-board
-jira ticket check-board --board 1255
-jira ticket check-board ABC-123 --board 1255 --fix
+jira ticket check-board --board 1234
+jira ticket check-board ABC-123 --board 1234
 jira start
 jira --profile work
 jira --profile work config
@@ -314,7 +317,7 @@ make build
 make build-local
 make docs-status
 make milestone-complete M=M1
-make release VERSION=1.0.13
+make release VERSION=1.0.14
 ```
 
 Planning, backlog, release notes, and decisions live in [docs/README.md](docs/README.md). The project

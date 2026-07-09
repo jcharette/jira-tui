@@ -34,6 +34,7 @@ type Client struct {
 	rest           restConnector
 	board          agileBoardService
 	requestTimeout time.Duration
+	teamFieldID    string
 }
 
 type issueSearchService interface {
@@ -77,6 +78,7 @@ type restConnector interface {
 
 type agileBoardService interface {
 	Gets(ctx context.Context, opts *model.GetBoardsOptions, startAt, maxResults int) (*model.BoardPageScheme, *model.ResponseScheme, error)
+	Issues(ctx context.Context, boardID int, opts *model.IssueOptionScheme, startAt, maxResults int) (*model.BoardIssuePageScheme, *model.ResponseScheme, error)
 	Sprints(ctx context.Context, boardID, startAt, maxResults int, states []string) (*model.BoardSprintPageScheme, *model.ResponseScheme, error)
 }
 
@@ -93,6 +95,8 @@ type Issue struct {
 	ParentSummary  string
 	SubtaskCount   int
 	Subtasks       []Issue
+	TeamID         string
+	TeamName       string
 	URL            string
 }
 
@@ -362,6 +366,7 @@ func NewClient(cfg config.Config) *Client {
 			metadata:       failingMetadataService{err: err},
 			board:          failingAgileBoardService{err: err},
 			requestTimeout: requestTimeout,
+			teamFieldID:    strings.TrimSpace(cfg.DefaultTeamFieldID),
 		}
 	}
 	api.Auth.SetBasicAuth(cfg.Email, cfg.APIToken)
@@ -378,14 +383,15 @@ func NewClient(cfg config.Config) *Client {
 			metadata:       failingMetadataService{err: err},
 			board:          failingAgileBoardService{err: err},
 			requestTimeout: requestTimeout,
+			teamFieldID:    strings.TrimSpace(cfg.DefaultTeamFieldID),
 		}
 	}
 	agileAPI.Auth.SetBasicAuth(cfg.Email, cfg.APIToken)
 
-	return newClient(cfg.BaseURL, api.Issue.Search, api.Issue, api.Issue.Comment, api.User.Search, api.MySelf, api.Issue.Metadata, api, agileAPI.Board, requestTimeout)
+	return newClient(cfg.BaseURL, api.Issue.Search, api.Issue, api.Issue.Comment, api.User.Search, api.MySelf, api.Issue.Metadata, api, agileAPI.Board, requestTimeout, cfg.DefaultTeamFieldID)
 }
 
-func newClient(baseURL string, search jiraservice.SearchADFConnector, issue jiraservice.IssueADFConnector, comment commentService, userSearch userSearchService, myself myselfService, metadata jiraservice.MetadataConnector, rest restConnector, board agileBoardService, requestTimeout time.Duration) *Client {
+func newClient(baseURL string, search jiraservice.SearchADFConnector, issue jiraservice.IssueADFConnector, comment commentService, userSearch userSearchService, myself myselfService, metadata jiraservice.MetadataConnector, rest restConnector, board agileBoardService, requestTimeout time.Duration, teamFieldID string) *Client {
 	return &Client{
 		baseURL:        baseURL,
 		search:         search,
@@ -397,6 +403,7 @@ func newClient(baseURL string, search jiraservice.SearchADFConnector, issue jira
 		rest:           rest,
 		board:          board,
 		requestTimeout: requestTimeout,
+		teamFieldID:    strings.TrimSpace(teamFieldID),
 	}
 }
 
@@ -461,6 +468,8 @@ func (c *Client) GetBoards(ctx context.Context, projectKey string, startAt, maxR
 	}
 
 	options := &model.GetBoardsOptions{}
+	options.BoardType = "scrum"
+	options.IncludePrivate = true
 	if projectKey != "" {
 		options.ProjectKeyOrID = projectKey
 	}
@@ -500,6 +509,44 @@ func (c *Client) GetBoardSprints(ctx context.Context, boardID int, states []stri
 	page := parseSprintPage(response)
 	page.BoardID = boardID
 	return page, nil
+}
+
+func (c *Client) SearchBoardIssues(ctx context.Context, boardID int, jql string, maxResults int) ([]Issue, error) {
+	jql = strings.TrimSpace(jql)
+	if boardID <= 0 {
+		return nil, fmt.Errorf("search jira board issues: missing board ID")
+	}
+	if maxResults <= 0 {
+		maxResults = defaultMaxResults
+	}
+	if c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+	if c.board == nil {
+		return nil, fmt.Errorf("search jira board issues %d: agile board service unavailable", boardID)
+	}
+	opts := &model.IssueOptionScheme{
+		JQL:           jql,
+		ValidateQuery: true,
+		Fields:        []string{"summary", "status", "assignee", "issuetype", "parent"},
+	}
+	response, _, err := c.board.Issues(ctx, boardID, opts, 0, maxResults)
+	if err != nil {
+		return nil, fmt.Errorf("search jira board issues %d: %w", boardID, err)
+	}
+	if response == nil {
+		return nil, fmt.Errorf("search jira board issues %d: empty response", boardID)
+	}
+	issues := make([]Issue, 0, len(response.Issues))
+	for _, raw := range response.Issues {
+		if raw == nil {
+			continue
+		}
+		issues = append(issues, Issue{Key: raw.Key})
+	}
+	return issues, nil
 }
 
 func (c *Client) MoveIssuesToSprint(ctx context.Context, sprintID int, issueKeys []string) error {
@@ -557,7 +604,7 @@ func (c *Client) GetIssue(ctx context.Context, key string) (IssueDetail, error) 
 		defer cancel()
 	}
 
-	fields := issueDetailFields()
+	fields := c.issueDetailFields()
 	if c.rest != nil {
 		response, err := c.getIssueDetailREST(ctx, key, fields)
 		if err != nil {
@@ -575,8 +622,8 @@ func (c *Client) GetIssue(ctx context.Context, key string) (IssueDetail, error) 
 	return c.parseIssueDetail(raw, nil), nil
 }
 
-func issueDetailFields() []string {
-	return []string{
+func (c *Client) issueDetailFields() []string {
+	fields := []string{
 		"summary",
 		"status",
 		"assignee",
@@ -595,6 +642,10 @@ func issueDetailFields() []string {
 		"issuelinks",
 		"timetracking",
 	}
+	if strings.TrimSpace(c.teamFieldID) != "" {
+		fields = append(fields, strings.TrimSpace(c.teamFieldID))
+	}
+	return fields
 }
 
 func (c *Client) getIssueDetailREST(ctx context.Context, key string, fields []string) (issueDetailResponse, error) {
@@ -1201,6 +1252,8 @@ func createCustomFieldPayload(value CreateIssueFieldValue, schemaType string) (i
 			return nil, false
 		}
 		return option, true
+	case "team":
+		return teamFieldPayload(value.Option)
 	default:
 		if value.Option.ID != "" || value.Option.Name != "" {
 			option := createFieldOptionPayload(value.Option)
@@ -1224,6 +1277,14 @@ func createFieldOptionPayload(option FieldOption) map[string]interface{} {
 		payload["value"] = strings.TrimSpace(option.Name)
 	}
 	return payload
+}
+
+func teamFieldPayload(option FieldOption) (interface{}, bool) {
+	id := strings.TrimSpace(option.ID)
+	if id == "" {
+		return nil, false
+	}
+	return id, true
 }
 
 func splitCreateLabels(value string) []string {
@@ -1362,12 +1423,20 @@ func (c *Client) UpdateEditField(ctx context.Context, key string, value EditFiel
 		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
 		defer cancel()
 	}
-
-	customFields := &model.CustomFields{}
-	if err := customFields.Raw(fieldID, raw); err != nil {
+	if c.rest == nil {
+		return fmt.Errorf("update jira field %s: REST service unavailable", key)
+	}
+	payload := map[string]interface{}{
+		"fields": map[string]interface{}{
+			fieldID: raw,
+		},
+	}
+	endpoint := "rest/api/3/issue/" + url.PathEscape(key)
+	restRequest, err := c.rest.NewRequest(ctx, http.MethodPut, endpoint, "", payload)
+	if err != nil {
 		return fmt.Errorf("update jira field %s: %w", key, err)
 	}
-	if _, err := c.issue.Update(ctx, key, false, &model.IssueScheme{}, customFields, nil); err != nil {
+	if _, err := c.rest.Call(restRequest, nil); err != nil {
 		return fmt.Errorf("update jira field %s: %w", key, err)
 	}
 	return nil
@@ -1522,6 +1591,8 @@ func editCustomFieldPayload(value EditFieldValue) (interface{}, bool) {
 			return nil, false
 		}
 		return option, true
+	case "team":
+		return teamFieldPayload(value.Option)
 	case "user":
 		return userFieldPayload(value.Option)
 	case "version":
@@ -1942,6 +2013,9 @@ func (c *Client) parseIssueDetail(raw *model.IssueScheme, rawFields map[string]j
 	detail.IssueLinks = c.parseIssueLinks(fields.IssueLinks)
 	detail.Reporter = jiraUserDisplayName(fields.Reporter, detail.Reporter)
 	detail.Creator = jiraUserDisplayName(fields.Creator, detail.Creator)
+	if teamFieldID := strings.TrimSpace(c.teamFieldID); teamFieldID != "" {
+		detail.TeamID, detail.TeamName = parseTeam(rawFields[teamFieldID])
+	}
 	if fields.Created != nil {
 		detail.Created = time.Time(*fields.Created)
 	}
@@ -1949,6 +2023,25 @@ func (c *Client) parseIssueDetail(raw *model.IssueScheme, rawFields map[string]j
 		detail.Updated = time.Time(*fields.Updated)
 	}
 	return detail
+}
+
+func parseTeam(raw json.RawMessage) (string, string) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", ""
+	}
+	var payload struct {
+		ID    string `json:"id"`
+		Name  string `json:"name"`
+		Title string `json:"title"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return "", ""
+	}
+	name := strings.TrimSpace(payload.Name)
+	if name == "" {
+		name = strings.TrimSpace(payload.Title)
+	}
+	return strings.TrimSpace(payload.ID), name
 }
 
 func parseTimeTracking(raw json.RawMessage) (string, string) {
@@ -2617,6 +2710,10 @@ type failingAgileBoardService struct {
 }
 
 func (f failingAgileBoardService) Gets(_ context.Context, _ *model.GetBoardsOptions, _, _ int) (*model.BoardPageScheme, *model.ResponseScheme, error) {
+	return nil, nil, f.err
+}
+
+func (f failingAgileBoardService) Issues(_ context.Context, _ int, _ *model.IssueOptionScheme, _, _ int) (*model.BoardIssuePageScheme, *model.ResponseScheme, error) {
 	return nil, nil, f.err
 }
 

@@ -973,6 +973,9 @@ api_token = "secret"
 [queries]
 default_project = "ABC"
 default_board_id = 100
+default_team_field_id = "customfield_12345"
+default_team_id = "team-123"
+default_team_name = "Team Alpha"
 `), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
@@ -983,6 +986,9 @@ default_board_id = 100
 	}
 	if cfg.DefaultBoardID != 100 {
 		t.Fatalf("DefaultBoardID = %d", cfg.DefaultBoardID)
+	}
+	if cfg.DefaultTeamFieldID != "customfield_12345" || cfg.DefaultTeamID != "team-123" || cfg.DefaultTeamName != "Team Alpha" {
+		t.Fatalf("DefaultTeam = %q/%q/%q", cfg.DefaultTeamFieldID, cfg.DefaultTeamID, cfg.DefaultTeamName)
 	}
 }
 
@@ -996,6 +1002,9 @@ func TestSaveWritesDefaultBoardID(t *testing.T) {
 	cfg.DefaultProject = "ABC"
 	cfg.DefaultJQL = DefaultJQLForProject("ABC")
 	cfg.DefaultBoardID = 100
+	cfg.DefaultTeamFieldID = "customfield_12345"
+	cfg.DefaultTeamID = "team-123"
+	cfg.DefaultTeamName = "Team Alpha"
 
 	if err := SaveWithSecretStore(path, cfg, secrets); err != nil {
 		t.Fatalf("Save() error = %v", err)
@@ -1006,5 +1015,8 @@ func TestSaveWritesDefaultBoardID(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "default_board_id = 100") {
 		t.Fatalf("saved config missing default_board_id:\n%s", string(data))
+	}
+	if !strings.Contains(string(data), `default_team_field_id = "customfield_12345"`) || !strings.Contains(string(data), `default_team_id = "team-123"`) || !strings.Contains(string(data), `default_team_name = "Team Alpha"`) {
+		t.Fatalf("saved config missing default team:\n%s", string(data))
 	}
 }

@@ -27,6 +27,7 @@ const (
 	ActionBranch     ActionKind = "branch"
 	ActionAssign     ActionKind = "assign"
 	ActionTransition ActionKind = "transition"
+	ActionSprint     ActionKind = "sprint"
 	ActionComment    ActionKind = "comment"
 )
 
@@ -51,6 +52,7 @@ type Result struct {
 	Confirmed  bool
 	Canceled   bool
 	Issue      jira.Issue
+	BoardID    int
 	RepoPath   string
 	BranchName string
 	Actions    []ActionPlan
@@ -239,6 +241,7 @@ func (m Model) updateReview(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.result = Result{
 			Confirmed:  true,
 			Issue:      m.issue,
+			BoardID:    m.cfg.DefaultBoardID,
 			RepoPath:   strings.TrimSpace(m.repoInput.Value()),
 			BranchName: strings.TrimSpace(m.branchInput.Value()),
 			Actions:    append([]ActionPlan(nil), m.actions...),
@@ -320,6 +323,7 @@ func DefaultActions(branch string) []ActionPlan {
 		{Kind: ActionBranch, Label: "Create or switch branch", Detail: strings.TrimSpace(branch), Required: true},
 		{Kind: ActionAssign, Label: "Assign to me", Detail: "Use current Jira user"},
 		{Kind: ActionTransition, Label: "Move to In Progress", Detail: "Use best matching Jira transition"},
+		{Kind: ActionSprint, Label: "Add to active sprint", Detail: "Use configured Jira board active sprint"},
 		{Kind: ActionComment, Label: "Add branch comment", Detail: "Post compact branch note"},
 	}
 }

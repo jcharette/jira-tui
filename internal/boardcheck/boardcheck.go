@@ -20,6 +20,7 @@ const (
 	CodeSubtaskUnderEpic    Code = "subtask-under-epic"
 	CodeUnassigned          Code = "unassigned"
 	CodeMissingActiveSprint Code = "missing-active-sprint"
+	CodeMissingBoard        Code = "missing-board"
 )
 
 type Finding struct {
@@ -57,12 +58,16 @@ func CheckIssue(issue jira.Issue, opts Options) []Finding {
 			Fix:      "assign the ticket",
 		})
 	}
-	if opts.RequireActiveSprint && opts.ActiveSprintKnown && !opts.InActiveSprint && isInProgress(issue) {
+	if opts.RequireActiveSprint && opts.ActiveSprintKnown && !opts.InActiveSprint && shouldBeInSprint(issue) {
+		message := issue.Key + " is in progress but not in the active sprint"
+		if !isInProgress(issue) {
+			message = issue.Key + " is assigned unresolved work but not in the active sprint"
+		}
 		findings = append(findings, Finding{
 			Severity: SeverityWarn,
 			Code:     CodeMissingActiveSprint,
 			IssueKey: issue.Key,
-			Message:  issue.Key + " is in progress but not in the active sprint",
+			Message:  message,
 			Fix:      "add the ticket to the active sprint",
 		})
 	}
@@ -79,6 +84,10 @@ func IsSubtask(issue jira.Issue) bool {
 
 func IsInProgress(issue jira.Issue) bool {
 	return isInProgress(issue)
+}
+
+func ShouldBeInSprint(issue jira.Issue) bool {
+	return shouldBeInSprint(issue)
 }
 
 func isEpic(issue jira.Issue) bool {
@@ -101,6 +110,16 @@ func isInProgress(issue jira.Issue) bool {
 		}
 	}
 	return strings.Contains(status, "progress") || strings.Contains(status, "review") || strings.Contains(status, "blocked")
+}
+
+func shouldBeInSprint(issue jira.Issue) bool {
+	status := strings.ToLower(strings.TrimSpace(issue.Status))
+	for _, done := range []string{"done", "closed", "resolved", "cancelled", "canceled"} {
+		if status == done {
+			return false
+		}
+	}
+	return isInProgress(issue) || !isUnassigned(issue)
 }
 
 func isUnassigned(issue jira.Issue) bool {

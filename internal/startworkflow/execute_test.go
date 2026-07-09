@@ -42,6 +42,37 @@ func TestApplyActionsStopsJiraWritesAfterRequiredBranchFailure(t *testing.T) {
 	}
 }
 
+func TestApplyJiraActionsAddsIssueToConfiguredActiveSprint(t *testing.T) {
+	jiraClient := &fakeStartJiraClient{
+		sprints: []jira.Sprint{{ID: 300, BoardID: 100, Name: "Sprint 42", State: "active"}},
+		boardIssuesByJQL: map[string][]jira.Issue{
+			"key = ABC-1": {{Key: "ABC-1"}},
+		},
+	}
+	result := Result{
+		Issue:   jira.Issue{Key: "ABC-1"},
+		BoardID: 100,
+		Actions: []ActionPlan{
+			{Kind: ActionSprint, Label: "Add to active sprint"},
+		},
+	}
+
+	outcomes := ApplyJiraActions(context.Background(), jiraClient, result, true)
+
+	if len(outcomes) != 1 || outcomes[0].State != "completed" || outcomes[0].Err != nil {
+		t.Fatalf("outcomes = %#v", outcomes)
+	}
+	if jiraClient.moveSprintID != 300 {
+		t.Fatalf("moveSprintID = %d", jiraClient.moveSprintID)
+	}
+	if len(jiraClient.moveIssueKeys) != 1 || jiraClient.moveIssueKeys[0] != "ABC-1" {
+		t.Fatalf("moveIssueKeys = %#v", jiraClient.moveIssueKeys)
+	}
+	if jiraClient.boardID != 100 || jiraClient.boardJQL != "key = ABC-1" {
+		t.Fatalf("board verification = %d %q", jiraClient.boardID, jiraClient.boardJQL)
+	}
+}
+
 type fakeStartGitClient struct {
 	err error
 }
@@ -67,7 +98,13 @@ func (f fakeStartGitClient) PushCurrentBranch(context.Context, string) error {
 }
 
 type fakeStartJiraClient struct {
-	called bool
+	called           bool
+	sprints          []jira.Sprint
+	moveSprintID     int
+	moveIssueKeys    []string
+	boardIssuesByJQL map[string][]jira.Issue
+	boardID          int
+	boardJQL         string
 }
 
 func (f *fakeStartJiraClient) CurrentUser(context.Context) (jira.User, error) {
@@ -93,4 +130,26 @@ func (f *fakeStartJiraClient) UpdateAssignee(context.Context, string, jira.User)
 func (f *fakeStartJiraClient) AddComment(context.Context, string, string, []jira.Mention) (jira.Comment, error) {
 	f.called = true
 	return jira.Comment{}, nil
+}
+
+func (f *fakeStartJiraClient) GetBoardSprints(_ context.Context, boardID int, states []string, startAt, maxResults int) (jira.SprintPage, error) {
+	f.called = true
+	return jira.SprintPage{Sprints: append([]jira.Sprint(nil), f.sprints...), IsLast: true}, nil
+}
+
+func (f *fakeStartJiraClient) MoveIssuesToSprint(_ context.Context, sprintID int, issueKeys []string) error {
+	f.called = true
+	f.moveSprintID = sprintID
+	f.moveIssueKeys = append([]string(nil), issueKeys...)
+	return nil
+}
+
+func (f *fakeStartJiraClient) SearchBoardIssues(_ context.Context, boardID int, jql string, maxResults int) ([]jira.Issue, error) {
+	f.called = true
+	f.boardID = boardID
+	f.boardJQL = jql
+	if f.boardIssuesByJQL != nil {
+		return append([]jira.Issue(nil), f.boardIssuesByJQL[jql]...), nil
+	}
+	return []jira.Issue{{Key: "ABC-1"}}, nil
 }

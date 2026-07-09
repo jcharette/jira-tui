@@ -989,6 +989,7 @@ type fakeIssueSearcher struct {
 	deleteWorklogID           string
 	createIssueRequest        jira.CreateIssueRequest
 	createdIssue              jira.Issue
+	boardIssuesByJQL          map[string][]jira.Issue
 	boardPage                 jira.BoardPage
 	sprintPage                jira.SprintPage
 	boardProjectKey           string
@@ -1321,6 +1322,20 @@ func (f *fakeIssueSearcher) MoveIssuesToSprint(_ context.Context, sprintID int, 
 	f.moveSprintID = sprintID
 	f.moveIssueKeys = append([]string{}, issueKeys...)
 	return nil
+}
+
+func (f *fakeIssueSearcher) SearchBoardIssues(_ context.Context, boardID int, jql string, maxResults int) ([]jira.Issue, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.boardIssuesByJQL != nil {
+		return append([]jira.Issue(nil), f.boardIssuesByJQL[jql]...), nil
+	}
+	key := strings.TrimSpace(strings.TrimPrefix(jql, "key = "))
+	if key == "" {
+		return nil, nil
+	}
+	return []jira.Issue{{Key: key}}, nil
 }
 
 func (f *fakeIssueSearcher) UpdateSummary(_ context.Context, key string, summary string) error {

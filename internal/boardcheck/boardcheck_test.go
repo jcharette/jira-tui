@@ -47,3 +47,16 @@ func TestCheckIssueAllowsCleanStory(t *testing.T) {
 		t.Fatalf("findings = %#v", findings)
 	}
 }
+
+func TestCheckIssueFlagsAssignedTodoMissingSprint(t *testing.T) {
+	findings := CheckIssue(jira.Issue{
+		Key:       "DEVOPS-5",
+		Status:    "To Do",
+		Assignee:  "Jon",
+		IssueType: "Story",
+	}, Options{RequireActiveSprint: true, ActiveSprintKnown: true})
+
+	if len(findings) != 1 || findings[0].Code != CodeMissingActiveSprint {
+		t.Fatalf("findings = %#v", findings)
+	}
+}

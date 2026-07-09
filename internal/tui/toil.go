@@ -6,7 +6,9 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"github.com/jcharette/jira-tui/internal/config"
 	"github.com/jcharette/jira-tui/internal/jira"
+	toilfields "github.com/jcharette/jira-tui/internal/toil"
 	"github.com/jcharette/jira-tui/internal/worker"
 )
 
@@ -262,11 +264,16 @@ func (m Model) submitToilTicket() (Model, tea.Cmd) {
 	m.toilWorklogRequest = jira.AddWorklogRequest{TimeSpent: timeSpent, Started: m.currentTime(), Comment: note}
 	m.detailNotice = ""
 	return m, m.submitCreateIssue(m.activeToilCreateReqID, worker.CreateIssueRequest{
-		ProjectKey:  m.toilProjectKey,
-		IssueTypeID: issueType.ID,
-		Summary:     summary,
-		Description: note,
-		Fields:      []jira.CreateIssueFieldValue{{FieldID: "labels", SchemaSystem: "labels", Text: "toil"}},
+		ProjectKey:    m.toilProjectKey,
+		IssueTypeID:   issueType.ID,
+		Summary:       summary,
+		Description:   note,
+		SprintBoardID: m.defaultBoardID,
+		Fields: toilfields.CreateFields(config.Config{
+			DefaultTeamFieldID: m.defaultTeamFieldID,
+			DefaultTeamID:      m.defaultTeamID,
+			DefaultTeamName:    m.defaultTeamName,
+		}),
 	})
 }
 

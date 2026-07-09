@@ -956,6 +956,46 @@ func TestPoolCreateIssueSuccess(t *testing.T) {
 	}
 }
 
+func TestPoolCreateIssueAddsCreatedIssueToConfiguredActiveSprint(t *testing.T) {
+	searcher := &fakeIssueSearcher{
+		createdIssue: jira.Issue{Key: "ABC-123", Summary: "New toil"},
+		sprintPage: jira.SprintPage{
+			Sprints: []jira.Sprint{{ID: 300, BoardID: 100, Name: "Sprint 42", State: "active"}},
+			IsLast:  true,
+		},
+		boardIssuesByJQL: map[string][]jira.Issue{
+			"key = ABC-123": {{Key: "ABC-123"}},
+		},
+	}
+	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
+	defer pool.Stop()
+
+	err := pool.Submit(Request{
+		ID:   35,
+		Kind: KindCreateIssue,
+		CreateIssue: &CreateIssueRequest{
+			ProjectKey:    "ABC",
+			IssueTypeID:   "10001",
+			Summary:       "New toil",
+			SprintBoardID: 100,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	result := readResult(t, pool)
+	if result.Err != nil {
+		t.Fatalf("Err = %v", result.Err)
+	}
+	if searcher.sprintBoardID != 100 || searcher.moveSprintID != 300 || !reflect.DeepEqual(searcher.moveIssueKeys, []string{"ABC-123"}) {
+		t.Fatalf("sprint tracking = board %d sprint %d keys %#v", searcher.sprintBoardID, searcher.moveSprintID, searcher.moveIssueKeys)
+	}
+	if result.CreateIssue.Sprint == nil || result.CreateIssue.Sprint.Name != "Sprint 42" {
+		t.Fatalf("CreateIssue sprint = %#v", result.CreateIssue)
+	}
+}
+
 func TestPoolUpdateSummarySuccess(t *testing.T) {
 	searcher := &fakeIssueSearcher{}
 	pool := NewPool(searcher, WithWorkerCount(1), WithQueueSize(1))
@@ -2079,6 +2119,7 @@ type fakeIssueSearcher struct {
 	deleteWorklogErr          error
 	createIssueRequest        jira.CreateIssueRequest
 	createdIssue              jira.Issue
+	boardIssuesByJQL          map[string][]jira.Issue
 	boardPage                 jira.BoardPage
 	sprintPage                jira.SprintPage
 	boardProjectKey           string
@@ -2399,6 +2440,20 @@ func (f *fakeIssueSearcher) MoveIssuesToSprint(_ context.Context, sprintID int, 
 	f.moveSprintID = sprintID
 	f.moveIssueKeys = append([]string{}, issueKeys...)
 	return nil
+}
+
+func (f *fakeIssueSearcher) SearchBoardIssues(_ context.Context, boardID int, jql string, maxResults int) ([]jira.Issue, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.boardIssuesByJQL != nil {
+		return append([]jira.Issue(nil), f.boardIssuesByJQL[jql]...), nil
+	}
+	key := strings.TrimSpace(strings.TrimPrefix(jql, "key = "))
+	if key == "" {
+		return nil, nil
+	}
+	return []jira.Issue{{Key: key}}, nil
 }
 
 func (f *fakeIssueSearcher) UpdateSummary(_ context.Context, key string, summary string) error {
@@ -2836,6 +2891,19 @@ func (b *blockingIssueSearcher) MoveIssuesToSprint(ctx context.Context, _ int, _
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
+	}
+}
+
+func (b *blockingIssueSearcher) SearchBoardIssues(ctx context.Context, _ int, _ string, _ int) ([]jira.Issue, error) {
+	if b.started != nil {
+		close(b.started)
+		b.started = nil
+	}
+	select {
+	case <-b.release:
+		return nil, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
 }
 

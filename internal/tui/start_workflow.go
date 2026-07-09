@@ -74,7 +74,7 @@ func (m Model) handleStartRepoDetected(msg startRepoDetectedMsg) (Model, tea.Cmd
 	}
 	m.startWorkflowPreparing = false
 	m.startWorkflowErr = msg.err
-	cfg := configDefaultsForStart(m.gitConfig)
+	cfg := configDefaultsForStart(m.gitConfig, m.defaultBoardID)
 	if m.claudeStartPlanAvailable() {
 		m.startWorkflowPreparing = true
 		m.startWorkflowPlanning = true
@@ -94,7 +94,7 @@ func (m Model) handleStartPlanResult(msg startPlanResultMsg) (Model, tea.Cmd) {
 	}
 	m.startWorkflowPreparing = false
 	m.startWorkflowPlanning = false
-	cfg := configDefaultsForStart(m.gitConfig)
+	cfg := configDefaultsForStart(m.gitConfig, m.defaultBoardID)
 	planText := cleanStartPlanText(msg.text)
 	planErr := ""
 	if msg.err != nil {
@@ -334,11 +334,12 @@ func cleanStartPlanText(value string) string {
 	return strings.TrimSpace(b.String())
 }
 
-func configDefaultsForStart(git config.Git) config.Config {
+func configDefaultsForStart(git config.Git, boardID int) config.Config {
 	cfg := config.Defaults()
 	if strings.TrimSpace(git.BranchTemplate) != "" {
 		cfg.Git = git
 	}
+	cfg.DefaultBoardID = boardID
 	return cfg
 }
 

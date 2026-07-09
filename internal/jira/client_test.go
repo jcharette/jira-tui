@@ -16,6 +16,8 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+const testTeamFieldID = "customfield_12345"
+
 func TestSearchIssues(t *testing.T) {
 	search := &fakeSearchService{
 		response: &model.IssueSearchJQLScheme{
@@ -179,6 +181,9 @@ func TestGetBoardsParsesProjectBoards(t *testing.T) {
 	if boardService.projectKey != "ABC" {
 		t.Fatalf("projectKey = %q", boardService.projectKey)
 	}
+	if boardService.boardType != "scrum" || !boardService.includePrivate {
+		t.Fatalf("board options = type %q private %v", boardService.boardType, boardService.includePrivate)
+	}
 	if boardService.startAt != 50 || boardService.maxResults != 25 {
 		t.Fatalf("pagination = %d/%d", boardService.startAt, boardService.maxResults)
 	}
@@ -233,6 +238,26 @@ func TestGetBoardSprintsParsesIncrementalSprintPage(t *testing.T) {
 	}
 	if !sprint.StartDate.Equal(start) || !sprint.EndDate.Equal(end) {
 		t.Fatalf("sprint dates = %#v", sprint)
+	}
+}
+
+func TestSearchBoardIssuesUsesBoardIssueEndpoint(t *testing.T) {
+	boardService := &fakeAgileBoardService{
+		boardIssues: &model.BoardIssuePageScheme{
+			Issues: []*model.IssueSchemeV2{{Key: "ABC-1"}},
+		},
+	}
+	client := &Client{board: boardService}
+
+	issues, err := client.SearchBoardIssues(context.Background(), 1234, "key = ABC-1", 1)
+	if err != nil {
+		t.Fatalf("SearchBoardIssues() error = %v", err)
+	}
+	if boardService.boardIssueBoardID != 1234 || boardService.boardIssueJQL != "key = ABC-1" {
+		t.Fatalf("board issue request = board %d jql %q", boardService.boardIssueBoardID, boardService.boardIssueJQL)
+	}
+	if len(issues) != 1 || issues[0].Key != "ABC-1" {
+		t.Fatalf("issues = %#v", issues)
 	}
 }
 
@@ -454,6 +479,36 @@ func TestGetIssueViaRESTParsesTimeTracking(t *testing.T) {
 	}
 	if detail.OriginalEstimate != "2d" || detail.RemainingEstimate != "3h" {
 		t.Fatalf("estimates = %q/%q", detail.OriginalEstimate, detail.RemainingEstimate)
+	}
+}
+
+func TestGetIssueViaRESTParsesTeamField(t *testing.T) {
+	rest := &fakeRESTConnector{
+		issueResponse: issueDetailResponse{
+			IssueScheme: model.IssueScheme{
+				Key:    "ABC-123",
+				Fields: &model.IssueFieldsScheme{Summary: "Team work"},
+			},
+			RawFields: map[string]json.RawMessage{
+				testTeamFieldID: []byte(`{"id":"team-123","name":"Team Alpha","title":"Team Alpha"}`),
+			},
+		},
+	}
+	client := &Client{
+		baseURL:     "https://example.atlassian.net",
+		rest:        rest,
+		teamFieldID: testTeamFieldID,
+	}
+
+	detail, err := client.GetIssue(context.Background(), "ABC-123")
+	if err != nil {
+		t.Fatalf("GetIssue() error = %v", err)
+	}
+	if !strings.Contains(rest.endpoint, testTeamFieldID) {
+		t.Fatalf("endpoint missing team field: %q", rest.endpoint)
+	}
+	if detail.TeamID != "team-123" || detail.TeamName != "Team Alpha" {
+		t.Fatalf("Team = %q/%q", detail.TeamID, detail.TeamName)
 	}
 }
 
@@ -1579,6 +1634,32 @@ func TestCreateIssueSendsPriorityLabelsAndCustomFieldValues(t *testing.T) {
 	}
 }
 
+func TestCreateIssueSendsTeamField(t *testing.T) {
+	issue := &fakeIssueService{
+		createResponse: &model.IssueResponseScheme{ID: "10001", Key: "ABC-123"},
+	}
+	client := &Client{
+		issue: issue,
+	}
+
+	_, err := client.CreateIssue(context.Background(), CreateIssueRequest{
+		ProjectKey:  "ABC",
+		IssueTypeID: "10001",
+		Summary:     "New issue",
+		Fields: []CreateIssueFieldValue{
+			{FieldID: testTeamFieldID, SchemaType: "team", Option: FieldOption{ID: "team-123", Name: "Team Alpha"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateIssue() error = %v", err)
+	}
+
+	custom := mergedCustomFieldPayloadForTest(t, issue.createPayload, issue.createCustomFields)
+	if got := custom[testTeamFieldID]; got != "team-123" {
+		t.Fatalf("%s = %#v", testTeamFieldID, got)
+	}
+}
+
 func TestCreateIssueRejectsMissingRequiredFields(t *testing.T) {
 	client := &Client{issue: &fakeIssueService{}}
 
@@ -1947,10 +2028,8 @@ func TestUpdateComponentsWrapsUpdateError(t *testing.T) {
 }
 
 func TestUpdateEditFieldSendsCustomNumberField(t *testing.T) {
-	issue := &fakeIssueService{}
-	client := &Client{
-		issue: issue,
-	}
+	rest := &fakeRESTConnector{}
+	client := &Client{rest: rest}
 
 	err := client.UpdateEditField(context.Background(), "ABC-123", EditFieldValue{
 		FieldID:    "customfield_10016",
@@ -1961,21 +2040,37 @@ func TestUpdateEditFieldSendsCustomNumberField(t *testing.T) {
 		t.Fatalf("UpdateEditField() error = %v", err)
 	}
 
-	if issue.updateKey != "ABC-123" {
-		t.Fatalf("updateKey = %q", issue.updateKey)
+	if rest.method != http.MethodPut || rest.endpoint != "rest/api/3/issue/ABC-123" {
+		t.Fatalf("request = %s %s", rest.method, rest.endpoint)
 	}
-	fields := mergedCustomFieldPayloadForTest(t, issue.updatePayload, issue.updateCustomFields)
+	fields := rest.body.(map[string]interface{})["fields"].(map[string]interface{})
 	if got := fields["customfield_10016"]; got != float64(8) {
 		t.Fatalf("customfield_10016 = %#v", got)
 	}
-	if issue.updateOperations != nil {
-		t.Fatalf("operations = %#v", issue.updateOperations)
+}
+
+func TestUpdateEditFieldSendsTeamField(t *testing.T) {
+	rest := &fakeRESTConnector{}
+	client := &Client{rest: rest}
+
+	err := client.UpdateEditField(context.Background(), "ABC-123", EditFieldValue{
+		FieldID:    testTeamFieldID,
+		SchemaType: "team",
+		Option:     FieldOption{ID: "team-123", Name: "Team Alpha"},
+	})
+	if err != nil {
+		t.Fatalf("UpdateEditField() error = %v", err)
+	}
+
+	fields := rest.body.(map[string]interface{})["fields"].(map[string]interface{})
+	if got := fields[testTeamFieldID]; got != "team-123" {
+		t.Fatalf("%s = %#v", testTeamFieldID, got)
 	}
 }
 
 func TestUpdateEditFieldSendsStandardDueDateField(t *testing.T) {
-	issue := &fakeIssueService{}
-	client := &Client{issue: issue}
+	rest := &fakeRESTConnector{}
+	client := &Client{rest: rest}
 
 	err := client.UpdateEditField(context.Background(), "ABC-123", EditFieldValue{
 		FieldID:    "duedate",
@@ -1985,15 +2080,15 @@ func TestUpdateEditFieldSendsStandardDueDateField(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateEditField() error = %v", err)
 	}
-	fields := mergedCustomFieldPayloadForTest(t, issue.updatePayload, issue.updateCustomFields)
+	fields := rest.body.(map[string]interface{})["fields"].(map[string]interface{})
 	if got := fields["duedate"]; got != "2026-06-19" {
 		t.Fatalf("duedate = %#v", got)
 	}
 }
 
 func TestUpdateEditFieldSendsStandardVersionArrayField(t *testing.T) {
-	issue := &fakeIssueService{}
-	client := &Client{issue: issue}
+	rest := &fakeRESTConnector{}
+	client := &Client{rest: rest}
 
 	err := client.UpdateEditField(context.Background(), "ABC-123", EditFieldValue{
 		FieldID:     "fixVersions",
@@ -2007,7 +2102,7 @@ func TestUpdateEditFieldSendsStandardVersionArrayField(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateEditField() error = %v", err)
 	}
-	fields := mergedCustomFieldPayloadForTest(t, issue.updatePayload, issue.updateCustomFields)
+	fields := rest.body.(map[string]interface{})["fields"].(map[string]interface{})
 	got, ok := fields["fixVersions"].([]map[string]interface{})
 	if !ok {
 		t.Fatalf("fixVersions type = %T", fields["fixVersions"])
@@ -2750,19 +2845,26 @@ func (f *fakeSearchService) SearchJQL(_ context.Context, jql string, fields, exp
 }
 
 type fakeAgileBoardService struct {
-	boards     *model.BoardPageScheme
-	sprints    *model.BoardSprintPageScheme
-	err        error
-	projectKey string
-	boardID    int
-	states     []string
-	startAt    int
-	maxResults int
+	boards            *model.BoardPageScheme
+	boardIssues       *model.BoardIssuePageScheme
+	sprints           *model.BoardSprintPageScheme
+	err               error
+	projectKey        string
+	boardType         string
+	includePrivate    bool
+	boardIssueBoardID int
+	boardIssueJQL     string
+	boardID           int
+	states            []string
+	startAt           int
+	maxResults        int
 }
 
 func (f *fakeAgileBoardService) Gets(_ context.Context, opts *model.GetBoardsOptions, startAt, maxResults int) (*model.BoardPageScheme, *model.ResponseScheme, error) {
 	if opts != nil {
 		f.projectKey = opts.ProjectKeyOrID
+		f.boardType = opts.BoardType
+		f.includePrivate = opts.IncludePrivate
 	}
 	f.startAt = startAt
 	f.maxResults = maxResults
@@ -2770,6 +2872,17 @@ func (f *fakeAgileBoardService) Gets(_ context.Context, opts *model.GetBoardsOpt
 		return nil, nil, f.err
 	}
 	return f.boards, nil, nil
+}
+
+func (f *fakeAgileBoardService) Issues(_ context.Context, boardID int, opts *model.IssueOptionScheme, _, _ int) (*model.BoardIssuePageScheme, *model.ResponseScheme, error) {
+	f.boardIssueBoardID = boardID
+	if opts != nil {
+		f.boardIssueJQL = opts.JQL
+	}
+	if f.err != nil {
+		return nil, nil, f.err
+	}
+	return f.boardIssues, nil, nil
 }
 
 func (f *fakeAgileBoardService) Sprints(_ context.Context, boardID, startAt, maxResults int, states []string) (*model.BoardSprintPageScheme, *model.ResponseScheme, error) {
